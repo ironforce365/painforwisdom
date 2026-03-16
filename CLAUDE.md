@@ -153,7 +153,15 @@ else
 fi
 ```
 - File exists and contains Content Quality, Core Insight, Blog Post Seed → continue
-- File missing or incomplete → re-invoke extractor once, then stop if still failing
+- File missing or incomplete → re-invoke extractor once, then if still failing **execute these Bash commands** and stop:
+  ```bash
+  mkdir -p ./to_be_retried
+  cp $TRANSCRIPT_FILE ./to_be_retried/
+  ./telegram_io.sh send "❌ Stage 1 failed — $INPUT_TRANSCRIPT\nExtraction failed after retry.\nTranscript copied to to_be_retried/ for manual retry."
+  echo "$(date +%Y-%m-%dT%H:%M:%S) STAGE_1_FAILED reason=extraction_failed" >> $LOG_FILE
+  echo "$(date +%Y-%m-%dT%H:%M:%S) FAILED_FILE_QUEUED file=$INPUT_TRANSCRIPT" >> $LOG_FILE
+  echo "$(date +%Y-%m-%dT%H:%M:%S) TELEGRAM_SENT msg=stage1_failed" >> $LOG_FILE
+  ```
 
 **CRITICAL: Never write or create the extraction_report.md yourself.** If the file is missing, only re-invoke the coaching-thought-extractor agent. Writing the file directly bypasses the extraction logic and corrupts the pipeline.
 
@@ -199,7 +207,15 @@ else
 fi
 ```
 - File exists → continue to vault verification
-- File missing → stop pipeline, report failure
+- File missing → **execute these Bash commands** and stop:
+  ```bash
+  mkdir -p ./to_be_retried
+  cp $TRANSCRIPT_FILE ./to_be_retried/
+  ./telegram_io.sh send "❌ Stage 2 failed — $INPUT_TRANSCRIPT\nKB curator did not produce output.\nTranscript copied to to_be_retried/ for manual retry."
+  echo "$(date +%Y-%m-%dT%H:%M:%S) STAGE_2_FAILED reason=curator_summary_missing" >> $LOG_FILE
+  echo "$(date +%Y-%m-%dT%H:%M:%S) FAILED_FILE_QUEUED file=$INPUT_TRANSCRIPT" >> $LOG_FILE
+  echo "$(date +%Y-%m-%dT%H:%M:%S) TELEGRAM_SENT msg=stage2_failed" >> $LOG_FILE
+  ```
 
 **Verify vault side effect:**
 ```bash
@@ -211,7 +227,15 @@ ls ./obsidian-vault/gonzalo-book/entries/YYYY-MM-DD-*.md 2>/dev/null
   echo "$(date +%Y-%m-%dT%H:%M:%S) STAGE_2_COMPLETE vault_entry=$FILE_ENTRY" >> $LOG_FILE
   echo "$(date +%Y-%m-%dT%H:%M:%S) TELEGRAM_SENT msg=stage2_complete" >> $LOG_FILE
   ```
-- Entry file missing → log `STAGE_2_FAILED reason=vault_entry_missing`, stop pipeline, report failure
+- Entry file missing → **execute these Bash commands** and stop:
+  ```bash
+  mkdir -p ./to_be_retried
+  cp $TRANSCRIPT_FILE ./to_be_retried/
+  ./telegram_io.sh send "❌ Stage 2 failed — $INPUT_TRANSCRIPT\nVault entry not created.\nTranscript copied to to_be_retried/ for manual retry."
+  echo "$(date +%Y-%m-%dT%H:%M:%S) STAGE_2_FAILED reason=vault_entry_missing" >> $LOG_FILE
+  echo "$(date +%Y-%m-%dT%H:%M:%S) FAILED_FILE_QUEUED file=$INPUT_TRANSCRIPT" >> $LOG_FILE
+  echo "$(date +%Y-%m-%dT%H:%M:%S) TELEGRAM_SENT msg=stage2_failed" >> $LOG_FILE
+  ```
 
 **Note:** kb-curator may pause for theme/framework approval. When it does,
 **execute this Bash command**, substituting the actual question and theme name:
