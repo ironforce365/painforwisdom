@@ -121,7 +121,7 @@ run_file() {
     DATE=$(basename "$FILE" .txt | sed 's/transcript_//')
 
     echo "Processing: $FILE"
-    claude "Run the content pipeline on this transcript. Date: $DATE. Transcript file: $FILE. Transcript: $(cat "$FILE")"
+    claude -p "Run the content pipeline on this transcript. Date: $DATE. Transcript file: $FILE. Transcript: $(cat "$FILE")"
 }
 
 # if the original INPUT was a video file, then INPUT will refer to the transcript extracted
@@ -174,9 +174,9 @@ elif [ -d "$INPUT" ]; then
         exit 0
     fi
 
-    while IFS= read -r FILE; do
+    while IFS= read -r FILE <&3; do
         run_file "$FILE"
-    done <<< "$FILES"
+    done 3<<< "$FILES"
 
     echo ""
     echo "✓ Bulk ingestion complete."

@@ -23,7 +23,6 @@ fi
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 CHAT_ID="${TELEGRAM_CHAT_ID:-}"
 POLL_INTERVAL=5   # seconds between polls
-MAX_WAIT="${2:-3600}"
 
 if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
     echo "ERROR: TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID must be set in .env or environment" >&2
@@ -52,21 +51,12 @@ print(updates[-1]['update_id'] if updates else 0)
 }
 
 _wait_reply() {
-    local timeout="$1"
-    local start_time
-    start_time=$(date +%s)
-
     # Anchor to the current last update so we only catch NEW messages
     local last_id
     last_id=$(_get_last_update_id)
     local offset=$((last_id + 1))
 
     while true; do
-        local elapsed=$(( $(date +%s) - start_time ))
-        if [ "$elapsed" -ge "$timeout" ]; then
-            echo "TIMEOUT" >&2
-            return 1
-        fi
 
         local response
         response=$(curl -s "https://api.telegram.org/bot${BOT_TOKEN}/getUpdates?offset=${offset}&timeout=30")
@@ -98,12 +88,12 @@ case "${1:-}" in
         _send "${2:?Usage: $0 send <message>}"
         ;;
     wait_reply)
-        _wait_reply "${2:-3600}"
+        _wait_reply
         ;;
     ask)
-        # Send a question and wait for a reply — most common use case
-        _send "${2:?Usage: $0 ask <message> [timeout_seconds]}"
-        _wait_reply "${3:-3600}"
+        # Send a question and wait indefinitely for a reply
+        _send "${2:?Usage: $0 ask <message>}"
+        _wait_reply
         ;;
     *)
         echo "Usage: $0 send <message> | wait_reply [timeout] | ask <message> [timeout]" >&2

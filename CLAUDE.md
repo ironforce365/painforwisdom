@@ -18,14 +18,16 @@ Instead, use `telegram_io.sh` to send a message and wait for the reply asynchron
 This allows Gonzalo to step away from the computer and respond from his phone.
 
 ```bash
-# Send a question and wait up to 1 hour for a reply
+# Send a question and wait indefinitely for a reply (no timeout)
 REPLY=$(./telegram_io.sh ask "<your question here>")
 echo "Gonzalo replied: $REPLY"
 ```
 
 - `./telegram_io.sh send "<text>"` — fire-and-forget notification
-- `./telegram_io.sh wait_reply [timeout_seconds]` — poll until reply arrives
-- `./telegram_io.sh ask "<text>" [timeout_seconds]` — send + wait (most common)
+- `./telegram_io.sh wait_reply` — poll indefinitely until reply arrives
+- `./telegram_io.sh ask "<text>"` — send + wait indefinitely (most common)
+
+**There is no timeout. Wait as long as needed for Gonzalo's reply.**
 
 Credentials are loaded from `.env` (never commit that file).
 If the script errors (missing credentials, network issue), fall back to reporting
@@ -40,6 +42,7 @@ The following subagents are available in `.claude/agents/`:
 - `notion-research-logger` — creates Notion tasks from research reports
 - `notion-blog-post-logger` — logs the generated blog post to the Notion "Blog post pending publications" database
 - `blog-post-catchy-title` — revisits the blog post title in Notion for marketing appeal while keeping the blog's voice
+- `pipeline-summary` — final stage: reads pipeline.log, sends Telegram summary, writes summary to disk
 
 ## Notion
 Research Tasks database: https://www.notion.so/64b70c23f694412895b72a383001c0f2
@@ -61,17 +64,19 @@ echo $RUN_ID
 echo $VAULT_PATH
 ```
 
-Immediately after creating the run directory, **execute this Bash command** to notify Gonzalo the pipeline has started:
+With the RUN_ID, we create the <RUN_DIR>: `./processed/<RUN_ID>/<INPUT_TRANSCRIPT>`
+where `<INPUT_TRANSCRIPT>` is the transcript filename without the `.txt` extension.
+Create it and initialize the log file:
 ```bash
-./telegram_io.sh send "🚀 Pipeline started — $INPUT_TRANSCRIPT\nRun ID: $RUN_ID"
+mkdir -p ./processed/$RUN_ID/$INPUT_TRANSCRIPT
+LOG_FILE=./processed/$RUN_ID/$INPUT_TRANSCRIPT/pipeline.log
+echo "$(date +%Y-%m-%dT%H:%M:%S) PIPELINE_START file=$INPUT_TRANSCRIPT run_id=$RUN_ID" >> $LOG_FILE
 ```
 
-With the RUN_ID, we create the <RUN_DIR>, which basically is "./processed/<RUN_ID>/<INPUT_TRANSCRIPT>"
-being <INPUT_TRANSCRIPT> the name of the input transcript file (remember that the pipeline start with 
-that file) without the extension. Make sure that directory exist before calling subagent:
+Immediately after, **execute this Bash command** to notify Gonzalo the pipeline has started:
 ```bash
-mkdir -p ./processed/$RUN_ID>/$INPUT_TRANSCRIPT
-echo $RUN_ID
+./telegram_io.sh send "🚀 Pipeline started — $INPUT_TRANSCRIPT\nRun ID: $RUN_ID"
+echo "$(date +%Y-%m-%dT%H:%M:%S) TELEGRAM_SENT msg=pipeline_start" >> $LOG_FILE
 ```
 
 All subagents write their output under this directory. Pass the full dir path
@@ -79,21 +84,24 @@ to each subagent as part of their input. The run directory structure will be:
 ```
 ./processed/
 └── 2026-02-26_143022/
-    └─── transcript_2026-02-17/
-    	├── coaching-thought-extractor/
-	│  └── extraction_report.md
-    	├── kb-curator/
-    	│  └── curator_summary.md
-    	├── painforwisdom-writer/
-    	│  └── blog_post.md
-    	├── notion-blog-post-logger/
-    	│  └── notion_blog_summary.md
-    	├── blog-post-catchy-title/
-    	│  └── title_update_summary.md
-    	├── research-curator/
-    	│  └── research_report.csv
-    	└── notion-research-logger/
-  	    └── notion_summary.md
+    └── transcript_2026-02-17/
+        ├── pipeline.log                          ← structured event log
+        ├── coaching-thought-extractor/
+        │   └── extraction_report.md
+        ├── kb-curator/
+        │   └── curator_summary.md
+        ├── painforwisdom-writer/
+        │   └── blog_post.md
+        ├── notion-blog-post-logger/
+        │   └── notion_blog_summary.md
+        ├── blog-post-catchy-title/
+        │   └── title_update_summary.md
+        ├── research-curator/
+        │   └── research_report.csv
+        ├── notion-research-logger/
+        │   └── notion_summary.md
+        └── pipeline-summary/
+            └── pipeline_summary.md
 ```
 
 ### How to trigger
@@ -122,6 +130,8 @@ Files must follow the naming convention: transcript_YYYY-MM-DD.txt
 8. Pass explicit input to each subagent — never assume they share context
 9. **Never fall back to a general-purpose agent when a specialized agent is unavailable.** If a named agent (coaching-thought-extractor, kb-curator, research-curator, notion-research-logger, notion-blog-post-logger, blog-post-catchy-title, painforwisdom-writer) cannot be invoked, stop the pipeline immediately and report which agent failed to load. Do not substitute, approximate, or continue with any other agent type.
 10. **Telegram notifications are mandatory.** Every stage completion and every input request MUST trigger a real Bash tool call to `./telegram_io.sh`. Never skip, simulate, or defer these calls. They are not optional logging — they are the only way Gonzalo knows the pipeline is progressing while away from the computer.
+11. **Log every significant event to `$LOG_FILE`.** After every stage completion, skip, failure, Telegram send, Telegram ask, and Telegram reply, append a structured line to `$LOG_FILE` using `echo "$(date +%Y-%m-%dT%H:%M:%S) EVENT ..." >> $LOG_FILE`. This log is the only way to reconstruct what happened after the fact.
+12. **Always include `$INPUT_TRANSCRIPT` in every Telegram message**, so Gonzalo can identify which file a message refers to when processing a bulk run.
 
 ---
 
@@ -152,17 +162,22 @@ fi
 
 **Read** the Content Quality field from the file.
 
-**On success:** after verifying the file exists and reading Content Quality, **execute this Bash command** (substitute the actual quality value):
+**On success:** after verifying the file exists and reading Content Quality, **execute these Bash commands** (substitute actual quality):
 ```bash
-./telegram_io.sh send "✅ Stage 1 complete — Coaching thought extracted\nFile: $INPUT_TRANSCRIPT\nQuality: Strong"
+./telegram_io.sh send "✅ Stage 1 complete — $INPUT_TRANSCRIPT\nCoaching thought extracted\nQuality: Strong"
+echo "$(date +%Y-%m-%dT%H:%M:%S) STAGE_1_COMPLETE quality=Strong" >> $LOG_FILE
+echo "$(date +%Y-%m-%dT%H:%M:%S) TELEGRAM_SENT msg=stage1_complete" >> $LOG_FILE
 ```
 
 **Gate:**
-- Flagged → send flag summary via Telegram and wait for instructions:
+- Flagged → **execute this Bash command**, substituting the full flag reasons and unblock questions read from `extraction_report.md`:
   ```bash
-  REPLY=$(./telegram_io.sh ask "🚩 Pipeline flagged content in $INPUT_TRANSCRIPT.\n\n<paste flag summary>\n\nReply 'continue' to proceed anyway, or 'stop' to abort.")
+  REPLY=$(./telegram_io.sh ask "🚩 FLAGGED — $INPUT_TRANSCRIPT\n\nReasons:\n- <reason 1>\n- <reason 2>\n\nTo unblock:\n1. <question 1>\n2. <question 2>\n\nReply 'continue' to proceed anyway, or 'stop' to abort.")
+  echo "$(date +%Y-%m-%dT%H:%M:%S) TELEGRAM_ASK topic=flag_review file=$INPUT_TRANSCRIPT" >> $LOG_FILE
+  echo "$(date +%Y-%m-%dT%H:%M:%S) TELEGRAM_REPLY reply=$REPLY" >> $LOG_FILE
   ```
-  If reply is `stop` or timeout → abort pipeline. If reply is `continue` → proceed to Stage 2.
+  If reply is `stop` → log `STAGE_1_ABORTED reason=flagged_by_gonzalo` and abort pipeline.
+  If reply is `continue` → log `STAGE_1_FLAG_OVERRIDDEN` and proceed to Stage 2.
 - Weak or Strong → continue to Stage 2
 
 ---
@@ -193,16 +208,20 @@ fi
 ```bash
 ls ./obsidian-vault/gonzalo-book/entries/YYYY-MM-DD-*.md 2>/dev/null
 ```
-- Entry file exists → **execute this Bash command**, then continue to Stage 3:
+- Entry file exists → **execute these Bash commands**, then continue to Stage 3:
   ```bash
-  ./telegram_io.sh send "✅ Stage 2 complete — Knowledge base updated\nVault entry: $FILE_ENTRY"
+  ./telegram_io.sh send "✅ Stage 2 complete — $INPUT_TRANSCRIPT\nKnowledge base updated\nVault entry: $FILE_ENTRY"
+  echo "$(date +%Y-%m-%dT%H:%M:%S) STAGE_2_COMPLETE vault_entry=$FILE_ENTRY" >> $LOG_FILE
+  echo "$(date +%Y-%m-%dT%H:%M:%S) TELEGRAM_SENT msg=stage2_complete" >> $LOG_FILE
   ```
-- Entry file missing → stop pipeline, report failure
+- Entry file missing → log `STAGE_2_FAILED reason=vault_entry_missing`, stop pipeline, report failure
 
 **Note:** kb-curator may pause for theme/framework approval. When it does,
-send the request via Telegram and wait for the reply:
+**execute this Bash command**, substituting the actual question and theme name:
 ```bash
-REPLY=$(./telegram_io.sh ask "📚 KB Curator needs your input:\n\n<paste curator's question>\n\nReply with your answer.")
+REPLY=$(./telegram_io.sh ask "📚 KB Curator — $INPUT_TRANSCRIPT\n\n<paste curator's question>\n\nReply with your answer.")
+echo "$(date +%Y-%m-%dT%H:%M:%S) TELEGRAM_ASK topic=theme_approval file=$INPUT_TRANSCRIPT" >> $LOG_FILE
+echo "$(date +%Y-%m-%dT%H:%M:%S) TELEGRAM_REPLY reply=$REPLY" >> $LOG_FILE
 ```
 Pass Gonzalo's reply back to kb-curator as additional input, then continue.
 
@@ -229,11 +248,18 @@ else
     echo "not found"
 fi
 ```
-- File exists and contains a title and body → **execute this Bash command**, then continue:
+- File exists and contains a title and body → **execute these Bash commands**, then continue:
   ```bash
-  ./telegram_io.sh send "✅ Stage 3 complete — Blog post written\nFile: $INPUT_TRANSCRIPT/painforwisdom-writer/blog_post.md"
+  ./telegram_io.sh send "✅ Stage 3 complete — $INPUT_TRANSCRIPT\nBlog post written"
+  echo "$(date +%Y-%m-%dT%H:%M:%S) STAGE_3_COMPLETE" >> $LOG_FILE
+  echo "$(date +%Y-%m-%dT%H:%M:%S) TELEGRAM_SENT msg=stage3_complete" >> $LOG_FILE
   ```
-- File missing or empty → re-invoke writer once, then report
+- File missing or empty → log `STAGE_3_FAILED`, re-invoke writer once, then report
+
+If stage 3 is skipped (Weak quality or KB-only mode), log it:
+```bash
+echo "$(date +%Y-%m-%dT%H:%M:%S) STAGE_3_SKIPPED reason=<Weak|KB_only>" >> $LOG_FILE
+```
 
 ---
 
@@ -257,11 +283,18 @@ else
     echo "not found"
 fi
 ```
-- File exists and contains a Notion URL → **execute this Bash command**, then continue to Stage 5:
+- File exists and contains a Notion URL → **execute these Bash commands**, then continue to Stage 5:
   ```bash
-  ./telegram_io.sh send "✅ Stage 4 complete — Blog post logged to Notion"
+  ./telegram_io.sh send "✅ Stage 4 complete — $INPUT_TRANSCRIPT\nBlog post logged to Notion"
+  echo "$(date +%Y-%m-%dT%H:%M:%S) STAGE_4_COMPLETE" >> $LOG_FILE
+  echo "$(date +%Y-%m-%dT%H:%M:%S) TELEGRAM_SENT msg=stage4_complete" >> $LOG_FILE
   ```
-- File missing → log failure, continue (non-blocking)
+- File missing → log `STAGE_4_FAILED reason=file_missing`, continue (non-blocking)
+
+If stage 4 is skipped (no blog post), log it:
+```bash
+echo "$(date +%Y-%m-%dT%H:%M:%S) STAGE_4_SKIPPED reason=no_post" >> $LOG_FILE
+```
 
 ---
 
@@ -285,11 +318,18 @@ else
     echo "not found"
 fi
 ```
-- File exists → **execute this Bash command**, then continue to Stage 6:
+- File exists → **execute these Bash commands**, then continue to Stage 6:
   ```bash
-  ./telegram_io.sh send "✅ Stage 5 complete — Title candidates generated"
+  ./telegram_io.sh send "✅ Stage 5 complete — $INPUT_TRANSCRIPT\nTitle candidates generated"
+  echo "$(date +%Y-%m-%dT%H:%M:%S) STAGE_5_COMPLETE" >> $LOG_FILE
+  echo "$(date +%Y-%m-%dT%H:%M:%S) TELEGRAM_SENT msg=stage5_complete" >> $LOG_FILE
   ```
-- File missing → log failure, continue (non-blocking)
+- File missing → log `STAGE_5_FAILED reason=file_missing`, continue (non-blocking)
+
+If stage 5 is skipped (no blog post), log it:
+```bash
+echo "$(date +%Y-%m-%dT%H:%M:%S) STAGE_5_SKIPPED reason=no_post" >> $LOG_FILE
+```
 
 ---
 
@@ -311,11 +351,13 @@ else
     echo "not found"
 fi
 ```
-- File exists and has at least one data row → **execute this Bash command** (substitute actual reference count), then continue to Stage 7:
+- File exists and has at least one data row → **execute these Bash commands** (substitute actual ref count), then continue to Stage 7:
   ```bash
-  ./telegram_io.sh send "✅ Stage 6 complete — Research curated\n5 references found"
+  ./telegram_io.sh send "✅ Stage 6 complete — $INPUT_TRANSCRIPT\nResearch curated: 5 references found"
+  echo "$(date +%Y-%m-%dT%H:%M:%S) STAGE_6_COMPLETE refs=5" >> $LOG_FILE
+  echo "$(date +%Y-%m-%dT%H:%M:%S) TELEGRAM_SENT msg=stage6_complete" >> $LOG_FILE
   ```
-- File missing or empty → log as non-blocking failure, continue to Stage 7
+- File missing or empty → log `STAGE_6_FAILED reason=file_missing`, continue to Stage 7
 
 **Verify vault side effect:**
 ```bash
@@ -343,11 +385,13 @@ else
     echo "not found"
 fi
 ```
-- File exists → read task count from file, then **execute this Bash command** (substitute actual task count):
+- File exists → read task count from file, then **execute these Bash commands** (substitute actual task count):
   ```bash
-  ./telegram_io.sh send "✅ Stage 7 complete — 5 research tasks created in Notion"
+  ./telegram_io.sh send "✅ Stage 7 complete — $INPUT_TRANSCRIPT\n5 research tasks created in Notion"
+  echo "$(date +%Y-%m-%dT%H:%M:%S) STAGE_7_COMPLETE tasks=5" >> $LOG_FILE
+  echo "$(date +%Y-%m-%dT%H:%M:%S) TELEGRAM_SENT msg=stage7_complete" >> $LOG_FILE
   ```
-- File missing → log failure, continue (non-blocking)
+- File missing → log `STAGE_7_FAILED reason=file_missing`, continue (non-blocking)
 
 **Verify:** task count in file matches reference count in research_report.csv
 - Matches → continue
@@ -355,35 +399,23 @@ fi
 
 ---
 
-### Final summary
+### Stage 8 — pipeline-summary (MANDATORY — always the last step, never skip)
 
-After all stages complete:
+**Invoke with:**
+- Run directory path: `./processed/$RUN_ID/$INPUT_TRANSCRIPT`
+- `INPUT_TRANSCRIPT`: the transcript name
+- `RUN_ID`: the run identifier
+- `PROJECT_ROOT`: absolute path to the project root (use `$(pwd)`)
+
+**Agent writes to:** `./processed/$RUN_ID/$INPUT_TRANSCRIPT/pipeline-summary/pipeline_summary.md`
+
+**Verify output file:**
 ```bash
-find ./processed/$RUN_ID/$INPUT_TRANSCRIPT -type f | sort
+FILE=./processed/$RUN_ID/$INPUT_TRANSCRIPT/pipeline-summary/pipeline_summary.md
+if [ -f $FILE ]; then echo "exists"; else echo "not found"; fi
 ```
-
-Use the actual file listing to confirm what was produced, then **execute this Bash command** with the actual stage results filled in:
-```bash
-./telegram_io.sh send "🎉 Pipeline complete — $INPUT_TRANSCRIPT\n\nStage 1 — extraction:       <✓ Strong|✓ Weak|✗ failed>\nStage 2 — kb-curator:       <✓ vault entry created|✗ failed>\nStage 3 — blog writer:      <✓ written|skipped|✗ failed>\nStage 4 — notion post:      <✓ logged|skipped|✗ failed>\nStage 5 — title optimizer:  <✓ N candidates|skipped|✗ failed>\nStage 6 — research:         <✓ N refs|✗ failed>\nStage 7 — notion logger:    <✓ N tasks|✗ failed>"
-```
-
-Then report to terminal:
-```
-✓ Pipeline complete — RUN_ID: 20260226_143022
-
-Run directory: ./processed/20260226_143022/transcript_2026-02-10
-
-Stage 1 — extraction:        [✓ extraction_report.md / ✗ failed]  — [Strong/Weak/Flagged]
-Stage 2 — kb-curator:        [✓ curator_summary.md + vault entry / ✗ failed]
-Stage 3 — blog writer:       [✓ blog_post.md / skipped (Weak) / skipped (KB only)]
-Stage 4 — notion blog post:  [✓ notion_blog_summary.md / skipped (no post) / ✗ failed]
-Stage 5 — title optimizer:   [✓ title_update_summary.md (N candidates appended) / skipped (no post) / ✗ failed]
-Stage 6 — research:          [✓ research_report.csv (N refs) / ✗ failed]
-Stage 7 — notion logger:     [✓ notion_summary.md (N tasks) / ✗ failed]
-
-Vault entry: [[YYYY-MM-DD-slug]]
-Notion: N new research tasks added
-```
+- File exists → print its contents to terminal, pipeline done
+- File missing → log `STAGE_8_FAILED`, print terminal warning, pipeline done (non-blocking)
 
 ---
 
@@ -393,7 +425,7 @@ Notion: N new research tasks added
 |-------|---------|--------|
 | Any | Specialized agent not found or not registered | Stop pipeline immediately, report which agent failed to load — do NOT substitute with general-purpose |
 | 1 | Output file missing or incomplete | Re-invoke once, then stop — **never write the file yourself** |
-| 1 | Content Flagged | Send flag via Telegram, wait for reply; abort if 'stop' or timeout |
+| 1 | Content Flagged | Send full flag reasons + unblock questions via Telegram; wait indefinitely; abort only if Gonzalo replies 'stop' |
 | 2 | Output file missing | Stop pipeline, report |
 | 2 | Vault entry file missing | Stop pipeline, report |
 | 3 | Blog post file missing or empty | Re-invoke once, then report |
@@ -403,6 +435,7 @@ Notion: N new research tasks added
 | 6 | Vault research section missing | Log, continue |
 | 7 | Output file missing | Log, continue |
 | 7 | Task count mismatch | Log, continue |
+| 8 | pipeline-summary agent fails | Log STAGE_8_FAILED, print warning to terminal, pipeline still considered done |
 
 ---
 
