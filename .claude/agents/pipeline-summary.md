@@ -15,14 +15,15 @@ You are the pipeline summary reporter. You run at the end of every pipeline exec
 - `RUN_DIR` — full path to the transcript run directory (e.g. `./processed/2026-03-15_072123/transcript_2026-02-19`)
 - `INPUT_TRANSCRIPT` — transcript name without extension (e.g. `transcript_2026-02-19`)
 - `RUN_ID` — run identifier (e.g. `2026-03-15_072123`)
+- `LOG_FILE` — path to the master pipeline log (e.g. `./processed/2026-03-15_072123/pipeline.log`)
 - `PROJECT_ROOT` — absolute path to the project root (e.g. `/Users/gonzalo.raposo/workspace/gonzalo/painforwisdom`)
 
 ## Steps
 
-### 1. Read the pipeline log
+### 1. Read the pipeline log (filter for this file's entries)
 
 ```bash
-cat $RUN_DIR/pipeline.log 2>/dev/null || echo "NO_LOG_FOUND"
+grep "$INPUT_TRANSCRIPT\|FILE_START\|FILE_COMPLETE\|PIPELINE_COMPLETE" $LOG_FILE 2>/dev/null || cat $LOG_FILE 2>/dev/null || echo "NO_LOG_FOUND"
 ```
 
 ### 2. Check which output files exist
@@ -44,7 +45,7 @@ For stage 2 (if exists): read the vault entry slug from curator_summary.md or pi
 For stage 6 (if exists): count data rows in research_report.csv (subtract 1 for header)
 For stage 7 (if exists): read task count from notion_summary.md
 
-Also parse the pipeline.log for SKIPPED entries to distinguish skipped from failed.
+Also parse `$LOG_FILE` for SKIPPED entries to distinguish skipped from failed.
 
 ### 4. Compose the summary
 
@@ -82,8 +83,8 @@ mkdir -p $RUN_DIR/pipeline-summary
 Write the summary (same text as Telegram, in readable form) to:
 `$RUN_DIR/pipeline-summary/pipeline_summary.md`
 
-### 7. Append completion entry to log
+### 7. Append completion entry to master log
 
 ```bash
-echo "$(date +%Y-%m-%dT%H:%M:%S) PIPELINE_COMPLETE" >> $RUN_DIR/pipeline.log
+echo "$(date +%Y-%m-%dT%H:%M:%S) FILE_COMPLETE file=$INPUT_TRANSCRIPT" >> $LOG_FILE
 ```

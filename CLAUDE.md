@@ -54,54 +54,51 @@ Data source ID: dfd97a4e-0114-4cb8-8f75-658bb2b83b17
 
 ### Run directory
 
-At the start of every pipeline execution, before invoking any subagent, create
-a unique run directory and capture the vault path as an absolute path:
+The `RUN_ID` and `LOG_FILE` are **always provided in the input** by `run-pipeline.sh`.
+Do NOT create a new `RUN_ID`. Use exactly the values passed in.
+
+At the start of processing each transcript, capture the vault path and create
+the per-file run directory:
 ```bash
-RUN_ID=$(date +%Y-%m-%d_%H%M%S)
 VAULT_PATH=$(pwd)/obsidian-vault
-mkdir -p ./processed/$RUN_ID
-echo $RUN_ID
-echo $VAULT_PATH
-```
-
-With the RUN_ID, we create the <RUN_DIR>: `./processed/<RUN_ID>/<INPUT_TRANSCRIPT>`
-where `<INPUT_TRANSCRIPT>` is the transcript filename without the `.txt` extension.
-Create it and initialize the log file:
-```bash
 mkdir -p ./processed/$RUN_ID/$INPUT_TRANSCRIPT
-LOG_FILE=./processed/$RUN_ID/$INPUT_TRANSCRIPT/pipeline.log
-echo "$(date +%Y-%m-%dT%H:%M:%S) PIPELINE_START file=$INPUT_TRANSCRIPT run_id=$RUN_ID" >> $LOG_FILE
+echo "$(date +%Y-%m-%dT%H:%M:%S) FILE_START file=$INPUT_TRANSCRIPT" >> $LOG_FILE
 ```
 
-Immediately after, **execute this Bash command** to notify Gonzalo the pipeline has started:
+Immediately after, **execute this Bash command** to notify Gonzalo:
 ```bash
 ./telegram_io.sh send "🚀 Pipeline started — $INPUT_TRANSCRIPT\nRun ID: $RUN_ID"
-echo "$(date +%Y-%m-%dT%H:%M:%S) TELEGRAM_SENT msg=pipeline_start" >> $LOG_FILE
+echo "$(date +%Y-%m-%dT%H:%M:%S) TELEGRAM_SENT msg=pipeline_start file=$INPUT_TRANSCRIPT" >> $LOG_FILE
 ```
 
-All subagents write their output under this directory. Pass the full dir path
-to each subagent as part of their input. The run directory structure will be:
+All subagents write their output under `./processed/$RUN_ID/$INPUT_TRANSCRIPT/`.
+The `pipeline.log` lives one level up at `./processed/$RUN_ID/pipeline.log` and
+covers the entire run (all files). Pass the full paths to each subagent.
+
+Directory structure for a bulk run processing two files:
 ```
 ./processed/
-└── 2026-02-26_143022/
-    └── transcript_2026-02-17/
-        ├── pipeline.log                          ← structured event log
-        ├── coaching-thought-extractor/
-        │   └── extraction_report.md
-        ├── kb-curator/
-        │   └── curator_summary.md
-        ├── painforwisdom-writer/
-        │   └── blog_post.md
-        ├── notion-blog-post-logger/
-        │   └── notion_blog_summary.md
-        ├── blog-post-catchy-title/
-        │   └── title_update_summary.md
-        ├── research-curator/
-        │   └── research_report.csv
-        ├── notion-research-logger/
-        │   └── notion_summary.md
-        └── pipeline-summary/
-            └── pipeline_summary.md
+└── 2026-02-26_143022/              ← one per run-pipeline.sh invocation
+    ├── pipeline.log                ← master event log for all files in this run
+    ├── transcript_2026-02-17/      ← per-file output
+    │   ├── coaching-thought-extractor/
+    │   │   └── extraction_report.md
+    │   ├── kb-curator/
+    │   │   └── curator_summary.md
+    │   ├── painforwisdom-writer/
+    │   │   └── blog_post.md
+    │   ├── notion-blog-post-logger/
+    │   │   └── notion_blog_summary.md
+    │   ├── blog-post-catchy-title/
+    │   │   └── title_update_summary.md
+    │   ├── research-curator/
+    │   │   └── research_report.csv
+    │   ├── notion-research-logger/
+    │   │   └── notion_summary.md
+    │   └── pipeline-summary/
+    │       └── pipeline_summary.md
+    └── transcript_2026-02-18/      ← second file, same structure
+        └── ...
 ```
 
 ### How to trigger
@@ -405,6 +402,7 @@ fi
 - Run directory path: `./processed/$RUN_ID/$INPUT_TRANSCRIPT`
 - `INPUT_TRANSCRIPT`: the transcript name
 - `RUN_ID`: the run identifier
+- `LOG_FILE`: the master log path (e.g. `./processed/$RUN_ID/pipeline.log`)
 - `PROJECT_ROOT`: absolute path to the project root (use `$(pwd)`)
 
 **Agent writes to:** `./processed/$RUN_ID/$INPUT_TRANSCRIPT/pipeline-summary/pipeline_summary.md`
