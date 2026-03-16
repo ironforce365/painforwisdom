@@ -53,8 +53,15 @@ Read the blog_post.md content passed as input.
 - Everything after the title line is the body content.
 
 ### Step 2 — Create the Notion page
-Use the `notion-create-pages` MCP tool with:
-- `data_source_id: 3185901b-efa9-8099-baac-000b2cb04d03`
+Use the `notion-create-pages` MCP tool with the following `parent` object (this is required — omitting it creates a standalone workspace-level page, NOT a database entry):
+
+```json
+"parent": {
+  "type": "data_source_id",
+  "data_source_id": "3185901b-efa9-8099-baac-000b2cb04d03"
+}
+```
+
 - Properties: `Title`, `date:Date:start`, `date:Date:is_datetime: 0`, `Published?: __NO__`
 - `content`: the full body text of the blog post
 

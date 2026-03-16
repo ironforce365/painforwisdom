@@ -57,7 +57,15 @@ Use the `notion-fetch` MCP tool on the database URL to confirm the exact propert
 names and select option values before creating any pages.
 
 ### Step 3 — Create Notion pages using the MCP tool
-Use the `notion-create-pages` MCP tool with `data_source_id: dfd97a4e-0114-4cb8-8f75-658bb2b83b17`.
+Use the `notion-create-pages` MCP tool with the following `parent` object (this is required — omitting it creates standalone workspace-level pages, NOT database entries):
+
+```json
+"parent": {
+  "type": "data_source_id",
+  "data_source_id": "dfd97a4e-0114-4cb8-8f75-658bb2b83b17"
+}
+```
+
 You may batch all references in a single call or create them one at a time.
 
 **CRITICAL:** Never use bash, curl, Python scripts, or any HTTP client to call the
