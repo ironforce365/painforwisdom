@@ -62,7 +62,11 @@ Use the `notion-create-pages` MCP tool with the following `parent` object (this 
 }
 ```
 
-- Properties: `Title`, `date:Date:start`, `date:Date:is_datetime: 0`, `Published?: __NO__`
+- Properties:
+  - `Title`: the extracted title string
+  - `date:Date:start`: the video date in `YYYY-MM-DD` format (e.g. `"2026-02-19"`) — this is the date passed as input, NOT today's date
+  - `date:Date:is_datetime`: `0`
+  - `Published?`: `__NO__`
 - `content`: the full body text of the blog post
 
 **CRITICAL:** Never use bash, curl, Python scripts, or any HTTP client to call

@@ -232,6 +232,7 @@ Pass Gonzalo's reply back to kb-curator as additional input, then continue.
 
 **Invoke with:**
 - Blog Post Seed field read from `./processed/$RUN_ID/$INPUT_TRANSCRIPT/coaching-thought-extractor/extraction_report.md`
+- Video date (YYYY-MM-DD) — the date of the original recording, not today's date
 - Run directory path: `./processed/$RUN_ID/$INPUT_TRANSCRIPT`
 
 **Agent writes to:** `./processed/$RUN_ID/$INPUT_TRANSCRIPT/painforwisdom-writer/blog_post.md`
