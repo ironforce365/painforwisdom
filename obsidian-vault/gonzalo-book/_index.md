@@ -1,5 +1,11 @@
 # Gonzalo's Journey — Master Timeline
 
-| Date | Entry | Themes | Quality | Core Insight |
-|------|-------|--------|---------|--------------|
-| 2026-02-25 | [[2026-02-25-assumed-limits]] | [[self-imposed-limits]], [[testing-vs-assuming]] | Strong | The limit you set on Monday is a label, not a ceiling — keep showing up and let the body answer. |
+| Date       | Entry                                      | Themes                                        | Quality | Core Insight                                                                                                                    |
+| ---------- | ------------------------------------------ | --------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-02-17 | [[2026-02-17-storm-as-perfect-test]]       | [[strategic-discomfort]], [[conditions-as-training]] | Strong  | The conditions that make you want to skip are often the exact conditions you need to train in — recognizing them as "perfect" separates strategic preparation from comfort-seeking |
+| 2026-02-18 | [[2026-02-18-preparedness-debt]]           | [[preparedness-debt]], [[comfort-as-default]] | Strong  | Always choosing easy creates a preparedness debt that comes due when life demands something hard                                |
+| 2026-02-19 | [[2026-02-19-naming-the-fear]]             | [[naming-the-fear]]                           | Weak    | Naming a fear out loud is itself a micro-act of voluntary discomfort that begins eroding avoidance's grip                       |
+| 2026-02-23 | [[2026-02-23-frontloading-as-diagnostic]]  | [[body-literacy]]                             | Strong  | Frontloading hardest effort to the start of the week turns the remaining days into a diagnostic lab for reading fatigue signals |
+| 2026-02-24 | [[2026-02-24-micro-overrides-as-training]] | [[comfort-as-default]]                        | Strong  | The override muscle doesn't care about task size -- postponed emails and deferred errands are aMCC reps just like storm runs    |
+| 2026-03-02 | [[2026-03-02-inverting-the-optimization]]  | [[deliberate-discomfort]]                     | Strong  | Growth hides inside the conditions most people optimize away -- inverting the optimization function turns routine effort into strategic growth |
+| 2026-03-13 | [[2026-03-13-showing-up-beats-performing]] | [[deliberate-discomfort]]                     | Strong  | Real mental toughness is choosing to stay in the hard environment and adjusting effort without quitting -- showing up matters more than performing |

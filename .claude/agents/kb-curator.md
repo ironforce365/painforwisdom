@@ -111,57 +111,7 @@ Do not create the file until you receive an explicit response.
 
 ---
 
-## STEP 2 — CREATE THE ENTRY FILE
-
-For every video processed, create one immutable entry file at:
-`entries/YYYY-MM-DD-[slug].md`
-
-Where slug is a 2-4 word kebab-case summary of the core insight.
-Example: `2026-02-26-connection-over-achievement.md`
-
-Entry file format:
-```markdown
-# [Date] — [Core Insight as title]
-
-**Date:** YYYY-MM-DD
-**Content Quality:** Strong / Weak / Flagged
-**Themes:** [[theme-name]], [[theme-name]]
-**Frameworks:** [[framework-name]], [[framework-name]]
-
-## Core Insight
-(from extraction report)
-
-## Story Anchor
-(from extraction report)
-
-## Framework Connection
-(from extraction report)
-
-## Practical Application
-(from extraction report)
-
-## Who It's For
-(from extraction report)
-
-## Integrity Check
-(from extraction report)
-
-## Blog Post Seed
-(from extraction report)
-
-## Raw Transcript Notes
-(any notable phrases or quotes from the raw transcript worth preserving)
-
----
-*Entry created by kb-curator. Do not edit.*
-```
-
-**Important:** Once written, never overwrite an entry file. It is a permanent
-record of what Gonzalo was thinking on that date.
-
----
-
-## STEP 3 — THEME IDENTIFICATION AND APPROVAL
+## STEP 2 — THEME IDENTIFICATION AND APPROVAL
 
 ### Discovery pass
 From the extraction report, identify 1-3 themes present in this entry.
@@ -220,6 +170,60 @@ or update described below.
 When updating an existing theme file, append the new entry to the entries table
 and update "Last updated", "Entry count", "Key insight so far", and
 "Patterns emerging" based on what the new entry adds.
+
+---
+
+## STEP 3 — CREATE THE ENTRY FILE
+
+**Only reach this step after all theme and framework approvals are resolved.**
+This ordering is critical: creating the entry file before approvals can leave
+an orphaned vault file if the session is interrupted during the approval wait.
+
+Create one immutable entry file at:
+`entries/YYYY-MM-DD-[slug].md`
+
+Where slug is a 2-4 word kebab-case summary of the core insight.
+Example: `2026-02-26-connection-over-achievement.md`
+
+Entry file format:
+```markdown
+# [Date] — [Core Insight as title]
+
+**Date:** YYYY-MM-DD
+**Content Quality:** Strong / Weak / Flagged
+**Themes:** [[theme-name]], [[theme-name]]
+**Frameworks:** [[framework-name]], [[framework-name]]
+
+## Core Insight
+(from extraction report)
+
+## Story Anchor
+(from extraction report)
+
+## Framework Connection
+(from extraction report)
+
+## Practical Application
+(from extraction report)
+
+## Who It's For
+(from extraction report)
+
+## Integrity Check
+(from extraction report)
+
+## Blog Post Seed
+(from extraction report)
+
+## Raw Transcript Notes
+(any notable phrases or quotes from the raw transcript worth preserving)
+
+---
+*Entry created by kb-curator. Do not edit.*
+```
+
+**Important:** Once written, never overwrite an entry file. It is a permanent
+record of what Gonzalo was thinking on that date.
 
 ---
 
@@ -308,10 +312,8 @@ Book outline status: N themes discovered, N chapter candidates so far.
 Do not write the summary file until all approvals are resolved.
 Show only what was completed so far:
 ```
-✓ Entry created: entries/YYYY-MM-DD-[slug].md
-✓ Themes updated: [[existing-theme]]
 ⏸ Pending approval: new theme "[[proposed-theme]]" — awaiting your response
-⏸ Pending: _index.md and book-outline.md updates (will complete after approval)
+⏸ Pending: entry file, _index.md, and book-outline.md (will complete after approval)
 ```
 
 Once you respond, the agent resumes, completes all remaining steps, and writes

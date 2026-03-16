@@ -4,7 +4,7 @@
 **Last updated:** (date)
 
 ## Definition
-Standards Over Comfort — a 60-night signal repair protocol designed to rebuild foundational habits and physiological baselines by committing to non-negotiable nightly standards regardless of how difficult or inconvenient they feel. The protocol treats comfort-seeking as noise and standard-holding as the signal.
+Standards Over Comfort — the 60-night signal repair protocol. A structured commitment to rebuilding foundational habits by holding to non-negotiable standards for a defined period, prioritizing signal quality (sleep, recovery, discipline) over short-term comfort.
 
 ## Entries referencing this
 (links added automatically as entries come in)

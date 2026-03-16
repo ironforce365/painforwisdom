@@ -1,13 +1,15 @@
 # Strategic vs. Manufactured Suffering
 
-**First appeared:** (date of first entry referencing this)
-**Last updated:** (date)
+**First appeared:** 2026-02-17
+**Last updated:** 2026-02-23
 
 ## Definition
-The distinction between two types of chosen difficulty. Strategic suffering is purpose-driven hardship — deliberately imposed load that builds a specific capacity, tests a specific hypothesis, or prepares for a specific outcome. Manufactured suffering is identity-protective difficulty — hardship chosen to confirm a self-image, avoid vulnerability, or perform toughness to an internal or external audience. Both feel hard. Only one of them is building something.
+A critical distinction between two types of chosen difficulty: strategic suffering is purpose-driven discomfort that simulates real conditions you will face (training in rain because race day might be rainy), while manufactured suffering is identity-protective difficulty chosen to prove toughness or feed a narrative about yourself. The former builds genuine capacity; the latter feeds ego.
 
 ## Entries referencing this
-(links added automatically as entries come in)
+- [[2026-02-17-storm-as-perfect-test]] — choosing the storm because it simulates race day, not to prove toughness
+- [[2026-02-23-frontloading-as-diagnostic]] — frontloading as a structured diagnostic experiment, not random suffering; the purpose is learning to read signals, not performing hardness
 
 ## Evolution
-(how Gonzalo's understanding of this has changed over time)
+- 2026-02-17: First referenced as the distinction between choosing a storm for race simulation (strategic) versus for identity performance (manufactured).
+- 2026-02-23: Extended from conditions-based strategy to schedule-based strategy. Frontloading the week's hardest session is strategic because it serves a diagnostic purpose (learning to read fatigue signals), not an identity purpose. This adds a new dimension: strategic suffering is not only about simulating conditions but about designing experiments that generate self-knowledge.
