@@ -1,8 +1,8 @@
 # 2026-02-19 — Naming the Fear Out Loud
 
 **Date:** 2026-02-19
-**Content Quality:** Weak
-**Themes:** [[naming-the-fear]]
+**Content Quality:** Strong
+**Themes:** [[naming-the-fear]], [[deliberate-discomfort]]
 **Frameworks:** [[amcc-effect]], [[friction-types]]
 
 ## Core Insight

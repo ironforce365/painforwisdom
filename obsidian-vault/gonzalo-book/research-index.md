@@ -44,3 +44,15 @@ All verified references organized by topic. Auto-maintained by research-curator.
 | Solving the Procrastination Puzzle -- Ch. 6 "The Power of Getting Started" | Book | Procrastination as avoidance and override target | [[2026-02-24-micro-overrides-as-training]] | Yes |
 | Procrastination and the Priority of Short-Term Mood Regulation (Sirois & Pychyl, 2013) | Paper | Procrastination as avoidance and override target | [[2026-02-24-micro-overrides-as-training]] | Yes |
 | Identifying the Neural Substrates of Procrastination (Zhang et al., 2016) | Paper | Procrastination as avoidance and override target | [[2026-02-24-micro-overrides-as-training]] | Yes |
+| Turning the knots in your stomach into bows (Jamieson et al., 2010) | Paper | Cognitive reappraisal: threat-to-challenge reframing | [[2026-02-17-storm-as-perfect-test]] | Yes |
+| Rethinking Stress (Crum, Salovey, Achor, 2013) | Paper | Cognitive reappraisal: threat-to-challenge reframing | [[2026-02-17-storm-as-perfect-test]] | Yes |
+| The Upside of Stress -- Ch. 4 "Engage: How Anxiety Helps You Rise to the Challenge" | Book | Cognitive reappraisal: threat-to-challenge reframing | [[2026-02-17-storm-as-perfect-test]] | Yes |
+| Huberman Lab #56 -- "Dr. Alia Crum: Science of Mindsets for Health & Performance" (Jan 2022) | Podcast | Cognitive reappraisal: threat-to-challenge reframing | [[2026-02-17-storm-as-perfect-test]] | Yes |
+| A Theory of Challenge and Threat States in Athletes: Revised (Meijen et al., 2020) | Paper | Cognitive reappraisal: threat-to-challenge reframing | [[2026-02-17-storm-as-perfect-test]] | Yes |
+| Stress Inoculation Training (Meichenbaum, 1985) | Book | Stress inoculation and deliberate exposure | [[2026-02-17-storm-as-perfect-test]] | Yes |
+| Do Hard Things -- Ch. 6 "Your Emotions Are Messengers, Not Dictators" | Book | Stress inoculation and deliberate exposure | [[2026-02-17-storm-as-perfect-test]] | Yes |
+| Enhancing Performance Under Stress: SIT for Battlefield Airmen (Robson & Manacapilli, RAND, 2014) | Report | Stress inoculation and deliberate exposure | [[2026-02-17-storm-as-perfect-test]] | Yes |
+| Rich Roll Podcast #897 -- "Good Stress: Jeff Krasno" (Mar 2025) | Podcast | Stress inoculation and deliberate exposure | [[2026-02-17-storm-as-perfect-test]] | Yes |
+| The Comfort Crisis -- Ch. 6 "50/50" (Misogi) | Book | Training specificity and environmental simulation | [[2026-02-17-storm-as-perfect-test]] | Yes |
+| Endure -- Ch. 8 "Heat" / Ch. 11 "Training the Brain" | Book | Training specificity and environmental simulation | [[2026-02-17-storm-as-perfect-test]] | Yes |
+| Spring Forward: Applying the Principle of Specificity (Ultra Running Magazine) | Article | Training specificity and environmental simulation | [[2026-02-17-storm-as-perfect-test]] | Yes |

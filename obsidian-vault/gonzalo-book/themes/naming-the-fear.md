@@ -1,14 +1,14 @@
 # Naming the Fear
 
 **First appeared:** 2026-02-19
-**Last updated:** 2026-02-19
+**Last updated:** 2026-03-16
 **Entry count:** 1
 
 ## Core tension
 Can speaking a fear be a genuine act of courage, or is it just stalling? What is the relationship between naming what you avoid and eventually doing the thing you avoid?
 
 ## Key insight so far
-Avoidance depends on silence and vagueness to survive. Naming a specific fear out loud -- not vaguely "I'm scared" but precisely "I cannot run trails at night because of darkness and wildlife" -- is itself a micro-act of voluntary discomfort that begins eroding the fear's hold. This is the lowest-friction entry point to growth: you do not need gear, a plan, or perfect conditions. You just need honesty about what you are avoiding.
+Courage does not begin with action -- it begins with admission. Avoidance depends on silence and vagueness to survive. Naming a specific fear out loud -- not vaguely "I'm scared" but precisely "I cannot run trails at night because of darkness and wildlife" -- is itself a micro-rep of voluntary discomfort that activates the same aMCC override mechanism as physical acts. The specificity matters because it strips the fear of its abstraction and gives you something concrete to desensitize toward. This is the lowest-friction entry point to growth: you do not need gear, a plan, or perfect conditions. You just need honesty about what you are avoiding. Each time you name it instead of deflecting, you are doing a micro-rep of override through speech instead of action.
 
 ## Entries
 | Date | Entry | Core Insight |
