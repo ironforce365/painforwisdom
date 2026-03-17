@@ -62,7 +62,6 @@ the per-file run directory:
 ```bash
 VAULT_PATH=$(pwd)/obsidian-vault
 mkdir -p ./processed/$RUN_ID/$INPUT_TRANSCRIPT
-echo "$(date +%Y-%m-%dT%H:%M:%S) FILE_START file=$INPUT_TRANSCRIPT" >> $LOG_FILE
 ```
 
 Immediately after, **execute this Bash command** to notify Gonzalo:
