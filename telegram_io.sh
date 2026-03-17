@@ -31,13 +31,15 @@ fi
 
 _send() {
     # Interpret \n as real newlines so multi-line messages render correctly
-    local text
+    local text response ok
     text=$(printf '%b' "$1")
-    curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+    response=$(curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
         --data-urlencode "chat_id=${CHAT_ID}" \
-        --data-urlencode "text=${text}" \
-        --data-urlencode "parse_mode=Markdown" \
-        > /dev/null
+        --data-urlencode "text=${text}")
+    ok=$(echo "$response" | python3 -c "import sys,json; print(json.load(sys.stdin).get('ok','false'))" 2>/dev/null)
+    if [ "$ok" != "True" ]; then
+        echo "WARNING: Telegram send failed: $response" >&2
+    fi
 }
 
 _get_last_update_id() {
