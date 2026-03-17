@@ -6,17 +6,17 @@ description: >
   If no filename is given, lists all pending files and processes them all.
 ---
 
-Retry one or all transcripts sitting in `to_be_retried/`.
+Retry one or all files sitting in `to_be_retried/`. Supports transcripts (`.txt`) and videos (`.mp4`, `.mov`, `.m4v`).
 
 ## Steps
 
 ### 1 — Identify files to process
 
 If a filename argument was provided (e.g. `/retry-failed transcript_2026-02-17.txt`),
-use that single file. Otherwise list all `.txt` files in `to_be_retried/`:
+use that single file. Otherwise list all supported files in `to_be_retried/`:
 
 ```bash
-ls ./to_be_retried/*.txt 2>/dev/null || echo "EMPTY"
+ls ./to_be_retried/*.txt ./to_be_retried/*.mp4 ./to_be_retried/*.mov ./to_be_retried/*.m4v 2>/dev/null || echo "EMPTY"
 ```
 
 If the folder is empty, report "No files pending retry." and stop.
