@@ -1,4 +1,11 @@
 bulk-ingestion-up-to-feb-27/
 processed/
 .DS_Store*
+.env
+
+# Input files — never commit transcripts or videos
+to_be_retried/*.txt
+to_be_retried/*.mp4
+to_be_retried/*.mov
+to_be_retried/*.m4v
 

@@ -80,7 +80,8 @@ Extract the following before writing a single word:
 ## STRUCTURE RULES
 
 1. **Date stamp**: Open with an italicized date — *MM/DD/YY.* — on the first line.
-   Use today's date unless a different date is specified.
+   Always use the video date passed as input (convert YYYY-MM-DD → MM/DD/YY format).
+   Never use today's date.
 
 2. **Opening scene**: Drop the reader immediately into a concrete, vivid moment.
    A specific run. A meeting. Holding a newborn at 6am. No preambles.

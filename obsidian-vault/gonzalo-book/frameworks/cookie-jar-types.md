@@ -4,7 +4,7 @@
 **Last updated:** (date)
 
 ## Definition
-The distinction between Achievement Cookies and Connection Cookies. Achievement cookies are wins drawn from performance, output, and external validation — things you accomplished. Connection cookies are wins drawn from belonging, being seen, and relational moments — things you shared. The jar you reach into most tells you what you are currently optimizing for, and which hunger is running the show.
+A distinction between two types of mental "cookies" you can draw on for motivation: achievement cookies (accomplishments, race finishes, PRs) and connection cookies (moments of deep human connection, vulnerability, love). Both serve as fuel but activate different parts of resilience.
 
 ## Entries referencing this
 (links added automatically as entries come in)

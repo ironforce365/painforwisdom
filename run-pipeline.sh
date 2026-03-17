@@ -56,6 +56,15 @@ if [ -z "${INPUT:-}" ]; then
     exit 1
 fi
 
+# Create one master run directory for this entire invocation.
+# All files processed in this run share the same RUN_ID and pipeline.log.
+RUN_ID=$(date +%Y-%m-%d_%H%M%S)
+RUN_BASE="./processed/$RUN_ID"
+LOG_FILE="$RUN_BASE/pipeline.log"
+mkdir -p "$RUN_BASE"
+echo "$(date +%Y-%m-%dT%H:%M:%S) PIPELINE_START run_id=$RUN_ID input=$INPUT" >> "$LOG_FILE"
+echo "Run ID: $RUN_ID"
+
 is_video() {
     echo "${1##*.}" | grep -qiE "^(mp4|mov|m4v|avi|mkv)$"
 }
@@ -87,6 +96,16 @@ confirm_bulk() {
     [ "$CONFIRM" = "yes" ]
 }
 
+run_file() {
+    local FILE="$1"
+    local DATE
+    DATE=$(basename "$FILE" .txt | sed 's/transcript_//')
+
+    echo "Processing: $FILE"
+    echo "$(date +%Y-%m-%dT%H:%M:%S) FILE_START file=$(basename "$FILE" .txt)" >> "$LOG_FILE"
+    claude -p "Run the content pipeline on this transcript. RUN_ID: $RUN_ID. LOG_FILE: $LOG_FILE. Date: $DATE. Transcript file: $FILE. Transcript: $(cat "$FILE")"
+}
+
 # Video detection and transcript extraction
 if [ -f "$INPUT" ] && is_video "$INPUT"; then
     DATE=$(extract_date_from_filename "$INPUT")
@@ -96,7 +115,13 @@ if [ -f "$INPUT" ] && is_video "$INPUT"; then
     fi
 
     echo "Video detected. Extracting transcript (date: $DATE)..."
-    claude -p "/extract-transcription \"$INPUT\" English $DATE"
+    if ! claude -p "/extract-transcription \"$INPUT\" English $DATE"; then
+        TRANSCRIPT="$(dirname "$INPUT")/auto-generated/transcript_${DATE}.txt"
+        if [ ! -f "$TRANSCRIPT" ]; then
+            echo "✗ Extraction failed or file quarantined (low confidence). Check Telegram for details."
+            exit 2
+        fi
+    fi
 
     TRANSCRIPT="$(dirname "$INPUT")/auto-generated/transcript_${DATE}.txt"
 
@@ -108,15 +133,6 @@ if [ -f "$INPUT" ] && is_video "$INPUT"; then
     INPUT="$TRANSCRIPT"
     echo "✓ Transcript extracted: $INPUT"
 fi
-
-run_file() {
-    local FILE="$1"
-    local DATE
-    DATE=$(basename "$FILE" .txt | sed 's/transcript_//')
-
-    echo "Processing: $FILE"
-    claude "Run the content pipeline on this transcript. Date: $DATE. Transcript file: $FILE. Transcript: $(cat "$FILE")"
-}
 
 # if the original INPUT was a video file, then INPUT will refer to the transcript extracted
 if [ -f "$INPUT" ]; then
@@ -137,7 +153,10 @@ elif [ -d "$INPUT" ]; then
                 echo "✓ Transcript already exists for $DATE — skipping extraction"
             else
                 echo "Video found: $(basename "$f") — extracting transcript (date: $DATE)..."
-                claude -p "/extract-transcription \"$f\" English $DATE"
+                if ! claude -p "/extract-transcription \"$f\" English $DATE"; then
+                    echo "✗ Extraction failed or quarantined for: $(basename "$f") — check Telegram for details, skipping"
+                    continue
+                fi
                 if [ ! -f "$TRANSCRIPT" ]; then
                     echo "✗ Transcript not found after extraction. Expected: $TRANSCRIPT — skipping"
                 else
@@ -165,9 +184,9 @@ elif [ -d "$INPUT" ]; then
         exit 0
     fi
 
-    while IFS= read -r FILE; do
+    while IFS= read -r FILE <&3; do
         run_file "$FILE"
-    done <<< "$FILES"
+    done 3<<< "$FILES"
 
     echo ""
     echo "✓ Bulk ingestion complete."
@@ -176,3 +195,5 @@ else
     echo "✗ Input is not a valid file or directory: $INPUT"
     exit 1
 fi
+
+echo "$(date +%Y-%m-%dT%H:%M:%S) BULK_COMPLETE run_id=$RUN_ID" >> "$LOG_FILE"
