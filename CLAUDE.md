@@ -5,6 +5,8 @@ This project automates the creation of blog posts for painforwisdom.wordpress.co
 from raw video transcripts recorded during runs, and builds a structured Obsidian
 knowledge base that will serve as the foundation for Gonzalo's book.
 
+@MEMORY.md
+
 ## Architecture
 The main Claude Code session acts as the orchestrator. Subagents never call each
 other. Claude Code invokes each subagent sequentially, collects its output,
