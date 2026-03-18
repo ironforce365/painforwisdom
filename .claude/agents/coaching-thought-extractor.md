@@ -169,8 +169,8 @@ cat > {RUN_DIR}/coaching-thought-extractor/extraction_report.md << 'EOF'
 
 **Content Quality:** [Strong / Weak / Flagged]
 
-**If flagged, reason:**
-(only if applicable — explain what pattern or issue you detected)
+**If weak or flagged, reason:**
+(explain specifically why — which quality criteria the content failed to meet, and what would make it stronger)
 
 ---
 

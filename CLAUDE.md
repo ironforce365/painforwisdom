@@ -279,11 +279,11 @@ fi
   ```
 - File missing or empty → log `STAGE_3_FAILED`, re-invoke writer once, then report
 
-If stage 3 is skipped due to **Weak quality**, **execute these Bash commands** (substitute the actual transcript file path passed as input):
+If stage 3 is skipped due to **Weak quality**, read the `**If weak or flagged, reason:**` field from `extraction_report.md`, then **execute these Bash commands** (substitute the actual transcript file path and weak reason):
 ```bash
 mkdir -p ./to_be_retried
 cp $TRANSCRIPT_FILE ./to_be_retried/
-./telegram_io.sh send "⚠️ Weak content — $INPUT_TRANSCRIPT\nNo blog post generated.\nTranscript copied to to_be_retried/ for your review."
+./telegram_io.sh send "⚠️ Weak content — $INPUT_TRANSCRIPT\nNo blog post generated.\nReason: <weak reason from extraction_report.md>\nTranscript copied to to_be_retried/ for your review."
 echo "$(date +%Y-%m-%dT%H:%M:%S) STAGE_3_SKIPPED reason=Weak" >> $LOG_FILE
 echo "$(date +%Y-%m-%dT%H:%M:%S) WEAK_FILE_QUEUED file=$INPUT_TRANSCRIPT" >> $LOG_FILE
 echo "$(date +%Y-%m-%dT%H:%M:%S) TELEGRAM_SENT msg=weak_content" >> $LOG_FILE
