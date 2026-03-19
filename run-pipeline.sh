@@ -118,7 +118,9 @@ if [ -f "$INPUT" ] && is_video "$INPUT"; then
     if ! claude -p "/extract-transcription \"$INPUT\" English $DATE"; then
         TRANSCRIPT="$(dirname "$INPUT")/auto-generated/transcript_${DATE}.txt"
         if [ ! -f "$TRANSCRIPT" ]; then
-            echo "✗ Extraction failed or file quarantined (low confidence). Check Telegram for details."
+            echo "✗ Extraction failed for: $(basename "$INPUT")"
+            echo "$(date +%Y-%m-%dT%H:%M:%S) EXTRACTION_FAILED file=$(basename "$INPUT")" >> "$LOG_FILE"
+            ./telegram_io.sh send "❌ Extraction failed — $(basename "$INPUT")\nRun ID: $RUN_ID\nCheck terminal output for details (auth error, missing tool, etc.)" || true
             exit 2
         fi
     fi
@@ -154,7 +156,9 @@ elif [ -d "$INPUT" ]; then
             else
                 echo "Video found: $(basename "$f") — extracting transcript (date: $DATE)..."
                 if ! claude -p "/extract-transcription \"$f\" English $DATE"; then
-                    echo "✗ Extraction failed or quarantined for: $(basename "$f") — check Telegram for details, skipping"
+                    echo "✗ Extraction failed for: $(basename "$f") — skipping"
+                    echo "$(date +%Y-%m-%dT%H:%M:%S) EXTRACTION_FAILED file=$(basename "$f")" >> "$LOG_FILE"
+                    ./telegram_io.sh send "❌ Extraction failed — $(basename "$f")\nRun ID: $RUN_ID\nCheck terminal output for details (auth error, missing tool, etc.)" || true
                     continue
                 fi
                 if [ ! -f "$TRANSCRIPT" ]; then
