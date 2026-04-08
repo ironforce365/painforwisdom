@@ -65,7 +65,7 @@ TEMP_AUDIO_FILE_PATH="$TMP_DIR/audio_for_transcription.mp3"
 ffmpeg -y -i "$INPUT_FILE" -vn -ac 1 -ar 16000 -b:a 32k "$TEMP_AUDIO_FILE_PATH" >/dev/null 2>&1
 
 OPENAI_WHISPER_HELPER="/home/gonzalo/.npm-global/lib/node_modules/openclaw/skills/openai-whisper-api/scripts/transcribe.sh"
-CONDA_WHISPER="/opt/miniconda3/envs/painforwisdom/bin/whisper"
+CONDA_WHISPER="${HOME}/miniconda3/envs/painforwisdom/bin/whisper"
 
 # ---------------------------------------------------------------------------
 # Confidence analysis — runs after local Whisper produces JSON output

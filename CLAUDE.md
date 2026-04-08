@@ -222,7 +222,35 @@ fi
 ```bash
 ls ./obsidian-vault/gonzalo-book/entries/YYYY-MM-DD-*.md 2>/dev/null
 ```
-- Entry file exists → **execute these Bash commands**, then continue to Stage 3:
+- Entry file exists → **detect new themes/frameworks, then execute these Bash commands**:
+
+  **New theme/framework detection:** Before sending the Stage 2 complete notification,
+  check if kb-curator created any new theme or framework files by comparing against
+  the known lists. Execute:
+  ```bash
+  KNOWN_THEMES="deliberate-discomfort body-literacy comfort-as-default naming-the-fear preparedness-debt"
+  KNOWN_FRAMEWORKS="strategic-vs-manufactured-suffering amcc-effect cookie-jar-types friction-types phase-1-protocol the-genius-wound the-three-modes"
+
+  for f in ./obsidian-vault/gonzalo-book/themes/*.md; do
+    SLUG=$(basename "$f" .md)
+    if ! echo "$KNOWN_THEMES" | grep -qw "$SLUG"; then
+      ./telegram_io.sh send "🆕 New theme detected — $INPUT_TRANSCRIPT\nTheme: $SLUG\nA new AnythingLLM agent is needed. See anythingllm-setup.md for instructions."
+      echo "$(date +%Y-%m-%dT%H:%M:%S) NEW_THEME_DETECTED theme=$SLUG" >> $LOG_FILE
+      echo "$(date +%Y-%m-%dT%H:%M:%S) TELEGRAM_SENT msg=new_theme_alert" >> $LOG_FILE
+    fi
+  done
+
+  for f in ./obsidian-vault/gonzalo-book/frameworks/*.md; do
+    SLUG=$(basename "$f" .md)
+    if ! echo "$KNOWN_FRAMEWORKS" | grep -qw "$SLUG"; then
+      ./telegram_io.sh send "🆕 New framework detected — $INPUT_TRANSCRIPT\nFramework: $SLUG\nA new AnythingLLM agent is needed. See anythingllm-setup.md for instructions."
+      echo "$(date +%Y-%m-%dT%H:%M:%S) NEW_FRAMEWORK_DETECTED framework=$SLUG" >> $LOG_FILE
+      echo "$(date +%Y-%m-%dT%H:%M:%S) TELEGRAM_SENT msg=new_framework_alert" >> $LOG_FILE
+    fi
+  done
+  ```
+
+  Then **execute these Bash commands** to complete Stage 2:
   ```bash
   ./telegram_io.sh send "✅ Stage 2 complete — $INPUT_TRANSCRIPT\nKnowledge base updated\nVault entry: $FILE_ENTRY"
   echo "$(date +%Y-%m-%dT%H:%M:%S) STAGE_2_COMPLETE vault_entry=$FILE_ENTRY" >> $LOG_FILE
@@ -238,14 +266,24 @@ ls ./obsidian-vault/gonzalo-book/entries/YYYY-MM-DD-*.md 2>/dev/null
   echo "$(date +%Y-%m-%dT%H:%M:%S) TELEGRAM_SENT msg=stage2_failed" >> $LOG_FILE
   ```
 
-**Note:** kb-curator may pause for theme/framework approval. When it does,
-**execute this Bash command**, substituting the actual question and theme name:
-```bash
-REPLY=$(./telegram_io.sh ask "📚 KB Curator — $INPUT_TRANSCRIPT\n\n<paste curator's question>\n\nReply with your answer.")
-echo "$(date +%Y-%m-%dT%H:%M:%S) TELEGRAM_ASK topic=theme_approval file=$INPUT_TRANSCRIPT" >> $LOG_FILE
-echo "$(date +%Y-%m-%dT%H:%M:%S) TELEGRAM_REPLY reply=$REPLY" >> $LOG_FILE
-```
-Pass Gonzalo's reply back to kb-curator as additional input, then continue.
+**MANDATORY approval check:** After every kb-curator invocation, before proceeding,
+scan the agent's output for the string `⚠️ NEW THEME DETECTED` or
+`⚠️ NEW FRAMEWORK DETECTED`. If either is present:
+
+1. The agent has written nothing to disk — no entry, no theme file, no summary.
+2. **Execute this Bash command** (substitute the full approval block from the agent's output):
+   ```bash
+   REPLY=$(./telegram_io.sh ask "📚 KB Curator — $INPUT_TRANSCRIPT\n\n⚠️ NEW THEME/FRAMEWORK DETECTED — your approval is required before anything is written to the vault.\n\n<paste the full proposed theme/framework block>\n\nReply 'yes', 'no', or a suggested name.")
+   echo "$(date +%Y-%m-%dT%H:%M:%S) TELEGRAM_ASK topic=theme_approval file=$INPUT_TRANSCRIPT" >> $LOG_FILE
+   echo "$(date +%Y-%m-%dT%H:%M:%S) TELEGRAM_REPLY reply=$REPLY" >> $LOG_FILE
+   ```
+3. Re-invoke kb-curator with the original input PLUS Gonzalo's reply appended.
+4. Repeat this check after every re-invocation until the output contains no more
+   `⚠️ NEW THEME DETECTED` or `⚠️ NEW FRAMEWORK DETECTED` strings.
+
+**Never proceed to vault verification or Stage 3 while a pending approval exists.**
+The curator_summary.md will not exist until all approvals are resolved — use its
+absence as a signal that approvals are still pending.
 
 ---
 
@@ -405,6 +443,7 @@ grep -l "## Research" ./obsidian-vault/gonzalo-book/entries/YYYY-MM-DD-*.md
 
 **Invoke with:**
 - Full contents of `./processed/$RUN_ID/$INPUT_TRANSCRIPT/research-curator/research_report.csv`
+- Full contents of the vault entry file (`$FILE_ENTRY`) — this is the Obsidian entry created by kb-curator in Stage 2. It contains Core Insight, Story Anchor, Framework Connection, Practical Application, and Who It's For — all needed to generate rich body content in Notion
 - Run directory path: `./processed/$RUN_ID/$INPUT_TRANSCRIPT`
 
 **Agent writes to:** `./processed/$RUN_ID/$INPUT_TRANSCRIPT/notion-research-logger/notion_summary.md`

@@ -42,9 +42,11 @@ Required environment variables:
 
 ```bash
 ./run-pipeline.sh path/to/transcript_YYYY-MM-DD.txt
+# To run with gemini:
+./run-pipeline.sh --llm gemini path/to/transcript_YYYY-MM-DD.txt
 ```
 
-Or trigger via Claude Code:
+Or trigger via Gemini CLI or Claude Code:
 ```
 run the content pipeline on this transcript [paste transcript]
 ```
@@ -139,14 +141,14 @@ All pipeline events are sent to Telegram. The pipeline pauses and waits for a re
 
 ```
 painforwisdom/
-├── .claude/
-│   ├── agents/          # Specialized subagents (one per stage)
-│   └── skills/          # Slash command skills (/retry-failed, /extract-transcription)
+├── .claude/             # Claude-specific agents and skills
+├── .gemini/             # Gemini-specific agents and skills
 ├── obsidian-vault/      # Git submodule → gonandrap/painforwisdom-kb (draft branch)
 ├── processed/           # Pipeline run outputs (gitignored)
 ├── to_be_retried/       # Failed/weak transcripts queued for retry (gitignored)
-├── CLAUDE.md            # Full pipeline orchestration spec
-├── run-pipeline.sh      # Entry point for automated/bulk runs
+├── CLAUDE.md            # Full pipeline orchestration spec (Claude)
+├── GEMINI.md            # Full pipeline orchestration spec (Gemini)
+├── run-pipeline.sh      # Entry point for automated/bulk runs (supports --llm)
 ├── extract_transcription.sh  # Whisper-based transcription extraction
 └── telegram_io.sh       # Telegram send/receive helpers
 ```
