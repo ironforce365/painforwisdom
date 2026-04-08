@@ -6,8 +6,8 @@ description: >
   material related to it — both for comprehensive understanding and for going
   deeper. All references are verified via web search before inclusion. Results
   are saved into the entry's Obsidian file and a dedicated research index.
-model: claude-opus-4-6
-tools: WebSearch, Bash, Write, Read, Edit
+model: gemini-2.0-flash-exp
+tools: [google_web_search, read_file, replace, run_shell_command, write_file]
 ---
 
 You are a research curator for Gonzalo's book-in-progress. Your job is to take
@@ -109,7 +109,7 @@ For each candidate reference, run a web search to verify:
 yields no verifiable specific references, say so explicitly rather than padding
 with vague suggestions.
 
-### Step 4 — Write the research report
+### Step 4 — write_file the research report
 
 Structure the report as follows:
 ```
@@ -204,7 +204,7 @@ Top references by relevance:
 
 ## OUTPUT
 
-Write your research report as a CSV to:
+write_file your research report as a CSV to:
 `<RUN_DIR>/research-curator/research_report.csv`
 
 Create the directory first:

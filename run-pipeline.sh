@@ -11,17 +11,19 @@ set -euo pipefail
 
 AUTO_YES=false
 NO_INPUT=false
+LLM="claude"
 INPUT=""
 
 usage() {
     cat <<EOH
-Usage: ./run_pipeline.sh [--yes] [--no-input] <directory|file>
+Usage: ./run_pipeline.sh [--yes] [--no-input] [--llm <claude|gemini>] <directory|file>
 
 Options:
-  --yes       Auto-confirm bulk processing prompts.
-  --no-input  Non-interactive mode for this wrapper (skip local prompts).
-              Note: Claude-side pauses for approvals are still handled by Claude flow.
-  -h, --help  Show this help.
+  --yes           Auto-confirm bulk processing prompts.
+  --no-input      Non-interactive mode for this wrapper (skip local prompts).
+                  Note: LLM-side pauses for approvals are still handled by LLM flow.
+  --llm <name>    Choice of LLM to use: claude or gemini (default: claude).
+  -h, --help      Show this help.
 EOH
 }
 
@@ -34,6 +36,16 @@ while [[ $# -gt 0 ]]; do
         --no-input)
             NO_INPUT=true
             shift
+            ;;
+        --llm)
+            if [ -n "${2:-}" ]; then
+                LLM="$2"
+                shift 2
+            else
+                echo "✗ Error: --llm requires a value (claude or gemini)"
+                usage
+                exit 1
+            fi
             ;;
         -h|--help)
             usage
@@ -56,14 +68,20 @@ if [ -z "${INPUT:-}" ]; then
     exit 1
 fi
 
+if [[ "$LLM" != "claude" && "$LLM" != "gemini" ]]; then
+    echo "✗ Invalid LLM: $LLM. Must be 'claude' or 'gemini'."
+    exit 1
+fi
+
 # Create one master run directory for this entire invocation.
 # All files processed in this run share the same RUN_ID and pipeline.log.
 RUN_ID=$(date +%Y-%m-%d_%H%M%S)
 RUN_BASE="./processed/$RUN_ID"
 LOG_FILE="$RUN_BASE/pipeline.log"
 mkdir -p "$RUN_BASE"
-echo "$(date +%Y-%m-%dT%H:%M:%S) PIPELINE_START run_id=$RUN_ID input=$INPUT" >> "$LOG_FILE"
+echo "$(date +%Y-%m-%dT%H:%M:%S) PIPELINE_START run_id=$RUN_ID input=$INPUT llm=$LLM" >> "$LOG_FILE"
 echo "Run ID: $RUN_ID"
+echo "LLM: $LLM"
 
 is_video() {
     echo "${1##*.}" | grep -qiE "^(mp4|mov|m4v|avi|mkv)$"
@@ -96,6 +114,16 @@ confirm_bulk() {
     [ "$CONFIRM" = "yes" ]
 }
 
+run_llm() {
+    local PROMPT="$1"
+    if [ "$LLM" = "claude" ]; then
+        claude -p "$PROMPT"
+    else
+        # YOLO mode enabled for non-interactive pipeline
+        gemini -y -p "$PROMPT"
+    fi
+}
+
 run_file() {
     local FILE="$1"
     local DATE
@@ -103,7 +131,7 @@ run_file() {
 
     echo "Processing: $FILE"
     echo "$(date +%Y-%m-%dT%H:%M:%S) FILE_START file=$(basename "$FILE" .txt)" >> "$LOG_FILE"
-    claude -p "Run the content pipeline on this transcript. RUN_ID: $RUN_ID. LOG_FILE: $LOG_FILE. Date: $DATE. Transcript file: $FILE. Transcript: $(cat "$FILE")"
+    run_llm "Run the content pipeline on this transcript. RUN_ID: $RUN_ID. LOG_FILE: $LOG_FILE. Date: $DATE. Transcript file: $FILE. Transcript: $(cat "$FILE")"
 }
 
 # Video detection and transcript extraction
@@ -115,7 +143,7 @@ if [ -f "$INPUT" ] && is_video "$INPUT"; then
     fi
 
     echo "Video detected. Extracting transcript (date: $DATE)..."
-    if ! claude -p "/extract-transcription \"$INPUT\" English $DATE"; then
+    if ! run_llm "/extract-transcription \"$INPUT\" English $DATE"; then
         TRANSCRIPT="$(dirname "$INPUT")/auto-generated/transcript_${DATE}.txt"
         if [ ! -f "$TRANSCRIPT" ]; then
             echo "✗ Extraction failed for: $(basename "$INPUT")"
@@ -155,7 +183,7 @@ elif [ -d "$INPUT" ]; then
                 echo "✓ Transcript already exists for $DATE — skipping extraction"
             else
                 echo "Video found: $(basename "$f") — extracting transcript (date: $DATE)..."
-                if ! claude -p "/extract-transcription \"$f\" English $DATE"; then
+                if ! run_llm "/extract-transcription \"$f\" English $DATE"; then
                     echo "✗ Extraction failed for: $(basename "$f") — skipping"
                     echo "$(date +%Y-%m-%dT%H:%M:%S) EXTRACTION_FAILED file=$(basename "$f")" >> "$LOG_FILE"
                     ./telegram_io.sh send "❌ Extraction failed — $(basename "$f")\nRun ID: $RUN_ID\nCheck terminal output for details (auth error, missing tool, etc.)" || true
@@ -172,6 +200,7 @@ elif [ -d "$INPUT" ]; then
 
     FILES=$(find "$INPUT" -maxdepth 2 -name "transcript_*.txt" 2>/dev/null | \
         awk -F/ '{print $NF, $0}' | sort | cut -d' ' -f2-)
+
 
     if [ -z "$FILES" ]; then
         echo "✗ No transcript_*.txt files found in $INPUT"

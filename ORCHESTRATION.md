@@ -2,7 +2,7 @@
 
 ## Goal
 Run the content pipeline with:
-- **Claude Code** doing heavy generation/refactoring work (using your existing subscription-driven CLI flow)
+- **Claude Code** or **Gemini CLI** doing heavy generation/refactoring work
 - **OpenClaw** acting as orchestration + human-in-the-loop control plane (mobile approvals via WhatsApp/Telegram)
 
 This keeps current velocity while removing "I need to be at terminal" bottlenecks.
@@ -31,8 +31,8 @@ This keeps current velocity while removing "I need to be at terminal" bottleneck
 - Collect artifacts and summarize outcomes
 - Open PR for KB/content diffs
 
-## Claude Pipeline (Worker)
-- Run existing `.claude/agents/*` flow
+## Claude/Gemini Pipeline (Worker)
+- Run existing `.claude/agents/*` or `.gemini/agents/*` flow
 - Produce stage outputs under `processed/<RUN_ID>/...`
 - Emit structured prompts when human input is required
 - Stop/continue based on orchestrator-provided input
@@ -125,7 +125,7 @@ For each run:
 ## Repo Conventions to Adopt Next
 
 1. **Non-interactive mode** in `run-pipeline.sh`
-   - Replace `read -p` confirmations with flags (`--yes`, `--no-input`, `--bulk`).
+   - Replace `read -p` confirmations with flags (`--yes`, `--no-input`, `--llm`).
 
 2. **Environment-safe paths**
    - Remove hardcoded macOS path in `.claude/skills/extract-transcription/SKILL.md`.
