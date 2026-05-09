@@ -1,4 +1,0 @@
-langgraph>=0.2.50,<0.3
-litellm>=1.55.0,<2
-anthropic>=0.40.0,<1
-python-dotenv>=1.0.0,<2
