@@ -18,6 +18,11 @@ concurrency:
 jobs:
   smoke:
     runs-on: ubuntu-latest
+    # Secrets live in the `test` environment, not as repo-level secrets,
+    # so the job must declare it to read them. Environment also gives us
+    # a place to add manual approvals later if we ever want a human gate
+    # before burning Anthropic / Notion quota.
+    environment: test
     timeout-minutes: 20
 
     steps:
