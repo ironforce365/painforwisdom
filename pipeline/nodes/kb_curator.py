@@ -100,12 +100,17 @@ curator_summary: |
 
 ### B. NEEDS_APPROVAL_THEME format
 
+Use YAML block scalars (`>-`) for `reason` and `core_tension` so colons,
+quotes, and other punctuation inside the prose don't break parsing.
+
 ```
 ---kb-plan---
 action: NEEDS_APPROVAL_THEME
 proposed_theme: theme-slug
-reason: "one sentence why no existing theme fits"
-core_tension: "the central question this theme addresses"
+reason: >-
+  one sentence why no existing theme fits — colons, quotes, etc. are safe here
+core_tension: >-
+  the central question this theme addresses
 ---kb-plan---
 ```
 
@@ -115,8 +120,10 @@ core_tension: "the central question this theme addresses"
 ---kb-plan---
 action: NEEDS_APPROVAL_FRAMEWORK
 proposed_framework: framework-slug
-reason: "one sentence why this deserves a framework file vs an existing one"
-definition: "one paragraph description"
+reason: >-
+  one sentence why this deserves a framework file vs an existing one
+definition: >-
+  one paragraph description
 ---kb-plan---
 ```
 
@@ -130,6 +137,10 @@ Rules:
 - Entry body must be the FULL markdown for entries/YYYY-MM-DD-slug.md, ready
   to write byte-for-byte. Same for theme_updates[*].new_body and
   book_outline_body.
+- For any free-text field that may contain colons, quotes, or special
+  characters (`reason`, `core_tension`, `definition`, `curator_summary`),
+  ALWAYS use a YAML block scalar (`|` or `>-`) — never a quoted single-line
+  string. Block scalars handle punctuation safely.
 """
 
 
@@ -142,6 +153,22 @@ def _retry_prompt_for_format(text: str) -> str:
         "fenced YAML block. Reply again — ONLY the YAML inside markers, "
         "nothing else, no apology. Previous reply (for reference):\n\n"
         f"```\n{text[:2000]}\n```"
+    )
+
+
+def _retry_prompt_for_yaml(text: str, err: str) -> str:
+    return (
+        "Your previous reply was inside `---kb-plan---` markers but the YAML "
+        "failed to parse. Most common cause: an unquoted free-text field "
+        "(`reason`, `core_tension`, `definition`) contained a colon or "
+        "another reserved character. Re-emit the SAME plan, but for every "
+        "free-text field use a YAML block scalar like:\n\n"
+        "    reason: >-\n"
+        "      your prose here, colons and quotes are safe\n\n"
+        "Reply again — ONLY the YAML inside `---kb-plan---` markers, no "
+        "apology, no prose outside.\n\n"
+        f"Parser error: {err}\n\n"
+        f"Previous reply (for reference):\n```\n{text[:2000]}\n```"
     )
 
 
@@ -228,10 +255,17 @@ def _call_llm_for_plan(state: State, approval_history: List[Tuple[str, str]]) ->
         plan = _parse_plan(result["text"])
         return plan, result
     except RuntimeError as exc:
-        if "---kb-plan---" not in str(exc):
+        msg = str(exc)
+        is_format = "---kb-plan---" in msg
+        is_yaml = "invalid YAML" in msg
+        if not (is_format or is_yaml):
             raise
-        print("[kb-curator] format violation, retrying once with corrective prompt")
-        retry_msg = user_msg + "\n\n" + _retry_prompt_for_format(result["text"])
+        if is_format:
+            print("[kb-curator] format violation, retrying once with corrective prompt")
+            retry_msg = user_msg + "\n\n" + _retry_prompt_for_format(result["text"])
+        else:
+            print("[kb-curator] YAML parse error, retrying once with block-scalar guidance")
+            retry_msg = user_msg + "\n\n" + _retry_prompt_for_yaml(result["text"], msg)
         result2 = call_llm(model, system_prompt, retry_msg, max_tokens=4000)
         plan = _parse_plan(result2["text"])
         # Sum cost / tokens conservatively across both calls
