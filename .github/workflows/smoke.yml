@@ -1,0 +1,94 @@
+name: Pipeline smoke test
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'pipeline/**'
+      - 'tests/**'
+      - 'agents/**'
+      - 'pipeline/requirements.txt'
+      - '.github/workflows/smoke.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout (with submodule)
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+          fetch-depth: 1
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: pipeline/requirements.txt
+
+      - name: Install pipeline deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r pipeline/requirements.txt
+
+      - name: Resolve sandbox vault path
+        run: |
+          test -d obsidian-vault/.git || git submodule update --init --depth 1
+          echo "VAULT_PATH_RESOLVED=${GITHUB_WORKSPACE}/obsidian-vault" >> "$GITHUB_ENV"
+
+      - name: Materialize .env.sandbox from secrets
+        env:
+          NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
+          NOTION_BLOG_DATA_SOURCE_ID: ${{ secrets.NOTION_BLOG_DATA_SOURCE_ID }}
+          NOTION_RESEARCH_DATA_SOURCE_ID: ${{ secrets.NOTION_RESEARCH_DATA_SOURCE_ID }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+        run: |
+          {
+            echo "NOTION_API_KEY=${NOTION_API_KEY}"
+            echo "NOTION_BLOG_DATA_SOURCE_ID=${NOTION_BLOG_DATA_SOURCE_ID}"
+            echo "NOTION_RESEARCH_DATA_SOURCE_ID=${NOTION_RESEARCH_DATA_SOURCE_ID}"
+            echo "TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}"
+            echo "TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}"
+            echo "VAULT_PATH=${VAULT_PATH_RESOLVED}"
+            echo "CHECKPOINT_DB_PATH=${GITHUB_WORKSPACE}/pipeline/checkpoints-ci.db"
+            echo "ANTHROPIC_AUTH_TOKEN=${ANTHROPIC_AUTH_TOKEN}"
+            echo "PIPELINE_PROFILE=sandbox"
+          } > .env.sandbox
+          for var in NOTION_API_KEY NOTION_BLOG_DATA_SOURCE_ID NOTION_RESEARCH_DATA_SOURCE_ID TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID ANTHROPIC_AUTH_TOKEN; do
+            value=$(grep -E "^${var}=" .env.sandbox | cut -d= -f2-)
+            if [ -z "${value}" ]; then
+              echo "::error::secret ${var} is missing or empty"
+              exit 1
+            fi
+          done
+
+      - name: Reset sandbox (Notion archive + vault revert)
+        env:
+          PYTHON_BIN: python
+        run: bash tests/sandbox_reset.sh
+
+      - name: Run smoke pipeline
+        env:
+          PYTHON_BIN: python
+        run: bash tests/smoke_pipeline.sh
+
+      - name: Upload run artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-run-${{ github.run_id }}
+          path: |
+            processed/
+            pipeline/checkpoints-ci.db
+          retention-days: 7
+          if-no-files-found: ignore
