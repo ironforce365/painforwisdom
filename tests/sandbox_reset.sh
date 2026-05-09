@@ -29,13 +29,16 @@ fi
 NOTION_API_KEY=$(grep -E '^NOTION_API_KEY=' .env.sandbox | cut -d= -f2-)
 BLOG_DS=$(grep -E '^NOTION_BLOG_DATA_SOURCE_ID=' .env.sandbox | cut -d= -f2-)
 RESEARCH_DS=$(grep -E '^NOTION_RESEARCH_DATA_SOURCE_ID=' .env.sandbox | cut -d= -f2-)
+# VAULT_PATH override from .env.sandbox — falls back to the local
+# obsidian-vault-sandbox/ worktree when unset (typical for laptop runs).
+VAULT_FROM_ENV=$(grep -E '^VAULT_PATH=' .env.sandbox | cut -d= -f2-)
 
 if [[ -z "$NOTION_API_KEY" || -z "$BLOG_DS" || -z "$RESEARCH_DS" ]]; then
     echo "[reset] missing NOTION_API_KEY / DATA_SOURCE_ID env vars" >&2
     exit 1
 fi
 
-VAULT_SANDBOX="$PROJECT_ROOT/obsidian-vault-sandbox"
+VAULT_SANDBOX="${VAULT_FROM_ENV:-$PROJECT_ROOT/obsidian-vault-sandbox}"
 PYTHON_BIN="${PYTHON_BIN:-/home/gonzalo/miniconda3/envs/painforwisdom-poc/bin/python}"
 
 # ---- 1. Vault worktree --------------------------------------------------

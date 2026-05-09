@@ -21,10 +21,14 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - name: Checkout (with submodule)
+      - name: Checkout (no submodule)
         uses: actions/checkout@v4
         with:
-          submodules: true
+          # The vault submodule (gonandrap/painforwisdom-kb) is private and
+          # the GitHub Actions token does not have access. We build a
+          # minimal CI vault scaffold below — sandbox runs are ephemeral
+          # so we don't need the real vault history.
+          submodules: false
           fetch-depth: 1
 
       - name: Set up Python 3.11
@@ -39,10 +43,32 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r pipeline/requirements.txt
 
-      - name: Resolve sandbox vault path
+      - name: Build CI vault scaffold
+        # Minimal vault structure so kb-curator's _vault_snapshot finds the
+        # canonical theme/framework filenames and the LLM can "PROCEED"
+        # against existing slugs instead of demanding approval for every
+        # one. Bodies are stub placeholders — kb-curator overwrites them
+        # when it touches a theme/framework anyway.
         run: |
-          test -d obsidian-vault/.git || git submodule update --init --depth 1
-          echo "VAULT_PATH_RESOLVED=${GITHUB_WORKSPACE}/obsidian-vault" >> "$GITHUB_ENV"
+          VAULT_DIR="${GITHUB_WORKSPACE}/ci-vault"
+          BOOK_DIR="${VAULT_DIR}/gonzalo-book"
+          mkdir -p "${BOOK_DIR}/themes" "${BOOK_DIR}/frameworks" "${BOOK_DIR}/entries"
+          for slug in body-literacy comfort-as-default communication-under-pressure deliberate-discomfort guilt-recovery internal-signal-vs-external-metric naming-the-fear preparedness-debt training-adaptability pattern-manifestation; do
+            printf "# %s\n\nStub theme body for CI smoke runs.\n" "${slug}" > "${BOOK_DIR}/themes/${slug}.md"
+          done
+          for slug in amcc-effect cookie-jar-types friction-types phase-1-protocol strategic-vs-manufactured-suffering the-genius-wound the-three-modes; do
+            printf "# %s\n\nStub framework body for CI smoke runs.\n" "${slug}" > "${BOOK_DIR}/frameworks/${slug}.md"
+          done
+          printf "# Gonzalo's Journey — Master Timeline\n\n| Date | Entry | Themes | Quality | Core Insight |\n|------|-------|--------|---------|--------------|\n" > "${BOOK_DIR}/_index.md"
+          printf "# Book Outline — In Formation\n\nStub outline for CI smoke runs.\n" > "${BOOK_DIR}/book-outline.md"
+          # Make it a git repo so sandbox_reset.sh's `git checkout -- .`
+          # path works without falling back to the no-worktree branch.
+          git -C "${VAULT_DIR}" init -q -b ci-vault
+          git -C "${VAULT_DIR}" config user.email ci@example.com
+          git -C "${VAULT_DIR}" config user.name "CI Smoke"
+          git -C "${VAULT_DIR}" add -A
+          git -C "${VAULT_DIR}" commit -q -m "CI vault baseline"
+          echo "VAULT_PATH_RESOLVED=${VAULT_DIR}" >> "$GITHUB_ENV"
 
       - name: Materialize .env.sandbox from secrets
         env:
