@@ -196,14 +196,18 @@ def _drive_graph(
     initial: Dict[str, Any],
     config: Dict[str, Any],
     args: argparse.Namespace,
-) -> Dict[str, Any]:
+) -> Tuple[Dict[str, Any], float]:
     """Invoke the graph and handle BOTH HITL approvals and post-retry failures.
 
-    Returns the final state dict from the last successful invoke.
+    Returns ``(final_state, hitl_wait_seconds)`` — the final state dict from
+    the last successful invoke plus the cumulative seconds spent blocked on
+    Telegram replies (HITL approvals + error-recovery prompts), so the caller
+    can report net work time excluding human wait.
     """
     pending: Optional[Dict[str, Any]] = initial  # first call
     rounds = 0
     last_state: Dict[str, Any] = {}
+    hitl_wait = 0.0
 
     while True:
         try:
@@ -229,7 +233,9 @@ def _drive_graph(
                         print(f"[run] telegram-on-error send rc={rc} (non-fatal)")
                 raise
             prompt = _format_error_prompt(stage, exc)
+            t_wait = time.time()
             reply = _ask_indefinitely(prompt, args.reminder_interval).strip().lower()
+            hitl_wait += time.time() - t_wait
             print(f"[run] error-recovery reply: {reply!r}")
             if reply.startswith("retry"):
                 # Re-invoke with `None` — LangGraph resumes from the last
@@ -243,14 +249,16 @@ def _drive_graph(
         # Check for HITL interrupts (kb_curator approval).
         payload = _get_pending_interrupt(graph, config)
         if payload is None:
-            return last_state
+            return last_state, hitl_wait
         rounds += 1
         print(f"[run] HITL interrupt #{rounds}: {payload.get('kind')}")
         if args.auto_approve:
             reply = "yes"
             print("[run] --auto-approve: bypassing Telegram, resuming with 'yes'")
         else:
+            t_wait = time.time()
             reply = _ask_indefinitely(_format_proposal(payload), args.reminder_interval)
+            hitl_wait += time.time() - t_wait
         print(f"[run] resume reply: {reply!r}")
         pending = Command(resume=reply)  # type: ignore[assignment]
 
@@ -283,9 +291,9 @@ def _process_one_video(
     graph, saver = build_graph(start_at=start_at)
     try:
         config = {"configurable": {"thread_id": run_id}}
-        result = _drive_graph(graph, initial, config, args)
+        result, hitl_wait = _drive_graph(graph, initial, config, args)
 
-        total = time.time() - t_start
+        total = time.time() - t_start - hitl_wait
         verdict = result.get("validator_verdict", "?")
         print()
         print(f"[run] DONE total={total:.1f}s target={args.target_seconds}s verdict={verdict}")
