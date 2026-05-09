@@ -2,7 +2,22 @@ bulk-ingestion-up-to-feb-27/
 processed/
 .DS_Store*
 .env
+.env.sandbox
+.env.sandbox.swp
 
 # Input files — never commit transcripts or videos
 to_be_retried/*
 bulk-*
+
+# LangGraph migration — runtime/sandbox artifacts
+obsidian-vault-sandbox/
+pipeline/checkpoints*.db
+poc/runs.jsonl
+.current_run
+.paperclip.json
+.claude/scheduled_tasks.lock
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
