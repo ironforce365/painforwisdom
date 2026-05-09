@@ -1,119 +1,105 @@
 # painforwisdom
 
-Automates the creation of blog posts for [painforwisdom.wordpress.com](https://painforwisdom.wordpress.com) from raw video transcripts recorded during runs, and builds a structured Obsidian knowledge base that serves as the foundation for Gonzalo's book.
+Automates blog posts for [painforwisdom.wordpress.com](https://painforwisdom.wordpress.com) from raw video transcripts and builds a structured Obsidian knowledge base that serves as the foundation for Gonzalo's book.
+
+The pipeline is a **LangGraph DAG** orchestrated as plain Python (`pipeline/`). It transcribes a video with Whisper, runs seven content stages against Anthropic Claude (Sonnet 4.6 by default, via the OAuth subscription path with API-key fallback), writes vault entries to a git submodule, posts blog posts and research tasks to Notion, and sends a Telegram summary.
+
+For day-to-day commands see **[`OPERATIONS.md`](OPERATIONS.md)**.
 
 ## Repositories
 
 | Repo | Purpose |
 |------|---------|
-| `gonandrap/painforwisdom` (this repo) | Pipeline code: agents, scripts, CLAUDE.md orchestration |
-| `gonandrap/painforwisdom-kb` | Obsidian vault — all entries, themes, frameworks, research |
+| `gonandrap/painforwisdom` (this repo) | Pipeline code: LangGraph nodes, agent prompts, smoke harness |
+| `gonandrap/painforwisdom-kb` | Obsidian vault — entries, themes, frameworks, research |
 
-The vault lives as a **git submodule** at `obsidian-vault/`. Pipeline writes (new entries, theme updates, research) commit directly to `painforwisdom-kb`. This keeps vault history cleanly separated from pipeline code.
+The vault lives as a git submodule at `obsidian-vault/`. Pipeline writes (new entries, theme updates, research) commit directly to `painforwisdom-kb`, keeping vault history separate from pipeline code.
 
 ---
 
 ## Setup
 
 ```bash
-# Clone with submodule
 git clone --recurse-submodules https://github.com/gonandrap/painforwisdom.git
+cd painforwisdom
 
-# If you already cloned without --recurse-submodules
-git submodule update --init
+# Conda env for the pipeline (Python 3.11)
+conda create -n painforwisdom-poc python=3.11 -y
+conda activate painforwisdom-poc
+pip install -r pipeline/requirements.txt
+
+# Subscription billing (preferred — $0 marginal on Pro/Max)
+claude setup-token   # exports ANTHROPIC_AUTH_TOKEN
+
+# OR API credits
+# put ANTHROPIC_API_KEY=sk-ant-... in .env
 ```
 
-Copy `.env.example` to `.env` and fill in your credentials:
+`.env` (prod profile) must define:
 
-```bash
-cp .env.example .env
-```
+| Var | Purpose |
+|-----|---------|
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | Notifications + HITL approvals |
+| `OPENAI_API_KEY` | Whisper transcription (Stage 1) |
+| `NOTION_API_KEY` | Notion REST integration token |
+| `NOTION_BLOG_DATA_SOURCE_ID` | Optional override; defaults to prod blog DB |
+| `NOTION_RESEARCH_DATA_SOURCE_ID` | Optional override; defaults to prod research DB |
+| `ANTHROPIC_AUTH_TOKEN` *or* `ANTHROPIC_API_KEY` | Anthropic auth |
 
-Required environment variables:
-- `TELEGRAM_BOT_TOKEN` — Telegram bot token for pipeline notifications
-- `TELEGRAM_CHAT_ID` — chat ID to send/receive messages
-- `OPENAI_API_KEY` — used by Whisper for transcription
+Sandbox profile (`.env.sandbox`) points at duplicated Notion DBs and a parallel vault worktree — see [`.env.sandbox.template`](.env.sandbox.template).
 
 ---
 
-## Running the pipeline
-
-### Full pipeline (KB + blog post)
-
-```bash
-./run-pipeline.sh path/to/transcript_YYYY-MM-DD.txt
-# To run with gemini:
-./run-pipeline.sh --llm gemini path/to/transcript_YYYY-MM-DD.txt
-```
-
-Or trigger via Gemini CLI or Claude Code:
-```
-run the content pipeline on this transcript [paste transcript]
-```
-
-### KB only (no blog post)
+## Pipeline topology
 
 ```
-run the knowledge base pipeline on this transcript, no blog post needed
-Video date: YYYY-MM-DD [paste transcript]
+START → transcribe → extract → kb_curator
+                                   ├─▶ writer ──▶ notion_blog ──┐
+                                   └─▶ research ▶ notion_research ┤
+                                                                  ├─▶ validator → END
 ```
 
-### Bulk ingestion
+Per-node retry policy classifies transient infra errors (network, 5xx) as retryable; persistent errors escalate to Telegram with `retry / abort` (see `pipeline/run.py:_drive_graph`). Checkpointing via SqliteSaver makes HITL `interrupt()` resume safe across restarts.
 
-```bash
-./run-pipeline.sh path/to/transcripts/   # directory of transcript_YYYY-MM-DD.txt files
-```
+| Stage | Module | Output |
+|-------|--------|--------|
+| 1 | `nodes/transcribe.py` | `auto-generated/transcript_YYYY-MM-DD.txt` (Whisper) |
+| 2 | `nodes/extract.py`    | `extraction_report.md` — core insight + quality gate |
+| 3 | `nodes/kb_curator.py` | vault entry + theme/framework updates in `painforwisdom-kb` |
+| 4a | `nodes/writer.py`    | `blog_post.md` |
+| 4b | `nodes/research.py`  | `research_report.csv` |
+| 5a | `nodes/notion_blog.py`     | Notion page in "Blog post pending publications" |
+| 5b | `nodes/notion_research.py` | Notion tasks in "Research Tasks" database |
+| 6 | `nodes/validator.py` | `audit_report.md` + Telegram summary; verdict PASS/PARTIAL/FAIL |
 
-### Extract transcription from video
-
-```
-/extract-transcription path/to/video.mp4 [language] [YYYY-MM-DD]
-```
+Each run produces a directory under `processed/<RUN_ID>/<run_suffix>/` with all stage outputs and a `runs.jsonl` telemetry trace.
 
 ---
 
-## Pipeline stages
+## Quick start
 
-| Stage | Agent | Output |
-|-------|-------|--------|
-| 1 | `coaching-thought-extractor` | `extraction_report.md` — core insight, quality gate |
-| 2 | `kb-curator` | vault entry + theme updates in `painforwisdom-kb` |
-| 3 | `painforwisdom-writer` | `blog_post.md` (Strong quality only) |
-| 4 | `notion-blog-post-logger` | Notion page in "Blog post pending publications" |
-| 5 | `blog-post-catchy-title` | 2–3 title candidates appended to Notion page |
-| 6 | `research-curator` | `research_report.csv` + vault research section |
-| 7 | `notion-research-logger` | Notion tasks in "Research Tasks" database |
+```bash
+# Full pipeline on a single video
+python -m pipeline.run --video bulk-daily/PXL_20260413_194231193.mp4
 
-Each run produces a directory under `processed/<RUN_ID>/<transcript_name>/` with all stage outputs.
+# Bulk: a directory of videos (sequential, with quarantine on failure)
+python -m pipeline.run --dir bulk-daily/
 
-### Failed or weak files
-
-If a transcript fails a stage or produces weak content, it is automatically copied to `to_be_retried/` and a Telegram alert is sent. To reprocess:
-
+# Test mode: skip Whisper, feed a transcript directly
+python -m pipeline.run --from-transcript path/to/transcript.txt --auto-approve
 ```
-/retry-failed                  # process all pending files
-/retry-failed transcript.txt   # process one specific file
-```
+
+For the full command reference (sandbox, smoke, retries, debugging) see **[`OPERATIONS.md`](OPERATIONS.md)**.
 
 ---
 
 ## Branch workflow
 
 ```bash
-# Start a new task
 git checkout main && git pull --recurse-submodules
 git checkout -b my-feature
-
-# The submodule is inherited — initialize if needed
 git submodule update --init
-
-# Work, commit pipeline code changes here
-git add .claude/agents/my-agent.md CLAUDE.md
-git commit -m "Add my agent"
-
-# Vault changes go to painforwisdom-kb automatically (pipeline commits there directly)
-
-# Open PR to main when ready
+# … edits …
 git push origin my-feature
 gh pr create --base main --head my-feature
 ```
@@ -125,15 +111,20 @@ gh pr create --base main --head my-feature
 | `draft` | Pipeline writes here — all new entries land on this branch |
 | `main` | Stable vault — merge from draft after review |
 
-The submodule in this repo is pinned to the `draft` branch so pipeline output is immediately available in Obsidian without a manual merge.
+The submodule in this repo is pinned to `draft` so pipeline output is immediately visible in Obsidian without a manual merge.
 
 ---
 
 ## Notifications
 
-All pipeline events are sent to Telegram. The pipeline pauses and waits for a reply at:
-- **Stage 1 flag gate** — content flagged as problematic; reply `stop` to abort or provide unblock instructions
-- **Stage 2 theme approval** — new theme or framework detected; confirm or rename before the vault entry is created
+All pipeline events go to Telegram:
+
+- **Run intake** — every video / transcript fed in posts a 📥 message with `run_id` + profile.
+- **Stage 3 approval** — new theme or framework: reply `yes`, `no`, or an alternative slug. Pipeline waits forever (re-posting the prompt every `--reminder-interval` seconds).
+- **Persistent error** — escalated as `retry / abort`. Reply `retry` to re-invoke from the last checkpoint, anything else to abort.
+- **Run summary** — verdict (PASS/PARTIAL/FAIL) + per-stage audit findings.
+
+Sandbox runs are auto-prefixed with `[SANDBOX] ` so prod chat stays clean.
 
 ---
 
@@ -141,14 +132,15 @@ All pipeline events are sent to Telegram. The pipeline pauses and waits for a re
 
 ```
 painforwisdom/
-├── .claude/             # Claude-specific agents and skills
-├── .gemini/             # Gemini-specific agents and skills
-├── obsidian-vault/      # Git submodule → gonandrap/painforwisdom-kb (draft branch)
-├── processed/           # Pipeline run outputs (gitignored)
-├── to_be_retried/       # Failed/weak transcripts queued for retry (gitignored)
-├── CLAUDE.md            # Full pipeline orchestration spec (Claude)
-├── GEMINI.md            # Full pipeline orchestration spec (Gemini)
-├── run-pipeline.sh      # Entry point for automated/bulk runs (supports --llm)
-├── extract_transcription.sh  # Whisper-based transcription extraction
-└── telegram_io.sh       # Telegram send/receive helpers
+├── .claude/                   # Claude Code agent prompts (loaded by pipeline) + skills
+├── obsidian-vault/            # Git submodule → gonandrap/painforwisdom-kb (draft branch)
+├── obsidian-vault-sandbox/    # Sandbox vault worktree (gitignored)
+├── pipeline/                  # LangGraph pipeline (nodes, graph, runtime, telemetry)
+├── tests/                     # Smoke harness + sandbox reset + transcript fixtures
+├── processed/                 # Pipeline run outputs (gitignored)
+├── to_be_retried/             # Failed transcripts queued for retry (gitignored)
+├── extract_transcription.sh   # Whisper wrapper used by Stage 1
+├── telegram_io.sh             # Telegram send/receive helpers
+├── OPERATIONS.md              # Day-to-day commands
+└── README.md                  # This file
 ```
