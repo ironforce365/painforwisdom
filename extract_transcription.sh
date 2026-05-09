@@ -23,6 +23,13 @@ INPUT_FILE="${1:-}"
 LANGUAGE="${2:-English}"
 DATE="${3:-$(date +"%Y-%m-%d")}"  # shellcheck disable=SC2016
 WHISPER_BACKEND="${WHISPER_BACKEND:-local}"
+# Model size for the local backend. `medium` ~5 GiB VRAM, `large` ~10 GiB.
+# `medium` is the new default after a prod OOM on a shared 12 GiB GPU.
+WHISPER_MODEL="${WHISPER_MODEL:-medium}"
+# Override device for the local whisper binary. Empty = let whisper auto-pick
+# (CUDA if available, else CPU). Set to `cpu` for explicit CPU fallback when
+# the GPU is contended (the pipeline does this automatically on CUDA OOM).
+WHISPER_DEVICE="${WHISPER_DEVICE:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TELEGRAM="$SCRIPT_DIR/telegram_io.sh"
@@ -182,12 +189,18 @@ run_local_whisper() {
     fi
 
     # Output JSON so we can extract confidence metrics
-    "$whisper_bin" "$TEMP_AUDIO_FILE_PATH" \
-        --model large \
-        --language "$LANGUAGE" \
-        --output_format json \
-        --output_dir "$TMP_DIR" \
-        >/dev/null
+    local cmd=(
+        "$whisper_bin" "$TEMP_AUDIO_FILE_PATH"
+        --model "$WHISPER_MODEL"
+        --language "$LANGUAGE"
+        --output_format json
+        --output_dir "$TMP_DIR"
+    )
+    if [ -n "$WHISPER_DEVICE" ]; then
+        cmd+=(--device "$WHISPER_DEVICE")
+    fi
+    echo "Whisper: model=$WHISPER_MODEL device=${WHISPER_DEVICE:-auto}"
+    "${cmd[@]}" >/dev/null
 
     local json_file="$TMP_DIR/$(basename "$TEMP_AUDIO_FILE_PATH" .mp3).json"
     if [ ! -f "$json_file" ]; then
