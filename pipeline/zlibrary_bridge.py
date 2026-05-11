@@ -1,14 +1,16 @@
 """Z-Library bridge — subprocess adapter for the zlibrary-mcp Python bridge.
 
-Wraps `/home/gonzalo/workspace/extensions/zlibrary-mcp/lib/python_bridge.py`
-as a callable: `fetch(title, author) -> BookText | BookFailure`.
+Wraps the zlibrary-mcp Python bridge as a callable:
+`fetch(title, author) -> BookText | BookFailure`.
 
-Auth requires `ZLIBRARY_EMAIL` and `ZLIBRARY_PASSWORD` env vars. When
-unconfigured, returns `BookFailure(reason="not-configured")` so the augment
-script can transparently fall through to web-search.
+Configuration via env vars (no hardcoded paths — works on any host):
+- `ZLIBRARY_REPO_PATH` (required): absolute path to a local zlibrary-mcp checkout.
+  Bridge is not configured if unset; `fetch()` returns `BookFailure("not-configured")`.
+- `ZLIBRARY_EMAIL`, `ZLIBRARY_PASSWORD` (required): Z-Library credentials.
 
 Setup once:
-    cd /home/gonzalo/workspace/extensions/zlibrary-mcp
+    git clone <zlibrary-mcp repo> $ZLIBRARY_REPO_PATH
+    cd $ZLIBRARY_REPO_PATH
     # populate .env with ZLIBRARY_EMAIL + ZLIBRARY_PASSWORD
     bash setup-uv.sh && npm install && npm run build
 
@@ -28,15 +30,13 @@ from pathlib import Path
 from typing import Literal, Union
 
 
-ZLIBRARY_REPO = Path(os.environ.get(
-    "ZLIBRARY_REPO_PATH",
-    "/home/gonzalo/workspace/extensions/zlibrary-mcp",
-))
-ZLIBRARY_PYTHON = ZLIBRARY_REPO / ".venv" / "bin" / "python"
-# The bridge file uses sibling imports (`from filename_utils import ...`) so
-# cwd must be `lib/`, not the repo root.
-ZLIBRARY_LIB_DIR = ZLIBRARY_REPO / "lib"
-ZLIBRARY_BRIDGE_SCRIPT = ZLIBRARY_LIB_DIR / "python_bridge.py"
+_ZLIBRARY_REPO_RAW = os.environ.get("ZLIBRARY_REPO_PATH", "").strip()
+ZLIBRARY_REPO: Path | None = Path(_ZLIBRARY_REPO_RAW) if _ZLIBRARY_REPO_RAW else None
+ZLIBRARY_PYTHON: Path | None = (ZLIBRARY_REPO / ".venv" / "bin" / "python") if ZLIBRARY_REPO else None
+# Bridge uses sibling imports (`from filename_utils import ...`) so cwd must be
+# `lib/`, not the repo root.
+ZLIBRARY_LIB_DIR: Path | None = (ZLIBRARY_REPO / "lib") if ZLIBRARY_REPO else None
+ZLIBRARY_BRIDGE_SCRIPT: Path | None = (ZLIBRARY_LIB_DIR / "python_bridge.py") if ZLIBRARY_LIB_DIR else None
 
 # Final home for extracted text. The bridge writes to its own cwd-relative
 # `processed_rag_output/`; this module moves results here before returning so
@@ -76,6 +76,10 @@ class BookFailure:
     detail: str = ""
 
 
+def _repo_configured() -> bool:
+    return ZLIBRARY_REPO is not None
+
+
 def _credentials_configured() -> bool:
     return bool(os.environ.get("ZLIBRARY_EMAIL") and os.environ.get("ZLIBRARY_PASSWORD"))
 
@@ -87,6 +91,8 @@ def _bridge_call(function: str, args: dict) -> tuple[int, str, str]:
     (`from filename_utils import ...`) resolve. The bridge itself adds the
     repo root to sys.path internally for `from lib import ...` imports.
     """
+    if ZLIBRARY_PYTHON is None or ZLIBRARY_BRIDGE_SCRIPT is None or ZLIBRARY_LIB_DIR is None:
+        return 127, "", "ZLIBRARY_REPO_PATH env var not set"
     if not ZLIBRARY_PYTHON.exists():
         return 127, "", f"zlibrary-mcp venv missing at {ZLIBRARY_PYTHON}"
     if not ZLIBRARY_BRIDGE_SCRIPT.exists():
@@ -124,6 +130,8 @@ def _parse_bridge_response(stdout: str) -> dict | None:
 
 def get_download_limits() -> dict | BookFailure:
     """Returns {"daily_limit": N, "remaining": M} or BookFailure."""
+    if not _repo_configured():
+        return BookFailure("not-configured", "ZLIBRARY_REPO_PATH env var not set")
     if not _credentials_configured():
         return BookFailure("not-configured", "ZLIBRARY_EMAIL/ZLIBRARY_PASSWORD not set")
     rc, stdout, stderr = _bridge_call("get_download_limits", {})
@@ -137,6 +145,11 @@ def get_download_limits() -> dict | BookFailure:
 
 def fetch(title: str, author: str) -> Union[BookText, BookFailure]:
     """Search Z-Library for a book and extract its text. Stubbed when creds missing."""
+    if not _repo_configured():
+        return BookFailure(
+            "not-configured",
+            "Set ZLIBRARY_REPO_PATH to a local zlibrary-mcp checkout to enable Z-Library bridge.",
+        )
     if not _credentials_configured():
         return BookFailure(
             "not-configured",
@@ -195,6 +208,8 @@ def fetch(title: str, author: str) -> Union[BookText, BookFailure]:
     local_path = Path(local_path_str)
     if not local_path.is_absolute():
         # Bridge writes processed_rag_output/ relative to its own cwd (lib/).
+        if ZLIBRARY_LIB_DIR is None:
+            return BookFailure("subprocess-error", "ZLIBRARY_REPO_PATH unset; cannot resolve relative download path")
         local_path = (ZLIBRARY_LIB_DIR / local_path).resolve()
     if not local_path.exists():
         return BookFailure("extract-failed", f"Download path missing: {local_path}")

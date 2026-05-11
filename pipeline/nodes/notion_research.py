@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from pipeline.contracts import assert_inputs
+from pipeline import themes_db
 from pipeline.notion_client import (
     _divider,
     _heading_2,
@@ -28,34 +29,19 @@ from pipeline.runtime import append_metric, run_telemetry_path
 from pipeline.state import State
 
 
-# Umbrella themes map to their own agent. Sub-themes (produced by Phase 3.5
-# split) route back to the umbrella agent — same deep-dive treatment, finer
-# clustering. When a brand-new theme appears (no parent here), the block
-# below renders a "NEW THEME" warning for the operator.
-_THEME_TO_AGENT = {
-    # umbrella themes
-    "deliberate-discomfort": "deliberate-discomfort",
-    "body-literacy": "body-literacy",
-    "comfort-as-default": "comfort-as-default",
-    "naming-the-fear": "naming-the-fear",
-    "preparedness-debt": "preparedness-debt",
-    "strategic-vs-manufactured-suffering": "strategic-vs-manufactured-suffering",
-    "amcc-effect": "amcc-effect",
-    # comfort-as-default sub-themes (Phase 3.5 split 2026-05-11)
-    "neurological-basis-of-override": "comfort-as-default",
-    "comfort-creep-and-self-deception": "comfort-as-default",
-    "procrastination-and-avoidance-mechanics": "comfort-as-default",
-    "deliberate-discomfort-as-practice": "comfort-as-default",
-    "motivation-gap-and-habit-formation": "comfort-as-default",
-    "failure-response-and-recovery": "comfort-as-default",
-    # deliberate-discomfort sub-themes (Phase 3.5 split 2026-05-11)
-    "neuroscience-of-voluntary-effort": "deliberate-discomfort",
-    "hormesis-and-stress-adaptation": "deliberate-discomfort",
-    "heat-and-physical-hardship-protocols": "deliberate-discomfort",
-    "stoic-and-philosophical-practice": "deliberate-discomfort",
-    "failure-and-friction-as-diagnostic-tool": "deliberate-discomfort",
-    "cognitive-reappraisal-and-reframing": "deliberate-discomfort",
-}
+def _resolve_agent(theme: str) -> str | None:
+    """Look up theme → agent from the themes DB.
+
+    Sub-themes route to their parent umbrella's agent (see `themes_db.get_agent`).
+    Returns `None` for themes not in the DB so the caller can render the
+    "NEW THEME" warning."""
+    if not theme:
+        return None
+    conn = themes_db.connect()
+    try:
+        return themes_db.get_agent(conn, theme)
+    finally:
+        conn.close()
 
 
 def _read_story_anchor(vault_entry_path: str) -> str:
@@ -99,7 +85,7 @@ def _build_body_blocks(
     blocks.extend(text_to_blocks(prompt_text))
     blocks.append(_divider())
 
-    agent = _THEME_TO_AGENT.get(coaching_theme)
+    agent = _resolve_agent(coaching_theme)
     if agent:
         blocks.append(_paragraph(f"Agent: {agent}"))
     else:

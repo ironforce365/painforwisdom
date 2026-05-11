@@ -288,76 +288,58 @@ To pick the single dominant theme, ask: what does THIS specific reference (this 
 this paper, this episode) most directly address? Match the reference's content to the
 theme whose core tension it best answers — not all themes that the vault entry touches.
 
-**Sub-theme taxonomy (Phase 3.5 split, 2026-05-11).** Two umbrella themes were
-split into sub-themes. **You MUST pick the sub-theme, never the umbrella.**
+<!-- AUTO-THEMES-START -->
+<!-- DO NOT EDIT — regenerated from pipeline/state/themes.db -->
+<!-- Source: python -m pipeline.scripts.render_curator_taxonomy --apply -->
+
+**Sub-theme taxonomy (sourced from `themes.db`).** Some umbrella themes were split into sub-themes. **You MUST pick the sub-theme, never the dead umbrella.**
 
 Umbrella `comfort-as-default` is DEAD — pick one of:
-- `neurological-basis-of-override` — brain structures (aMCC, dopamine) explaining
-  why effortful choice strengthens or weakens resistance to comfort defaults.
-- `comfort-creep-and-self-deception` — narrative maintenance, cognitive ease,
-  friction-blindness keeping people locked in comfort patterns unnoticed.
-- `procrastination-and-avoidance-mechanics` — mood-regulation and intention-behavior
-  dynamics making postponement the default response to uncomfortable tasks.
-- `deliberate-discomfort-as-practice` — frameworks for voluntarily reintroducing
-  hardship as structured countermeasure to comfort defaults.
-- `motivation-gap-and-habit-formation` — gap between inspiration and action;
-  implementation intentions, habit accumulation, internalized motivation.
-- `failure-response-and-recovery` — post-lapse dynamics (shame, self-compassion,
-  abstinence violation effects) that sustain or entrench comfort defaults.
+- `neurological-basis-of-override` — brain structures (aMCC, dopamine) explaining why effortful choice strengthens or weakens resistance to comfort defaults.
+- `comfort-creep-and-self-deception` — narrative maintenance, cognitive ease, friction-blindness keeping people locked in comfort patterns unnoticed.
+- `procrastination-and-avoidance-mechanics` — mood-regulation and intention-behavior dynamics making postponement the default response to uncomfortable tasks.
+- `deliberate-discomfort-as-practice` — frameworks for voluntarily reintroducing hardship as structured countermeasure to comfort defaults.
+- `motivation-gap-and-habit-formation` — gap between inspiration and action; implementation intentions, habit accumulation, internalized motivation.
+- `failure-response-and-recovery` — post-lapse dynamics (shame, self-compassion, abstinence violation effects) that sustain or entrench comfort defaults.
 
 Umbrella `deliberate-discomfort` is DEAD — pick one of:
-- `neuroscience-of-voluntary-effort` — brain mechanisms (aMCC, central governor,
-  willpower circuitry) explaining why chosen discomfort builds tenacity.
-- `hormesis-and-stress-adaptation` — calibrated doses of stressors producing
-  overcompensation and resilience (physical, thermal, cognitive).
-- `heat-and-physical-hardship-protocols` — specific physical stressors (heat
-  acclimation, rucking, fatigue, sleep deprivation) as trainable inputs.
-- `stoic-and-philosophical-practice` — philosophical traditions (Stoic,
-  Goggins-ian, virtue-ethics) framing voluntary discomfort as discipline.
-- `failure-and-friction-as-diagnostic-tool` — treating adverse outcomes as data
-  to decode and act on rather than avoid.
-- `cognitive-reappraisal-and-reframing` — mental reinterpretation of discomfort,
-  obstacles, or stress so friction becomes signal rather than threat.
+- `neuroscience-of-voluntary-effort` — brain mechanisms (aMCC, central governor, willpower circuitry) explaining why chosen discomfort builds tenacity.
+- `heat-and-physical-hardship-protocols` — specific physical stressors (heat acclimation, rucking, fatigue, sleep deprivation) as trainable inputs.
+- `stoic-and-philosophical-practice` — philosophical traditions (Stoic, Goggins-ian, virtue-ethics) framing voluntary discomfort as discipline.
+- `failure-and-friction-as-diagnostic-tool` — treating adverse outcomes as data to decode and act on rather than avoid.
+- `cognitive-reappraisal-and-reframing` — mental reinterpretation of discomfort, obstacles, or stress so friction becomes signal rather than threat.
+- `hormesis-and-stress-adaptation` — calibrated doses of stressors producing overcompensation and resilience (physical, thermal, cognitive).
 
 Other terminal themes (still pick as-is, no sub-split):
 - `body-literacy` — interoception, fatigue signals, physiological self-reading.
-- `amcc-effect` — specifically the anterior mid-cingulate cortex literature
-  (effortful-choice neural override). Prefer over `neuroscience-of-voluntary-effort`
-  when the reference is directly about aMCC.
-- `strategic-vs-manufactured-suffering` — meaning, cost accounting, ethics of
-  chosen suffering (Frankl, voluntary-suffering decisions).
+- `amcc-effect` — specifically the anterior mid-cingulate cortex literature (effortful-choice neural override). Prefer over `neuroscience-of-voluntary-effort` when the reference is directly about aMCC.
+- `strategic-vs-manufactured-suffering` — meaning, cost accounting, ethics of chosen suffering (Frankl, voluntary-suffering decisions).
 - `naming-the-fear` — articulating specific fears, fear-setting protocols.
 - `preparedness-debt` — cumulative cost of comfort choices over time.
-- Plus organically-grown themes already present in `theme_stats.json` — read it
-  before picking, the saturated/non-saturated annotation is authoritative.
+- Plus organically-grown themes already present in `theme_stats.json` — read it before picking, the saturated/non-saturated annotation is authoritative.
 
 **Priority order when a reference could belong to multiple themes:**
-1. Reference addresses a specific physiological or interoceptive mechanism →
-   `body-literacy`.
-2. Reference is directly about aMCC literature → `amcc-effect`.
-3. Reference is about voluntary-effort neuroscience that is NOT aMCC-specific →
-   `neuroscience-of-voluntary-effort`.
-4. Reference is about meaning, cost, or ethics of chosen suffering →
-   `strategic-vs-manufactured-suffering`.
-5. Reference is about articulating fear → `naming-the-fear`.
-6. Reference is about cumulative comfort-debt → `preparedness-debt`.
-7. Reference describes specific deliberate physical protocols (heat, rucking,
-   sleep dep) → `heat-and-physical-hardship-protocols`.
-8. Reference is grounded in philosophy/Stoicism/identity → `stoic-and-philosophical-practice`.
-9. Reference treats failure as diagnostic data → `failure-and-friction-as-diagnostic-tool`.
-10. Reference is about cognitive reappraisal/reframing → `cognitive-reappraisal-and-reframing`.
-11. Reference is about avoidance patterns specifically →
-    `comfort-creep-and-self-deception` OR `procrastination-and-avoidance-mechanics`
-    (pick whichever fits the mechanism).
-12. Reference is about habit / intention-action gap → `motivation-gap-and-habit-formation`.
-13. Reference is about post-failure recovery dynamics → `failure-response-and-recovery`.
-14. Reference is about hormesis/stress-adaptation as biological principle →
-    `hormesis-and-stress-adaptation`.
+1. Reference addresses a specific physiological or interoceptive mechanism. → `body-literacy`
+2. Reference is directly about aMCC literature. → `amcc-effect`
+3. Reference is about voluntary-effort neuroscience that is NOT aMCC-specific. → `neuroscience-of-voluntary-effort`
+4. Reference is about meaning, cost, or ethics of chosen suffering. → `strategic-vs-manufactured-suffering`
+5. Reference is about articulating fear. → `naming-the-fear`
+6. Reference is about cumulative comfort-debt. → `preparedness-debt`
+7. Reference describes specific deliberate physical protocols (heat, rucking, sleep dep). → `heat-and-physical-hardship-protocols`
+8. Reference is grounded in philosophy/Stoicism/identity. → `stoic-and-philosophical-practice`
+9. Reference treats failure as diagnostic data. → `failure-and-friction-as-diagnostic-tool`
+10. Reference is about cognitive reappraisal/reframing. → `cognitive-reappraisal-and-reframing`
+11. Reference is about hormesis/stress-adaptation as biological principle. → `hormesis-and-stress-adaptation`
+12. Reference is about brain-level resistance to comfort defaults (not aMCC-specific — use `amcc-effect` then). → `neurological-basis-of-override`
+13. Reference is about avoidance patterns specifically — narrative/self-deception flavor. → `comfort-creep-and-self-deception`
+14. Reference is about avoidance patterns specifically — procrastination/postponement flavor. → `procrastination-and-avoidance-mechanics`
+15. Reference is a *framework* for reintroducing hardship as a countermeasure to comfort defaults. → `deliberate-discomfort-as-practice`
+16. Reference is about habit / intention-action gap. → `motivation-gap-and-habit-formation`
+17. Reference is about post-failure recovery dynamics. → `failure-response-and-recovery`
 
-When in doubt: pick the theme whose agent prompt would produce the most specific,
-grounded deep dive for this reference. A precise match beats a broad one.
-Never pick `comfort-as-default` or `deliberate-discomfort` directly — those are
-umbrellas only.
+When in doubt: pick the theme whose agent prompt would produce the most specific, grounded deep dive for this reference. A precise match beats a broad one. Never pick a dead umbrella directly — those route through their sub-themes only.
+
+<!-- AUTO-THEMES-END -->
 
 One row per verified reference. Excluded/unverified references are not included.
 Only after writing, print a one-line confirmation:
