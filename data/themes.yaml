@@ -1,0 +1,168 @@
+# Coaching themes — source of truth for pipeline/state/themes.db.
+#
+# Edit this file to add, remove, or split themes. Then run:
+#   python -m pipeline.scripts.seed_themes_db          # apply to local DB
+#   python -m pipeline.scripts.render_curator_taxonomy --apply  # regen agent prompt
+#
+# Fields per theme:
+#   name           kebab-case canonical name (primary key)
+#   parent         umbrella theme name, or null for top-level
+#   status         active | dead  (dead = split umbrella, never picked directly)
+#   agent          agent name used by notion_research (sub-themes route via parent)
+#   priority       ordering used in the curator priority rules; lower wins
+#   definition     one-line description (rendered into agent prompt)
+#   priority_rule  the rule text shown to the curator
+
+themes:
+- name: body-literacy
+  parent: null
+  status: active
+  agent: body-literacy
+  priority: 1
+  definition: interoception, fatigue signals, physiological self-reading.
+  priority_rule: Reference addresses a specific physiological or interoceptive mechanism.
+- name: amcc-effect
+  parent: null
+  status: active
+  agent: amcc-effect
+  priority: 2
+  definition: specifically the anterior mid-cingulate cortex literature (effortful-choice
+    neural override). Prefer over `neuroscience-of-voluntary-effort` when the reference is
+    directly about aMCC.
+  priority_rule: Reference is directly about aMCC literature.
+- name: strategic-vs-manufactured-suffering
+  parent: null
+  status: active
+  agent: strategic-vs-manufactured-suffering
+  priority: 4
+  definition: meaning, cost accounting, ethics of chosen suffering (Frankl, voluntary-suffering
+    decisions).
+  priority_rule: Reference is about meaning, cost, or ethics of chosen suffering.
+- name: naming-the-fear
+  parent: null
+  status: active
+  agent: naming-the-fear
+  priority: 5
+  definition: articulating specific fears, fear-setting protocols.
+  priority_rule: Reference is about articulating fear.
+- name: preparedness-debt
+  parent: null
+  status: active
+  agent: preparedness-debt
+  priority: 6
+  definition: cumulative cost of comfort choices over time.
+  priority_rule: Reference is about cumulative comfort-debt.
+- name: comfort-as-default
+  parent: null
+  status: dead
+  agent: comfort-as-default
+  priority: 999
+  definition: DEAD umbrella (split 2026-05-11). Never pick directly — use a sub-theme.
+  priority_rule: (dead umbrella — never picked directly)
+- name: neurological-basis-of-override
+  parent: comfort-as-default
+  status: active
+  agent: comfort-as-default
+  priority: 20
+  definition: brain structures (aMCC, dopamine) explaining why effortful choice strengthens
+    or weakens resistance to comfort defaults.
+  priority_rule: Reference is about brain-level resistance to comfort defaults (not aMCC-specific
+    — use `amcc-effect` then).
+- name: comfort-creep-and-self-deception
+  parent: comfort-as-default
+  status: active
+  agent: comfort-as-default
+  priority: 21
+  definition: narrative maintenance, cognitive ease, friction-blindness keeping people locked
+    in comfort patterns unnoticed.
+  priority_rule: Reference is about avoidance patterns specifically — narrative/self-deception
+    flavor.
+- name: procrastination-and-avoidance-mechanics
+  parent: comfort-as-default
+  status: active
+  agent: comfort-as-default
+  priority: 22
+  definition: mood-regulation and intention-behavior dynamics making postponement the default
+    response to uncomfortable tasks.
+  priority_rule: Reference is about avoidance patterns specifically — procrastination/postponement
+    flavor.
+- name: deliberate-discomfort-as-practice
+  parent: comfort-as-default
+  status: active
+  agent: comfort-as-default
+  priority: 23
+  definition: frameworks for voluntarily reintroducing hardship as structured countermeasure
+    to comfort defaults.
+  priority_rule: Reference is a *framework* for reintroducing hardship as a countermeasure
+    to comfort defaults.
+- name: motivation-gap-and-habit-formation
+  parent: comfort-as-default
+  status: active
+  agent: comfort-as-default
+  priority: 24
+  definition: gap between inspiration and action; implementation intentions, habit accumulation,
+    internalized motivation.
+  priority_rule: Reference is about habit / intention-action gap.
+- name: failure-response-and-recovery
+  parent: comfort-as-default
+  status: active
+  agent: comfort-as-default
+  priority: 25
+  definition: post-lapse dynamics (shame, self-compassion, abstinence violation effects) that
+    sustain or entrench comfort defaults.
+  priority_rule: Reference is about post-failure recovery dynamics.
+- name: deliberate-discomfort
+  parent: null
+  status: dead
+  agent: deliberate-discomfort
+  priority: 999
+  definition: DEAD umbrella (split 2026-05-11). Never pick directly — use a sub-theme.
+  priority_rule: (dead umbrella — never picked directly)
+- name: neuroscience-of-voluntary-effort
+  parent: deliberate-discomfort
+  status: active
+  agent: deliberate-discomfort
+  priority: 3
+  definition: brain mechanisms (aMCC, central governor, willpower circuitry) explaining why
+    chosen discomfort builds tenacity.
+  priority_rule: Reference is about voluntary-effort neuroscience that is NOT aMCC-specific.
+- name: hormesis-and-stress-adaptation
+  parent: deliberate-discomfort
+  status: active
+  agent: deliberate-discomfort
+  priority: 14
+  definition: calibrated doses of stressors producing overcompensation and resilience (physical,
+    thermal, cognitive).
+  priority_rule: Reference is about hormesis/stress-adaptation as biological principle.
+- name: heat-and-physical-hardship-protocols
+  parent: deliberate-discomfort
+  status: active
+  agent: deliberate-discomfort
+  priority: 7
+  definition: specific physical stressors (heat acclimation, rucking, fatigue, sleep deprivation)
+    as trainable inputs.
+  priority_rule: Reference describes specific deliberate physical protocols (heat, rucking,
+    sleep dep).
+- name: stoic-and-philosophical-practice
+  parent: deliberate-discomfort
+  status: active
+  agent: deliberate-discomfort
+  priority: 8
+  definition: philosophical traditions (Stoic, Goggins-ian, virtue-ethics) framing voluntary
+    discomfort as discipline.
+  priority_rule: Reference is grounded in philosophy/Stoicism/identity.
+- name: failure-and-friction-as-diagnostic-tool
+  parent: deliberate-discomfort
+  status: active
+  agent: deliberate-discomfort
+  priority: 9
+  definition: treating adverse outcomes as data to decode and act on rather than avoid.
+  priority_rule: Reference treats failure as diagnostic data.
+- name: cognitive-reappraisal-and-reframing
+  parent: deliberate-discomfort
+  status: active
+  agent: deliberate-discomfort
+  priority: 10
+  definition: mental reinterpretation of discomfort, obstacles, or stress so friction becomes
+    signal rather than threat.
+  priority_rule: Reference is about cognitive reappraisal/reframing.

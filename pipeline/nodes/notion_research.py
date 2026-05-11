@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from pipeline.contracts import assert_inputs
+from pipeline import themes_db
 from pipeline.notion_client import (
     _divider,
     _heading_2,
@@ -28,15 +29,19 @@ from pipeline.runtime import append_metric, run_telemetry_path
 from pipeline.state import State
 
 
-_THEME_TO_AGENT = {
-    "deliberate-discomfort": "deliberate-discomfort",
-    "body-literacy": "body-literacy",
-    "comfort-as-default": "comfort-as-default",
-    "naming-the-fear": "naming-the-fear",
-    "preparedness-debt": "preparedness-debt",
-    "strategic-vs-manufactured-suffering": "strategic-vs-manufactured-suffering",
-    "amcc-effect": "amcc-effect",
-}
+def _resolve_agent(theme: str) -> str | None:
+    """Look up theme → agent from the themes DB.
+
+    Sub-themes route to their parent umbrella's agent (see `themes_db.get_agent`).
+    Returns `None` for themes not in the DB so the caller can render the
+    "NEW THEME" warning."""
+    if not theme:
+        return None
+    conn = themes_db.connect()
+    try:
+        return themes_db.get_agent(conn, theme)
+    finally:
+        conn.close()
 
 
 def _read_story_anchor(vault_entry_path: str) -> str:
@@ -80,7 +85,7 @@ def _build_body_blocks(
     blocks.extend(text_to_blocks(prompt_text))
     blocks.append(_divider())
 
-    agent = _THEME_TO_AGENT.get(coaching_theme)
+    agent = _resolve_agent(coaching_theme)
     if agent:
         blocks.append(_paragraph(f"Agent: {agent}"))
     else:
@@ -155,6 +160,9 @@ def node_notion_research(state: State) -> Dict[str, Any]:
                 paywall=paywall,
                 vault_entry=vault_entry_slug,
             )
+            reachable = (row.get("Reachable", "") or "").strip().lower()
+            if reachable not in ("yes", "no", "unknown"):
+                reachable = "yes"  # default for legacy rows pre-Phase-3b CSV
             page = create_research_task(
                 title=row.get("Title", "(untitled)"),
                 ref_type=row.get("Type", "Article"),
@@ -169,6 +177,8 @@ def node_notion_research(state: State) -> Dict[str, Any]:
                 coaching_theme=row.get("Coaching Theme", ""),
                 vault_entry=vault_entry_slug,
                 body_blocks=blocks,
+                reachable=reachable,
+                reachability_reason=row.get("Reachability Reason", ""),
             )
             pid = page_id(page)
             # Soft fetch-back to confirm body landed
