@@ -8,7 +8,9 @@ Usage:
 Three input sources, mutually exclusive:
 - ``--video <path>`` — single video, full pipeline (Whisper → ... → Notion).
 - ``--dir <path>`` — directory of videos, processed sequentially. After each
-  video, success → ``<dir>/processed/``, failure → ``<dir>/quarantine/``.
+  video, success archives the source to
+  ``<project>/processed/<run_id>/source/`` (next to that run's agent outputs)
+  and failure moves it to ``<dir>/quarantine/`` for re-running.
 - ``--from-transcript <path>`` — feed a checked-in transcript file directly
   into the ``extract`` stage. Skips Whisper. Used for sandbox smoke tests.
 
@@ -320,7 +322,6 @@ def _run_batch(args: argparse.Namespace) -> int:
     if not videos:
         raise SystemExit(f"no videos in {videos_dir}")
 
-    processed_dir = videos_dir / "processed"
     quarantine_dir = videos_dir / "quarantine"
 
     print(f"[batch] {len(videos)} videos in {videos_dir}")
@@ -344,7 +345,10 @@ def _run_batch(args: argparse.Namespace) -> int:
             print(f"[batch] EXCEPTION on {video.name}: {err_msg}")
 
         if rc == 0:
-            moved = _move_into(video, processed_dir)
+            # Archive the source video alongside the run's agent outputs so
+            # everything that produced one result lives in one folder.
+            archive_dir = PROJECT_ROOT / "processed" / run_id / "source"
+            moved = _move_into(video, archive_dir)
             successes.append(video.name)
             print(f"[batch] OK → {moved}")
         else:
