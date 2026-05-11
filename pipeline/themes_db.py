@@ -1,9 +1,15 @@
-"""Themes registry — sqlite source of truth for coaching themes + sub-themes.
+"""Themes registry — sqlite cache over the canonical YAML source.
 
-Replaces the previously static `_THEME_TO_AGENT` dict in
-`pipeline.nodes.notion_research` and the inline taxonomy in
-`.claude/agents/research-curator.md`. Both now read from this DB so adding
-or splitting a theme is a one-step operation.
+`data/themes.yaml` is the tracked source of truth. The sqlite DB at
+`pipeline/state/themes.db` is a derived index used by:
+- `pipeline.nodes.notion_research._resolve_agent` (theme → agent routing)
+- `pipeline.scripts.render_curator_taxonomy` (regenerates the
+  `.claude/agents/research-curator.md` taxonomy block)
+
+`pipeline/state/` is gitignored, so the DB rebuilds itself from the YAML
+on first `connect()` (auto-seed). Edit YAML, then either re-`connect()`
+to a fresh DB or run `python -m pipeline.scripts.seed_themes_db` against
+an existing DB to upsert.
 
 Schema (single table; rows describe both umbrellas and sub-themes):
 
@@ -19,8 +25,9 @@ Schema (single table; rows describe both umbrellas and sub-themes):
       created_at    TEXT NOT NULL
     )
 
-Path override: `PAINFORWISDOM_THEMES_DB` env var.
-Default: `<project>/pipeline/state/themes.db`.
+Env overrides:
+- `PAINFORWISDOM_THEMES_DB`  — override DB path (default: pipeline/state/themes.db)
+- `PAINFORWISDOM_THEMES_YAML` — override YAML path (default: data/themes.yaml)
 """
 from __future__ import annotations
 
@@ -31,14 +38,22 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Optional
 
+import yaml
+
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DB_PATH = PROJECT_ROOT / "pipeline" / "state" / "themes.db"
+DEFAULT_YAML_PATH = PROJECT_ROOT / "data" / "themes.yaml"
 
 
 def _db_path() -> Path:
     override = os.environ.get("PAINFORWISDOM_THEMES_DB", "").strip()
     return Path(override) if override else DEFAULT_DB_PATH
+
+
+def _yaml_path() -> Path:
+    override = os.environ.get("PAINFORWISDOM_THEMES_YAML", "").strip()
+    return Path(override) if override else DEFAULT_YAML_PATH
 
 
 _SCHEMA_SQL = """
@@ -81,8 +96,8 @@ def connect(path: Optional[Path] = None, *, auto_seed: bool = True) -> sqlite3.C
 
     `pipeline/state/` is gitignored, so the DB file is regenerated per host
     on first connect. When `auto_seed` is True (default), an empty table is
-    populated from `pipeline.themes_seed.SEED` so a fresh checkout works
-    without a manual setup step.
+    populated from `data/themes.yaml` (the tracked source of truth) so a
+    fresh checkout works without a manual setup step.
     """
     p = path or _db_path()
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -99,11 +114,43 @@ def _maybe_auto_seed(conn: sqlite3.Connection) -> None:
     count = conn.execute("SELECT COUNT(*) FROM themes").fetchone()[0]
     if count > 0:
         return
-    # Local import: themes_seed depends on `Theme` from this module — keep the
-    # import deferred to avoid an import cycle at module load.
-    from pipeline.themes_seed import SEED
+    upsert_many(conn, load_yaml_seed())
 
-    upsert_many(conn, SEED)
+
+def load_yaml_seed(path: Optional[Path] = None) -> list[Theme]:
+    """Read the canonical theme list from data/themes.yaml.
+
+    Raises if the file is missing or malformed — callers expect the YAML
+    to be tracked in git and present in every checkout.
+    """
+    p = path or _yaml_path()
+    if not p.exists():
+        raise FileNotFoundError(
+            f"themes YAML not found at {p}. Set PAINFORWISDOM_THEMES_YAML or "
+            f"restore data/themes.yaml from git."
+        )
+    raw = yaml.safe_load(p.read_text()) or {}
+    rows = raw.get("themes")
+    if not isinstance(rows, list) or not rows:
+        raise ValueError(f"themes YAML at {p} has no `themes:` list")
+    out: list[Theme] = []
+    required = {"name", "status", "agent", "priority", "definition", "priority_rule"}
+    for i, row in enumerate(rows):
+        missing = required - row.keys()
+        if missing:
+            raise ValueError(f"themes YAML row {i}: missing fields {sorted(missing)}")
+        out.append(
+            Theme(
+                name=row["name"],
+                parent=row.get("parent"),
+                status=row["status"],
+                agent=row["agent"],
+                definition=row["definition"],
+                priority=int(row["priority"]),
+                priority_rule=row["priority_rule"],
+            )
+        )
+    return out
 
 
 def upsert(conn: sqlite3.Connection, theme: Theme) -> None:

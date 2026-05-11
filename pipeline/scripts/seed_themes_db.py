@@ -1,10 +1,10 @@
-"""Re-apply the canonical theme taxonomy to themes.db.
+"""Re-apply data/themes.yaml to themes.db.
 
-The DB auto-seeds itself on first connect (see `pipeline.themes_db.connect`),
-so this script is only needed when:
-- The seed list in `pipeline/themes_seed.py` was edited and the DB already
-  exists; running this script upserts the changes.
-- The operator wants to verify the DB matches the in-code source of truth.
+The DB auto-seeds itself from the YAML on first connect (see
+`pipeline.themes_db.connect`), so this script is only needed when:
+- `data/themes.yaml` was edited *and* the DB already exists on this host —
+  the upsert applies the diff.
+- The operator wants to verify the DB matches the YAML.
 
 Idempotent. Usage:
 
@@ -14,21 +14,21 @@ from __future__ import annotations
 
 import sys
 
-from pipeline.themes_db import connect, upsert_many
-from pipeline.themes_seed import SEED
+from pipeline.themes_db import connect, load_yaml_seed, upsert_many
 
 
 def main(_argv: list[str]) -> int:
+    seed = load_yaml_seed()
     conn = connect(auto_seed=False)
     try:
-        upsert_many(conn, SEED)
+        upsert_many(conn, seed)
         active = conn.execute(
             "SELECT COUNT(*) FROM themes WHERE status='active'"
         ).fetchone()[0]
         dead = conn.execute(
             "SELECT COUNT(*) FROM themes WHERE status='dead'"
         ).fetchone()[0]
-        print(f"✓ themes.db seeded: {active} active + {dead} dead = {active + dead} total")
+        print(f"✓ themes.db seeded from data/themes.yaml: {active} active + {dead} dead = {active + dead} total")
     finally:
         conn.close()
     return 0
