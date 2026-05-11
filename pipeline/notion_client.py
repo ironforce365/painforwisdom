@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import os
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
 from notion_client import Client
 
@@ -130,9 +130,16 @@ def create_research_task(
     coaching_theme: str,
     vault_entry: str,
     body_blocks: List[Dict[str, Any]],
+    reachable: str = "yes",
+    reachability_reason: str = "",
+    alt_source_url: str = "",
 ) -> Dict[str, Any]:
     """Create a 'Research Tasks' page. Caller assembles body blocks via the
-    helpers above (heading_2 / paragraph / divider)."""
+    helpers above (heading_2 / paragraph / divider).
+
+    Phase 2a added Reachable, Reachability Reason, Alt Source URL. They default
+    to yes / empty / empty so older call sites stay green; Phase 3b fills them.
+    """
     client = get_client()
     properties: Dict[str, Any] = {
         "Title": {"title": [{"text": {"content": title}}]},
@@ -150,6 +157,14 @@ def create_research_task(
     }
     if source_url:
         properties["Source URL"] = {"url": source_url}
+    if reachable in ("yes", "no", "unknown"):
+        properties["Reachable"] = {"select": {"name": reachable}}
+    if reachability_reason:
+        properties["Reachability Reason"] = {
+            "rich_text": [{"text": {"content": reachability_reason[:1900]}}]
+        }
+    if alt_source_url:
+        properties["Alt Source URL"] = {"url": alt_source_url}
 
     page = client.pages.create(
         parent={"type": "data_source_id", "data_source_id": RESEARCH_DATA_SOURCE_ID},
@@ -166,6 +181,65 @@ def page_url(page: Dict[str, Any]) -> str:
 
 def page_id(page: Dict[str, Any]) -> str:
     return page.get("id", "") or ""
+
+
+def query_research_tasks(
+    *,
+    filter: Optional[Dict[str, Any]] = None,
+    page_size: int = 100,
+) -> Iterator[Dict[str, Any]]:
+    """Paginated query of the Research Tasks data source.
+
+    Yields raw Notion page dicts. Use `extract_property` to read values out of
+    `page["properties"]`. No filter = every row in the DB.
+    """
+    client = get_client()
+    cursor: Optional[str] = None
+    while True:
+        params: Dict[str, Any] = {
+            "data_source_id": RESEARCH_DATA_SOURCE_ID,
+            "page_size": page_size,
+        }
+        if filter:
+            params["filter"] = filter
+        if cursor:
+            params["start_cursor"] = cursor
+        resp = client.data_sources.query(**params)
+        for page in resp.get("results", []):
+            yield page
+        if not resp.get("has_more"):
+            return
+        cursor = resp.get("next_cursor")
+        time.sleep(_PACE_SECONDS)
+
+
+def extract_property(page: Dict[str, Any], name: str) -> Any:
+    """Pull a typed scalar out of a Notion page's properties dict.
+
+    Returns "" for missing/empty values. Booleans for checkboxes. Strings for
+    title/rich_text/select/url. None for unknown types — caller decides.
+    """
+    prop = page.get("properties", {}).get(name)
+    if prop is None:
+        return ""
+    ptype = prop.get("type")
+    if ptype == "title":
+        return "".join(t.get("plain_text", "") for t in prop.get("title", []))
+    if ptype == "rich_text":
+        return "".join(t.get("plain_text", "") for t in prop.get("rich_text", []))
+    if ptype == "select":
+        sel = prop.get("select")
+        return sel.get("name", "") if sel else ""
+    if ptype == "multi_select":
+        return [s.get("name", "") for s in prop.get("multi_select", [])]
+    if ptype == "url":
+        return prop.get("url") or ""
+    if ptype == "checkbox":
+        return bool(prop.get("checkbox", False))
+    if ptype == "date":
+        d = prop.get("date")
+        return d.get("start", "") if d else ""
+    return None
 
 
 def fetch_page_blocks(page_id_str: str) -> List[Dict[str, Any]]:

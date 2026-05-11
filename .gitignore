@@ -21,3 +21,16 @@ poc/runs.jsonl
 __pycache__/
 *.pyc
 *.pyo
+
+# Daily summarizer runtime artifacts (Phase 2-6 of look-at-my-notion-serialized-donut)
+# books/ = raw + extracted book text from z-library + curated copies
+# briefs/ = generated daily brief markdown bundles
+# reports/ = audit + augment + run telemetry
+# pipeline/state/ = theme_stats.json + per-theme dedupe caches
+books/
+briefs/
+bulk/
+reports/
+pipeline/state/
+pipeline/checkpoints.db-wal
+pipeline/checkpoints.db-shm

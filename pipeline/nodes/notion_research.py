@@ -28,7 +28,12 @@ from pipeline.runtime import append_metric, run_telemetry_path
 from pipeline.state import State
 
 
+# Umbrella themes map to their own agent. Sub-themes (produced by Phase 3.5
+# split) route back to the umbrella agent — same deep-dive treatment, finer
+# clustering. When a brand-new theme appears (no parent here), the block
+# below renders a "NEW THEME" warning for the operator.
 _THEME_TO_AGENT = {
+    # umbrella themes
     "deliberate-discomfort": "deliberate-discomfort",
     "body-literacy": "body-literacy",
     "comfort-as-default": "comfort-as-default",
@@ -36,6 +41,20 @@ _THEME_TO_AGENT = {
     "preparedness-debt": "preparedness-debt",
     "strategic-vs-manufactured-suffering": "strategic-vs-manufactured-suffering",
     "amcc-effect": "amcc-effect",
+    # comfort-as-default sub-themes (Phase 3.5 split 2026-05-11)
+    "neurological-basis-of-override": "comfort-as-default",
+    "comfort-creep-and-self-deception": "comfort-as-default",
+    "procrastination-and-avoidance-mechanics": "comfort-as-default",
+    "deliberate-discomfort-as-practice": "comfort-as-default",
+    "motivation-gap-and-habit-formation": "comfort-as-default",
+    "failure-response-and-recovery": "comfort-as-default",
+    # deliberate-discomfort sub-themes (Phase 3.5 split 2026-05-11)
+    "neuroscience-of-voluntary-effort": "deliberate-discomfort",
+    "hormesis-and-stress-adaptation": "deliberate-discomfort",
+    "heat-and-physical-hardship-protocols": "deliberate-discomfort",
+    "stoic-and-philosophical-practice": "deliberate-discomfort",
+    "failure-and-friction-as-diagnostic-tool": "deliberate-discomfort",
+    "cognitive-reappraisal-and-reframing": "deliberate-discomfort",
 }
 
 
@@ -155,6 +174,9 @@ def node_notion_research(state: State) -> Dict[str, Any]:
                 paywall=paywall,
                 vault_entry=vault_entry_slug,
             )
+            reachable = (row.get("Reachable", "") or "").strip().lower()
+            if reachable not in ("yes", "no", "unknown"):
+                reachable = "yes"  # default for legacy rows pre-Phase-3b CSV
             page = create_research_task(
                 title=row.get("Title", "(untitled)"),
                 ref_type=row.get("Type", "Article"),
@@ -169,6 +191,8 @@ def node_notion_research(state: State) -> Dict[str, Any]:
                 coaching_theme=row.get("Coaching Theme", ""),
                 vault_entry=vault_entry_slug,
                 body_blocks=blocks,
+                reachable=reachable,
+                reachability_reason=row.get("Reachability Reason", ""),
             )
             pid = page_id(page)
             # Soft fetch-back to confirm body landed
