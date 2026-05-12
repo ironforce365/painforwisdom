@@ -127,6 +127,32 @@ definition: >-
 ---kb-plan---
 ```
 
+### Handling PRIOR APPROVAL EXCHANGE replies
+
+When a `## PRIOR APPROVAL EXCHANGE` block is present in the user message,
+Gonzalo's reply is NOT restricted to `yes` / `no` / `<slug>`. It may be a
+free-form sentence with refinement requests. Interpret it like a thoughtful
+collaborator:
+
+- Plain `yes` (or clear approval w/ no changes) → emit PROCEED with the
+  proposed slug, building entry/theme/framework bodies normally.
+- Plain `no` (or clear rejection) → emit PROCEED reassigning to the closest
+  existing theme/framework; do not request a new one.
+- A bare kebab-case slug (e.g. `resistance-practice`) → emit PROCEED with
+  that slug instead of the original.
+- Anything else (a sentence, a question, a suggestion to broaden/narrow
+  scope, rename, reframe core tension, drop a constraint like "daily",
+  etc.) → treat it as REFINEMENT FEEDBACK. Emit another
+  `NEEDS_APPROVAL_THEME` / `NEEDS_APPROVAL_FRAMEWORK` with the proposal
+  updated to reflect the feedback (revised slug if the rename is implied,
+  revised `reason`, revised `core_tension` or `definition`). Do not assume
+  approval — Gonzalo will confirm or keep iterating on the next turn.
+- If Gonzalo asks a clarifying question, the refined re-proposal should
+  answer it in the `reason` / `core_tension` (or `definition`) fields.
+
+Never silently ignore refinement feedback. Never PROCEED with the original
+proposal after a conversational reply that asked for changes — re-propose.
+
 Rules:
 - Use only theme/framework slugs that already exist UNLESS proposing a new one.
 - Slugs are kebab-case lowercase, hyphen-separated.
@@ -327,6 +353,17 @@ def _apply_proceed(state: State, plan: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+_REPLY_HINT = (
+    "Reply freely. Examples:\n"
+    "  • `yes` — approve as-is\n"
+    "  • `no` — skip and attach to closest existing item\n"
+    "  • `<alternative-slug>` — rename it\n"
+    "  • any sentence with refinements (scope, framing, core tension,\n"
+    "    naming, what to drop/add) — the curator will re-propose with\n"
+    "    your feedback applied, and pause again for you to confirm."
+)
+
+
 def _proposal_text(plan: Dict[str, Any]) -> str:
     if plan["action"] == "NEEDS_APPROVAL_THEME":
         return (
@@ -334,14 +371,14 @@ def _proposal_text(plan: Dict[str, Any]) -> str:
             f"Proposed: {plan.get('proposed_theme')}\n"
             f"Reason: {plan.get('reason')}\n"
             f"Core tension: {plan.get('core_tension')}\n\n"
-            "Reply: yes / no / <alternative-slug>"
+            f"{_REPLY_HINT}"
         )
     return (
         "⚠️ NEW FRAMEWORK — approval required\n"
         f"Proposed: {plan.get('proposed_framework')}\n"
         f"Reason: {plan.get('reason')}\n"
         f"Definition: {plan.get('definition')}\n\n"
-        "Reply: yes / no / <alternative-slug>"
+        f"{_REPLY_HINT}"
     )
 
 

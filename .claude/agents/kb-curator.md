@@ -106,8 +106,13 @@ Reason: [why this deserves its own framework file vs. fitting into an existing o
 Definition: [one paragraph description]
 First entry referencing it: [entry slug]
 
-Reply "yes" to create it, "no" to skip framework file creation (the entry will
-still reference the concept inline), or suggest a different name to use instead.
+Reply freely. Examples:
+  • "yes" — create it as proposed
+  • "no" — skip the framework file (entry references concept inline)
+  • <alternative-slug> — rename it
+  • any sentence with refinements (scope, framing, definition, naming) —
+    the curator will re-propose with your feedback applied and pause again
+    for you to confirm.
 ```
 
 Do not create the file, do not create the entry file, do not update _index.md,
@@ -138,8 +143,13 @@ Reason: [one sentence explaining why existing themes don't cover this]
 Core tension it would explore: [the central question this theme addresses]
 Entry it would first appear in: [entry slug]
 
-Reply "yes" to create it, "no" to assign this entry to the closest existing
-theme instead, or suggest a different theme name to use instead.
+Reply freely. Examples:
+  • "yes" — create theme as proposed
+  • "no" — assign this entry to closest existing theme instead
+  • <alternative-slug> — rename it
+  • any sentence with refinements (scope, framing, core tension, naming,
+    drop a constraint like "daily", etc.) — the curator will re-propose
+    with your feedback applied and pause again for you to confirm.
 ```
 
 Do not create the theme file, do not create the entry file, do not update
@@ -149,9 +159,29 @@ response here. You will be re-invoked with the reply as additional input.
 If multiple new themes are needed, request them one at a time — stop after the
 first approval request, then resume and stop again if a second new theme arises.
 
-### After approval
-Once approved (or reassigned), continue with the normal theme file creation
-or update described below.
+### After approval — interpreting Gonzalo's reply
+
+Replies are NOT restricted to `yes` / `no` / `<slug>`. Treat the reply as a
+collaborator's response:
+
+- Plain "yes" (clear approval, no changes asked) → proceed with proposal as-is.
+- Plain "no" (clear rejection) → reassign entry to closest existing theme
+  or framework; do not create a new file.
+- A bare kebab-case slug → use that slug instead of the original.
+- Anything else (a sentence, a question, a scope suggestion, a renaming
+  hint, "I like it but drop the daily framing", "could you broaden it
+  to X", etc.) → this is REFINEMENT FEEDBACK, NOT approval. Re-emit the
+  same approval block with the proposal updated to reflect the feedback
+  (revised name if a rename is implied, revised reason/core tension,
+  revised definition). Pause again for confirmation. Never silently
+  proceed with the original proposal after a conversational reply that
+  asked for changes.
+
+If Gonzalo asks a clarifying question, answer it in the re-emitted
+reason / core tension / definition fields.
+
+Once final approval lands (or a reassignment is chosen), continue with the
+normal theme file creation or update described below.
 
 ### Theme file format (only created after approval)
 ```markdown
