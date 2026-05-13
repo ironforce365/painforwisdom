@@ -24,9 +24,11 @@ from pipeline.runtime import append_metric  # noqa: E402
 from pipeline.summarize_daily.brief_writer import write_brief  # noqa: E402
 from pipeline.summarize_daily.clusterer import (  # noqa: E402
     Cluster,
+    MIN_ROWS_PER_BRIEF,
     fetch_pending_rows,
     pick_cluster,
 )
+from pipeline.summarize_daily.fetcher import FetchError  # noqa: E402
 from pipeline.summarize_daily.notion_state import mark_summarized  # noqa: E402
 
 
@@ -83,8 +85,42 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     print(f"\n=== Building brief: {cluster.theme} / {cluster.sub_angle} ===")
-    cluster_dir = write_brief(cluster)
+    try:
+        cluster_dir, skipped = write_brief(cluster)
+    except FetchError as exc:
+        # All sources failed — no brief is possible. Tell the user on Telegram
+        # so it does not silently fail (the original bug).
+        print(f"!! Brief aborted: {exc}")
+        _send_fetch_failure_telegram(
+            cluster,
+            skipped=[{"url": r.get("alt_source_url") or r.get("source_url", ""),
+                      "title": r.get("title", ""), "error": "all-rows-failed"}
+                     for r in cluster.rows],
+            aborted=True,
+        )
+        return 1
     print(f"Brief written: {cluster_dir}")
+    if skipped:
+        print(f"!! Skipped {len(skipped)} unreachable sources:")
+        for s in skipped:
+            print(f"   - {s['title'][:60]}  {s['url']}  ({s['error']})")
+        # Filter cluster.rows down to survivors before Notion marking so we
+        # don't mark a failed source as Summarized.
+        surviving_urls = {
+            s["url"] for s in [
+                {"url": (r.get("alt_source_url") or r.get("source_url") or "")}
+                for r in cluster.rows
+            ]
+        } - {s["url"] for s in skipped}
+        cluster.rows = [
+            r for r in cluster.rows
+            if (r.get("alt_source_url") or r.get("source_url") or "") in surviving_urls
+        ]
+        if len(cluster.rows) < MIN_ROWS_PER_BRIEF:
+            print(
+                f"!! Only {len(cluster.rows)} source(s) survived (< MIN={MIN_ROWS_PER_BRIEF}); "
+                "still publishing what we have but flagging the brief."
+            )
 
     notebooklm_url = ""
     if args.mcp_publish:
@@ -116,7 +152,7 @@ def main(argv: list[str] | None = None) -> int:
     for e in errors:
         print(f"  ! {e['page_id']}: {e['error']}")
 
-    _send_telegram(cluster, cluster_dir, notebooklm_url, ok, len(errors))
+    _send_telegram(cluster, cluster_dir, notebooklm_url, ok, len(errors), skipped=skipped)
 
     append_metric(
         DAILY_LOG,
@@ -155,6 +191,7 @@ def _send_telegram(
     notebooklm_url: str,
     notion_ok: int,
     notion_fail: int,
+    skipped: list[dict] | None = None,
 ) -> None:
     try:
         from pipeline.telegram import send  # noqa: WPS433 (local import: optional dep)
@@ -162,23 +199,62 @@ def _send_telegram(
         print(f"!! Telegram import failed: {exc}")
         return
 
+    skipped = skipped or []
     summary = _summary_50w(cluster_dir, cluster)
     lines = [
         f"📚 Daily brief — {cluster.theme}",
         f"Sub-angle: {cluster.sub_angle}",
         f"Sources: {len(cluster.rows)} | Notion: {notion_ok} ok / {notion_fail} fail",
-        "",
-        summary,
-        "",
     ]
+    if skipped:
+        lines.append(f"⚠️ Skipped {len(skipped)} unreachable source(s) — see below.")
+    lines.extend(["", summary, ""])
     if notebooklm_url:
         lines.append(f"NotebookLM ▶ {notebooklm_url}")
     else:
         lines.append(f"Cluster dir: {cluster_dir.relative_to(PROJECT_ROOT)}")
+    if skipped:
+        lines.append("")
+        lines.append("Skipped sources:")
+        for s in skipped:
+            lines.append(f"• {s.get('title','')[:60]} — {s.get('error','')}")
+            lines.append(f"  {s.get('url','')}")
+        lines.append("")
+        lines.append("To ban permanently: add the URL to config/fetch_denylist.txt.")
     text = "\n".join(lines)
     try:
         rc = send(text)
         print(f"Telegram send rc={rc}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"!! Telegram send failed: {exc}")
+
+
+def _send_fetch_failure_telegram(
+    cluster: Cluster,
+    skipped: list[dict],
+    aborted: bool,
+) -> None:
+    """Notify when fetch errors block the brief (full or partial)."""
+    try:
+        from pipeline.telegram import send  # noqa: WPS433
+    except Exception as exc:  # noqa: BLE001
+        print(f"!! Telegram import failed: {exc}")
+        return
+    header = "❌ Daily brief ABORTED" if aborted else "⚠️ Daily brief — fetch failures"
+    lines = [
+        header,
+        f"Theme: {cluster.theme}  /  sub-angle: {cluster.sub_angle}",
+        f"Failed sources: {len(skipped)} / {len(cluster.rows)}",
+        "",
+    ]
+    for s in skipped:
+        lines.append(f"• {s.get('title','')[:60]} — {s.get('error','')}")
+        lines.append(f"  {s.get('url','')}")
+    lines.append("")
+    lines.append("Ban a URL: add it to config/fetch_denylist.txt.")
+    try:
+        rc = send("\n".join(lines))
+        print(f"Telegram send (failure) rc={rc}")
     except Exception as exc:  # noqa: BLE001
         print(f"!! Telegram send failed: {exc}")
 

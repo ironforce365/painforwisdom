@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from pipeline.notion_client import extract_property, query_research_tasks
+from pipeline.summarize_daily.fetcher import is_denylisted
 
 
 MAX_ROWS_PER_BRIEF = 3
@@ -61,6 +62,8 @@ def fetch_pending_rows() -> List[Dict[str, Any]]:
         if r["status"] != "To Read/Listen":
             continue
         if r["reachable"] != "yes":
+            continue
+        if is_denylisted(_effective_url(r)):
             continue
         rows.append(r)
     return rows

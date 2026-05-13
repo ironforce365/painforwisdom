@@ -184,7 +184,82 @@ All pipeline events go to Telegram. The pipeline pauses indefinitely at:
 
 ---
 
-## 8. File / directory reference
+## 8. Scheduled jobs (systemd user units)
+
+Background automations run via **systemd --user**. `crontab -l` is empty by design — do not look there.
+
+| Unit | Schedule | What it does |
+|------|----------|--------------|
+| `painforwisdom-daily-brief.timer` → `painforwisdom-daily-brief.service` | Daily 06:00 local | `python -m pipeline.summarize_daily --apply --mcp-publish --max-cost-usd 1.0` — picks one cluster from Notion Research queue → builds brief at `briefs/<theme>/<date>--<sub-slug>/` → uploads to NotebookLM → posts Telegram summary. |
+
+Unit files: `~/.config/systemd/user/painforwisdom-daily-brief.{service,timer}`.
+
+### Inspect
+
+```bash
+# Confirm timer is armed and see last/next fire times
+systemctl --user list-timers | grep painforwisdom
+
+# Last exit status (Active=activating means restart loop in flight)
+systemctl --user status painforwisdom-daily-brief.service --no-pager
+
+# Tail logs (today, last 200 lines)
+journalctl --user -u painforwisdom-daily-brief.service --since today -n 200 --no-pager
+
+# Show unit file contents
+systemctl --user cat painforwisdom-daily-brief.service painforwisdom-daily-brief.timer
+```
+
+### Manual run / reset
+
+```bash
+# Stop a restart loop (service has Restart=on-failure / RestartSec=300 / StartLimitBurst=1)
+systemctl --user stop painforwisdom-daily-brief.service
+
+# Fire it now as a one-shot (writes to journal, same as scheduled run)
+systemctl --user start painforwisdom-daily-brief.service
+
+# Disable / re-enable the daily timer
+systemctl --user disable --now painforwisdom-daily-brief.timer
+systemctl --user enable  --now painforwisdom-daily-brief.timer
+```
+
+### Symptom: "no daily Telegram brief / no new NotebookLM today"
+
+| Check | Command | Meaning |
+|-------|---------|---------|
+| Did the timer fire? | `systemctl --user list-timers \| grep painforwisdom` | `LAST` column shows last fire — if it's today, the timer is fine. |
+| Did the service crash? | `systemctl --user status painforwisdom-daily-brief.service` | `Active: activating (auto-restart)` or `failed` = crash. |
+| Why did it crash? | `journalctl --user -u painforwisdom-daily-brief.service --since today` | Look for `FetchError`, `NotionError`, traceback. |
+
+Common crash: `FetchError: html http-status 403` from `pipeline/summarize_daily/fetcher.py:_fetch_html`. The brief writer now catches per-row fetch failures and continues with survivors — you get a Telegram alert listing the skipped URLs and the brief still publishes (unless all sources fail, in which case the run aborts with an `❌ Daily brief ABORTED` Telegram message).
+
+**Ban a flaky URL** so the picker never selects it again: append the exact URL on its own line to [`config/fetch_denylist.txt`](config/fetch_denylist.txt). The file is re-read on every run — no restart needed. Denylisted rows are dropped in `clusterer.fetch_pending_rows`.
+
+Other escape hatches:
+
+```bash
+# (a) Identify the picked cluster + URLs without spending a cent
+python -m pipeline.summarize_daily --dry-run
+
+# (b) Test which URL is the 403 outside the pipeline
+python -c "import httpx; print(httpx.get('<url>', headers={'User-Agent':'Mozilla/5.0 painforwisdom-summarizer/4'}, follow_redirects=True, timeout=15).status_code)"
+
+# (c) Re-run skipping that theme so the brief still ships
+/home/gonzalo/miniconda3/envs/painforwisdom-poc/bin/python -m pipeline.summarize_daily \
+  --apply --mcp-publish --max-cost-usd 1.0 --skip-themes <bad-theme>
+```
+
+After unblocking, re-arm and re-fire:
+
+```bash
+systemctl --user reset-failed painforwisdom-daily-brief.service
+systemctl --user start        painforwisdom-daily-brief.service
+```
+
+---
+
+## 9. File / directory reference
 
 | Path | Notes |
 |------|-------|

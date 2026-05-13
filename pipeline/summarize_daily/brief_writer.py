@@ -9,12 +9,12 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List, Tuple
 
 from pipeline.runtime import PROJECT_ROOT
 from pipeline.scripts.poc_brief_v2 import run_cluster
 from pipeline.summarize_daily.clusterer import Cluster
-from pipeline.summarize_daily.fetcher import fetch as fetch_url
+from pipeline.summarize_daily.fetcher import FetchError, fetch as fetch_url
 
 
 CACHE_DIR = PROJECT_ROOT / "briefs" / ".cache"
@@ -40,10 +40,22 @@ def _ensure_source_cached(row: Dict[str, Any]) -> str:
     return slug
 
 
-def cluster_to_v2_dict(cluster: Cluster) -> Dict[str, Any]:
-    sources = []
+def cluster_to_v2_dict(cluster: Cluster) -> Tuple[Dict[str, Any], List[Dict[str, str]]]:
+    """Build the v2 PoC cluster dict.
+
+    Returns (dict, skipped) where `skipped` is one entry per row whose fetch
+    failed: `{"url", "title", "error"}`. The row is omitted from the brief.
+    Survivors are kept so a single bad source no longer aborts the whole run.
+    """
+    sources: List[Dict[str, Any]] = []
+    skipped: List[Dict[str, str]] = []
     for r in cluster.rows:
-        slug = _ensure_source_cached(r)
+        url = r.get("alt_source_url") or r.get("source_url") or ""
+        try:
+            slug = _ensure_source_cached(r)
+        except FetchError as exc:
+            skipped.append({"url": url, "title": r.get("title", ""), "error": str(exc)[:200]})
+            continue
         sources.append(
             {
                 "slug": slug,
@@ -51,7 +63,7 @@ def cluster_to_v2_dict(cluster: Cluster) -> Dict[str, Any]:
                 "author_host": r.get("author_host", ""),
                 "type": r.get("type", ""),
                 "specific_location": r.get("specific_location", ""),
-                "url": r.get("alt_source_url") or r.get("source_url") or "",
+                "url": url,
                 "research_angle": r.get("research_angle", "") or cluster.sub_angle,
                 "relevance": r.get("relevance", ""),
             }
@@ -63,17 +75,31 @@ def cluster_to_v2_dict(cluster: Cluster) -> Dict[str, Any]:
         f"selected from Notion's research queue, anchored to Gonzalo's vault "
         f"entry `{cluster.vault_entry}`."
     )
-    return {
-        "theme": cluster.theme,
-        "sub_angle": cluster.sub_angle.replace("-", " "),
-        "framing": framing,
-        "vault_entry": cluster.vault_entry,
-        "sources": sources,
-    }
+    return (
+        {
+            "theme": cluster.theme,
+            "sub_angle": cluster.sub_angle.replace("-", " "),
+            "framing": framing,
+            "vault_entry": cluster.vault_entry,
+            "sources": sources,
+        },
+        skipped,
+    )
 
 
-def write_brief(cluster: Cluster) -> Path:
-    cluster_dict = cluster_to_v2_dict(cluster)
+def write_brief(cluster: Cluster) -> Tuple[Path, List[Dict[str, str]]]:
+    """Render the cluster to disk.
+
+    Returns (cluster_dir, skipped_rows). Caller is responsible for notifying
+    on a non-empty `skipped` list and/or filtering `cluster.rows` to match
+    survivors before marking Notion.
+    """
+    cluster_dict, skipped = cluster_to_v2_dict(cluster)
+    if not cluster_dict["sources"]:
+        raise FetchError(
+            f"all {len(cluster.rows)} sources in cluster failed to fetch — "
+            f"no brief written"
+        )
     run_cluster(cluster_dict)
     # v2 PoC writes briefs/<theme>/<date>--<sub-slug>/
     # Resolve the same path here so the caller can return it.
@@ -87,4 +113,7 @@ def write_brief(cluster: Cluster) -> Path:
 
     today = date.today().isoformat()
     sub_slug = _slug(cluster_dict["sub_angle"])
-    return PROJECT_ROOT / "briefs" / cluster.theme / f"{today}--{sub_slug}"
+    return (
+        PROJECT_ROOT / "briefs" / cluster.theme / f"{today}--{sub_slug}",
+        skipped,
+    )

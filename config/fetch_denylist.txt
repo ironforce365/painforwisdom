@@ -1,0 +1,14 @@
+# Daily-summarizer fetch denylist.
+#
+# One URL per line. Lines starting with '#' are comments. Blank lines ignored.
+# Matched as EXACT string against each row's effective URL
+# (alt_source_url first, falling back to source_url) in
+# pipeline/summarize_daily/clusterer.py:fetch_pending_rows.
+#
+# Add a URL here when a source persistently 403s, captcha-walls,
+# or returns junk that breaks the brief.
+#
+# After editing, no restart is needed — file is re-read each run.
+
+# 2026-05-13: returns 403 to httpx with our UA; PDF redirector also blocked.
+https://escholarship.org/uc/item/2022s38d
