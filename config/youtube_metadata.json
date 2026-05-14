@@ -1,0 +1,18 @@
+{
+  "default_tags": [
+    "painforwisdom",
+    "ultra running",
+    "discipline",
+    "mental toughness",
+    "self improvement",
+    "daily reflection",
+    "endurance",
+    "growth mindset"
+  ],
+  "default_description_suffix": "",
+  "default_category_id": "22",
+  "default_privacy_status": "private",
+  "scraped_at": null,
+  "scraped_from_channel": "@painforwisdom",
+  "_comment": "Defaults seed the YouTube uploader. Run scripts/scrape_youtube_tags.py to overwrite default_tags with the union of tags from the most recent shorts on the channel."
+}

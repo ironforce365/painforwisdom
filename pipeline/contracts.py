@@ -29,14 +29,19 @@ class InputContractError(RuntimeError):
 # Required state keys per node. A key is "satisfied" when state.get(key)
 # is truthy (non-empty string, non-empty list, non-zero number, etc.).
 NODE_INPUTS: Dict[str, List[str]] = {
-    "transcribe":      ["video_path", "run_dir"],
-    "extract":         ["transcript_text", "transcript_path", "run_dir"],
-    "kb_curator":      ["extraction_report", "video_date", "run_dir"],
-    "writer":          ["extraction_report", "transcript_text", "video_date", "run_dir"],
-    "research":        ["extraction_report", "vault_entry_slug", "run_dir"],
-    "notion_blog":     ["blog_post_title", "blog_post_text", "video_date", "run_dir"],
-    "notion_research": ["research_csv_path", "vault_entry_path", "vault_entry_slug", "run_dir"],
-    "validator":       [],
+    "transcribe":       ["video_path", "run_dir"],
+    "extract":          ["transcript_text", "transcript_path", "run_dir"],
+    "kb_curator":       ["extraction_report", "video_date", "run_dir"],
+    "writer":           ["extraction_report", "transcript_text", "video_date", "run_dir"],
+    "research":         ["extraction_report", "vault_entry_slug", "run_dir"],
+    "notion_blog":      ["blog_post_title", "blog_post_text", "video_date", "run_dir"],
+    "notion_research":  ["research_csv_path", "vault_entry_path", "vault_entry_slug", "run_dir"],
+    # New nodes (run_dir is the only hard requirement; nodes self-skip on
+    # missing optional inputs like video_path or validator_verdict).
+    "extract_image":    ["run_dir"],
+    "youtube_upload":   ["run_dir"],
+    "wordpress_draft":  ["run_dir"],
+    "validator":        [],
 }
 
 

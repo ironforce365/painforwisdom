@@ -250,6 +250,36 @@ def _render_audit_md(state: State, findings: List[Finding], verdict: str) -> str
     return "\n".join(lines) + "\n"
 
 
+def _wp_line(state: State) -> str:
+    if state.get("wordpress_url"):
+        return f"Stage 7 — wordpress draft:  ✓ {state['wordpress_url']}"
+    if state.get("wordpress_dormant"):
+        return "Stage 7 — wordpress draft:  ⏸ dormant (WORDPRESS_ENABLED!=true; bundle on disk)"
+    if state.get("wordpress_skipped"):
+        reason = state.get("wordpress_skip_reason", "skipped")
+        return f"Stage 7 — wordpress draft:  ⏭ skipped ({reason})"
+    return "Stage 7 — wordpress draft:  — (not run)"
+
+
+def _yt_line(state: State) -> str:
+    if state.get("youtube_url"):
+        return f"Stage 8 — youtube upload:   ✓ {state['youtube_url']}"
+    if state.get("youtube_skipped"):
+        reason = state.get("youtube_skip_reason", "skipped")
+        return f"Stage 8 — youtube upload:   ⏭ skipped ({reason})"
+    return "Stage 8 — youtube upload:   — (not run)"
+
+
+def _image_line(state: State) -> str:
+    fip = state.get("featured_image_path", "")
+    if fip:
+        score = state.get("featured_image_score", 0.0) or 0.0
+        return f"Featured image:              ✓ {fip} (score={score:.1f})"
+    if state.get("image_extraction_failed"):
+        return "Featured image:              ⏭ failed/skipped"
+    return "Featured image:              — (none)"
+
+
 def _render_pipeline_summary(state: State, verdict: str) -> str:
     quality = state.get("content_quality", "?")
     csv_rows = "?"
@@ -270,6 +300,9 @@ def _render_pipeline_summary(state: State, verdict: str) -> str:
         f"Stage 4 — notion blog post:  ✓ {state.get('notion_blog_url','-')}",
         f"Stage 5 — research:          ✓ research_report.csv ({csv_rows} refs)",
         f"Stage 6 — notion research:   ✓ {state.get('notion_task_count', 0)} tasks",
+        _wp_line(state),
+        _yt_line(state),
+        _image_line(state),
     ]
     return "\n".join(lines)
 

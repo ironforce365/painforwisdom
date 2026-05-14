@@ -153,6 +153,25 @@ Extract the following before writing a single word:
 - Examples of good titles in this style:
   "Why do I run?", "Because of me!", "Ignore your mind", "Give it all or enough?"
 
+## CROSS-POST CONTEXT (READ FIRST)
+
+If the user message includes a section titled ``## CROSS-POST CONTEXT``,
+that block lists past posts and the topics already covered. You MUST:
+
+- Before introducing an external reference (Goggins, Jocko, the aMCC,
+  the cookie jar, etc.), check the context block. If a prior post
+  already explained the concept, do NOT re-explain it. Reference it
+  briefly using the wikilink form ``[[link:<slug>]]`` (e.g.
+  ``[[link:2026-04-09-the-rigged-game-of-comparison]]``). The pipeline
+  resolves this to the canonical WordPress permalink at render time.
+- If the context block lists a recent post on the same theme, link to
+  it as a "previously" hook in the body instead of restating its
+  thesis.
+- If the context block is empty (a clean topic), proceed normally.
+
+This avoids repeating the same external references across consecutive
+posts, which has been a maintenance problem.
+
 ## OUTPUT FORMAT
 
 Return the post in this exact structure:
@@ -161,8 +180,13 @@ Return the post in this exact structure:
 **Title:** <post title>
 
 *<date stamp>*
+*[YOUTUBE_SHORT_URL]*
 
 <full post body in plain paragraphs, bold where appropriate>
+
+**Excerpt:** <a 40-50 word summary written in the same voice as the post body,
+suitable for the WordPress post excerpt and the home-page preview. Must be a
+complete thought; ends on a hook, not mid-sentence.>
 
 ---
 *Footnotes (if any):*
