@@ -128,6 +128,30 @@ Sandbox runs are auto-prefixed with `[SANDBOX] ` so prod chat stays clean.
 
 ---
 
+## Scheduled jobs
+
+Background automations run via **systemd user units** (not crontab — `crontab -l` will be empty).
+
+| Unit | Schedule | Purpose |
+|------|----------|---------|
+| `painforwisdom-daily-brief.timer` → `.service` | Every day 06:00 local | Runs `python -m pipeline.summarize_daily --apply --mcp-publish --max-cost-usd 1.0` — picks one cluster from Notion's Research queue, builds a brief, publishes to NotebookLM, posts Telegram summary. |
+
+Unit files: `~/.config/systemd/user/painforwisdom-daily-brief.{service,timer}`.
+
+Quick ops (full guide in [`OPERATIONS.md`](OPERATIONS.md#8-scheduled-jobs-systemd-user-units)):
+
+```bash
+systemctl --user list-timers                                 # see what's scheduled + last/next fire
+systemctl --user status painforwisdom-daily-brief.service    # last exit status
+journalctl --user -u painforwisdom-daily-brief.service -n 100  # tail logs
+systemctl --user stop painforwisdom-daily-brief.service      # break a restart loop
+systemctl --user start painforwisdom-daily-brief.service     # manual one-shot run
+```
+
+If the morning Telegram brief or NotebookLM upload is missing, this is the first thing to check.
+
+---
+
 ## Project structure
 
 ```

@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict
 
+from pipeline.blog_context import get_backend
 from pipeline.contracts import assert_inputs
 from pipeline.llm import call_llm
 from pipeline.runtime import (
@@ -34,8 +35,12 @@ Reply with the full blog post in this exact structure, NOTHING ELSE:
 **Title:** <blog post title — short, lowercase OK, no quotes>
 
 *<MM/DD/YY>*
+*[YOUTUBE_SHORT_URL]*
 
 <blog post body — paragraphs, **bold** for impact, no bullet points or headers>
+
+**Excerpt:** <40-50 word summary in the same voice as the body. Complete thought,
+ends on a hook, not mid-sentence. Used as the WordPress excerpt + home-page preview.>
 
 ---
 
@@ -47,10 +52,16 @@ If you used a footnote [1], add a footnotes section after the closing ---:
 Hard rules:
 - Date stamp uses the input's video_date converted from YYYY-MM-DD to MM/DD/YY.
   Never use today's date.
+- The second italic line MUST be literally `*[YOUTUBE_SHORT_URL]*` so the
+  pipeline can substitute the real YouTube short URL post-hoc.
 - 400-1000 words in the body.
 - 6-9 paragraphs.
 - 4-6 **bold** phrases max — they should hit like punches.
-- The last sentence must feel like closing a fist. No "thanks for reading."
+- The last sentence of the BODY (not the Excerpt) must feel like closing a fist.
+  No "thanks for reading."
+- For any external reference (Goggins, Jocko, aMCC, cookie jar, …) check the
+  CROSS-POST CONTEXT block if provided; if a prior post explained it, use
+  `[[link:<slug>]]` instead of re-explaining.
 """
 
 
@@ -79,6 +90,75 @@ def _parse_title_and_body(text: str) -> tuple[str, str]:
     return title or "untitled", text.strip()
 
 
+def _parse_excerpt(text: str) -> str:
+    """Pull the ``**Excerpt:** ...`` line out of the writer response."""
+    m = re.search(r"\*\*Excerpt:\*\*\s*(.+?)(?:\n\n|\n---|\Z)", text, re.DOTALL)
+    if not m:
+        return ""
+    excerpt = m.group(1).strip()
+    # Collapse internal whitespace; bold/italic markers stripped for the
+    # plain-text excerpt that WordPress + Notion will display.
+    excerpt = re.sub(r"\s+", " ", excerpt)
+    excerpt = re.sub(r"\*\*([^*]+)\*\*", r"\1", excerpt)
+    excerpt = re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"\1", excerpt)
+    return excerpt
+
+
+def _build_cross_post_context(themes: list[str], *, max_themes: int = 5) -> str:
+    """Render a CROSS-POST CONTEXT block for injection into the user message.
+
+    Returns "" when the backend produces nothing useful so the writer prompt
+    stays clean rather than padded with empty headers.
+    """
+    try:
+        backend = get_backend()
+    except Exception as exc:  # noqa: BLE001
+        print(f"[writer] WARN cross-post backend init failed: {exc}")
+        return ""
+
+    try:
+        topics = backend.recent_topics(limit=15)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[writer] WARN recent_topics failed: {exc}")
+        topics = []
+
+    references: list[str] = []
+    for theme in (themes or [])[:max_themes]:
+        if not isinstance(theme, str) or not theme.strip():
+            continue
+        try:
+            refs = backend.find_references(theme, limit=3)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[writer] WARN find_references({theme!r}) failed: {exc}")
+            continue
+        if not refs:
+            continue
+        references.append(f"- theme `{theme}`:")
+        for ref in refs:
+            snippet = ref.snippet.replace("`", "'")[:160]
+            references.append(
+                f"    - [[link:{ref.slug}]] ({ref.date}) — {ref.title} — {snippet}"
+            )
+
+    if not topics and not references:
+        return ""
+
+    lines: list[str] = ["## CROSS-POST CONTEXT"]
+    if topics:
+        lines.append("Recent themes (slug — count — last_seen):")
+        for t in topics:
+            lines.append(f"- {t.name} — {t.count} mention(s) — {t.last_seen}")
+    if references:
+        lines.append("")
+        lines.append("Prior references for this post's themes:")
+        lines.extend(references)
+    lines.append("")
+    lines.append(
+        "Use these to avoid repeating explanations. Link with [[link:<slug>]]."
+    )
+    return "\n".join(lines)
+
+
 def node_writer(state: State) -> Dict[str, Any]:
     assert_inputs("writer", state)
     t0 = time.time()
@@ -86,18 +166,33 @@ def node_writer(state: State) -> Dict[str, Any]:
 
     system_prompt = _build_system_prompt()
     date_mmddyy = _yyyymmdd_to_mmddyy(state.get("video_date", ""))
-    user_msg = (
-        f"Video date (use this for the date stamp): {state.get('video_date','')}\n"
-        f"Required MM/DD/YY format: {date_mmddyy}\n\n"
-        f"## EXTRACTION REPORT\n```\n{state.get('extraction_report','')}\n```\n\n"
-        f"## RAW TRANSCRIPT (for sensory detail and authentic phrasing)\n"
-        f"```\n{state.get('transcript_text','')}\n```\n"
+    cross_post_context = _build_cross_post_context(
+        list(state.get("themes_attached") or state.get("themes") or [])
     )
+    sections = [
+        f"Video date (use this for the date stamp): {state.get('video_date','')}",
+        f"Required MM/DD/YY format: {date_mmddyy}",
+    ]
+    if cross_post_context:
+        sections.append("")
+        sections.append(cross_post_context)
+    sections.append("")
+    sections.append("## EXTRACTION REPORT")
+    sections.append("```")
+    sections.append(state.get("extraction_report", ""))
+    sections.append("```")
+    sections.append("")
+    sections.append("## RAW TRANSCRIPT (for sensory detail and authentic phrasing)")
+    sections.append("```")
+    sections.append(state.get("transcript_text", ""))
+    sections.append("```")
+    user_msg = "\n".join(sections)
     model = os.environ.get("PIPELINE_MODEL", "claude-sonnet-4-6")
     result = call_llm(model, system_prompt, user_msg, max_tokens=3000)
     text = result["text"]
 
     title, body = _parse_title_and_body(text)
+    excerpt = _parse_excerpt(body)
     word_count = len(re.findall(r"\b\w+\b", body))
     if word_count < 200 or word_count > 2500:
         raise RuntimeError(
@@ -128,9 +223,13 @@ def node_writer(state: State) -> Dict[str, Any]:
         word_count=word_count,
         title=title,
     )
-    print(f"[writer] done {duration:.1f}s words={word_count} title={title!r}")
+    print(
+        f"[writer] done {duration:.1f}s words={word_count} title={title!r} "
+        f"excerpt_words={len(excerpt.split()) if excerpt else 0}"
+    )
     return {
         "blog_post_path": str(blog_path),
         "blog_post_title": title,
         "blog_post_text": body,
+        "blog_post_excerpt": excerpt,
     }

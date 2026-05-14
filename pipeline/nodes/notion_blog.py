@@ -45,11 +45,18 @@ def node_notion_blog(state: State) -> Dict[str, Any]:
     title = state.get("blog_post_title", "")
     body = state.get("blog_post_text", "")
     video_date = state.get("video_date", "")
+    excerpt = state.get("blog_post_excerpt", "") or None
     if not title or not body or not video_date:
         raise RuntimeError("notion-blog: missing required state (title/body/video_date)")
 
     body_no_title = _strip_title_line(body)
-    page = create_blog_page(title=title, body_text=body_no_title, video_date=video_date)
+    page = create_blog_page(
+        title=title,
+        body_text=body_no_title,
+        video_date=video_date,
+        status="Pending",
+        excerpt=excerpt,
+    )
     pid = page_id(page)
     purl = page_url(page)
 
@@ -82,5 +89,6 @@ def node_notion_blog(state: State) -> Dict[str, Any]:
     print(f"[notion-blog] done {duration:.1f}s url={purl}")
     return {
         "notion_blog_url": purl,
+        "notion_blog_page_id": pid,
         "notion_blog_summary_path": str(summary_path),
     }

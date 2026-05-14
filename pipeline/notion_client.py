@@ -40,6 +40,7 @@ _PACE_SECONDS = 0.4
 
 
 _CLIENT: Optional[Client] = None
+_BLOG_SCHEMA_CACHE: Optional[set[str]] = None
 
 
 def get_client() -> Client:
@@ -54,6 +55,27 @@ def get_client() -> Client:
             )
         _CLIENT = Client(auth=token)
     return _CLIENT
+
+
+def get_blog_db_properties(force_refresh: bool = False) -> set[str]:
+    """Return the set of property names currently defined on the blog DB.
+
+    Cached for the life of the process. Used to defensively drop optional
+    properties (``Status``, ``Excerpt``, ``WordPress URL``) when the F6
+    schema migration has not been applied yet so we never send a payload
+    Notion will reject.
+    """
+    global _BLOG_SCHEMA_CACHE
+    if _BLOG_SCHEMA_CACHE is None or force_refresh:
+        try:
+            resp = get_client().data_sources.retrieve(data_source_id=BLOG_DATA_SOURCE_ID)
+            _BLOG_SCHEMA_CACHE = set((resp.get("properties") or {}).keys())
+        except Exception as exc:  # noqa: BLE001
+            # Fall back to the known-required minimum; better to attempt
+            # a Title/Date/Published-only create than to crash early.
+            print(f"[notion] WARN failed to retrieve blog DB schema: {exc}")
+            _BLOG_SCHEMA_CACHE = {"Title", "Date", "Published?"}
+    return _BLOG_SCHEMA_CACHE
 
 
 def _paragraph(text: str) -> Dict[str, Any]:
@@ -98,21 +120,179 @@ def create_blog_page(
     video_date: str,
     *,
     published: bool = False,
+    status: Optional[str] = None,
+    excerpt: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Create a 'Blog post pending publications' page. Returns full page response."""
+    """Create a 'Blog post pending publications' page. Returns full page response.
+
+    ``status`` and ``excerpt`` map to the F6 schema additions (Status select,
+    Excerpt rich_text). They are silently ignored when the migration has not
+    been applied yet (the API rejects unknown properties — we don't fight it).
+    """
     client = get_client()
     children = text_to_blocks(body_text)
+    available = get_blog_db_properties()
+    properties: Dict[str, Any] = {
+        "Title": {"title": [{"text": {"content": title}}]},
+        "Date": {"date": {"start": video_date}},
+        "Published?": {"checkbox": published},
+    }
+    if status and "Status" in available:
+        properties["Status"] = {"select": {"name": status}}
+    elif status:
+        print(
+            "[notion] WARN blog DB has no 'Status' property — skipping. "
+            "Run: python -m pipeline.scripts.migrate_notion_blog_schema --apply"
+        )
+    if excerpt and "Excerpt" in available:
+        properties["Excerpt"] = {"rich_text": [{"text": {"content": excerpt[:1900]}}]}
+    elif excerpt:
+        print(
+            "[notion] WARN blog DB has no 'Excerpt' property — skipping. "
+            "Run: python -m pipeline.scripts.migrate_notion_blog_schema --apply"
+        )
     page = client.pages.create(
         parent={"type": "data_source_id", "data_source_id": BLOG_DATA_SOURCE_ID},
-        properties={
-            "Title": {"title": [{"text": {"content": title}}]},
-            "Date": {"date": {"start": video_date}},
-            "Published?": {"checkbox": published},
-        },
+        properties=properties,
         children=children,
     )
     time.sleep(_PACE_SECONDS)
     return page
+
+
+def update_blog_page_wordpress_url(
+    page_id_str: str,
+    wordpress_url: str,
+    *,
+    status: Optional[str] = "Draft Created",
+    excerpt: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Patch a blog page after the WordPress draft is created.
+
+    Silently drops properties the DB does not yet have (so this is safe to
+    call before the F6 schema migration has been applied).
+    """
+    client = get_client()
+    available = get_blog_db_properties()
+    properties: Dict[str, Any] = {}
+    if wordpress_url and "WordPress URL" in available:
+        properties["WordPress URL"] = {"url": wordpress_url}
+    if status and "Status" in available:
+        properties["Status"] = {"select": {"name": status}}
+    if excerpt and "Excerpt" in available:
+        properties["Excerpt"] = {"rich_text": [{"text": {"content": excerpt[:1900]}}]}
+    if not properties:
+        print(
+            "[notion] WARN update_blog_page_wordpress_url: no matching properties "
+            "available on blog DB — run the schema migration. Skipping update."
+        )
+        return {}
+    page = client.pages.update(page_id=page_id_str, properties=properties)
+    time.sleep(_PACE_SECONDS)
+    return page
+
+
+def query_blog_pages(
+    *,
+    only_unpublished: bool = True,
+    sort_date_asc: bool = True,
+    page_size: int = 100,
+    extra_filter: Optional[Dict[str, Any]] = None,
+) -> Iterator[Dict[str, Any]]:
+    """Paginated query of the Blog post pending publications data source.
+
+    Default behaviour returns rows with ``Published? = false``, sorted by
+    ``Date`` ascending — the chronological order required for backfill so
+    later posts can safely reference earlier ones.
+    """
+    client = get_client()
+    cursor: Optional[str] = None
+    filters: List[Dict[str, Any]] = []
+    if only_unpublished:
+        filters.append({"property": "Published?", "checkbox": {"equals": False}})
+    if extra_filter:
+        filters.append(extra_filter)
+    combined_filter: Optional[Dict[str, Any]]
+    if not filters:
+        combined_filter = None
+    elif len(filters) == 1:
+        combined_filter = filters[0]
+    else:
+        combined_filter = {"and": filters}
+
+    sorts = [{"property": "Date", "direction": "ascending" if sort_date_asc else "descending"}]
+    while True:
+        params: Dict[str, Any] = {
+            "data_source_id": BLOG_DATA_SOURCE_ID,
+            "page_size": page_size,
+            "sorts": sorts,
+        }
+        if combined_filter:
+            params["filter"] = combined_filter
+        if cursor:
+            params["start_cursor"] = cursor
+        resp = client.data_sources.query(**params)
+        for page in resp.get("results", []):
+            yield page
+        if not resp.get("has_more"):
+            return
+        cursor = resp.get("next_cursor")
+        time.sleep(_PACE_SECONDS)
+
+
+def get_blog_page(page_id_str: str) -> Dict[str, Any]:
+    """Retrieve a single blog page by ID."""
+    client = get_client()
+    return client.pages.retrieve(page_id=page_id_str)
+
+
+def get_blog_page_markdown(page_id_str: str) -> str:
+    """Round-trip a blog page's paragraph blocks into a markdown body.
+
+    The pipeline only ever writes paragraph blocks for blog posts, so we
+    only need to handle paragraphs + headings + dividers here. Anything
+    else degrades to plain text.
+    """
+    blocks = fetch_page_blocks(page_id_str)
+    lines: List[str] = []
+    for block in blocks:
+        btype = block.get("type")
+        if btype == "paragraph":
+            text = "".join(
+                t.get("plain_text", "")
+                for t in block.get("paragraph", {}).get("rich_text", [])
+            )
+            lines.append(text)
+            lines.append("")
+        elif btype == "heading_2":
+            text = "".join(
+                t.get("plain_text", "")
+                for t in block.get("heading_2", {}).get("rich_text", [])
+            )
+            lines.append(f"## {text}")
+            lines.append("")
+        elif btype == "heading_3":
+            text = "".join(
+                t.get("plain_text", "")
+                for t in block.get("heading_3", {}).get("rich_text", [])
+            )
+            lines.append(f"### {text}")
+            lines.append("")
+        elif btype == "divider":
+            lines.append("---")
+            lines.append("")
+        else:
+            inner = block.get(btype or "", {}) if btype else {}
+            if not isinstance(inner, dict):
+                inner = {}
+            text = "".join(
+                t.get("plain_text", "")
+                for t in inner.get("rich_text", [])
+            )
+            if text:
+                lines.append(text)
+                lines.append("")
+    return "\n".join(lines).strip() + "\n"
 
 
 def create_research_task(

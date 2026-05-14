@@ -37,10 +37,27 @@ except ImportError:  # pragma: no cover
 
 CACHE_DIR = PROJECT_ROOT / "briefs" / ".cache"
 FETCH_TIMEOUT = 30.0
+DENYLIST_FILE = PROJECT_ROOT / "config" / "fetch_denylist.txt"
 
 
 class FetchError(Exception):
     pass
+
+
+def _load_denylist() -> set[str]:
+    if not DENYLIST_FILE.exists():
+        return set()
+    out: set[str] = set()
+    for raw in DENYLIST_FILE.read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        out.add(line)
+    return out
+
+
+def is_denylisted(url: str) -> bool:
+    return bool(url) and url.strip() in _load_denylist()
 
 
 def _cache_path(url: str) -> Path:

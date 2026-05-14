@@ -1,14 +1,20 @@
-"""LangGraph DAG for the 7-stage content pipeline.
+"""LangGraph DAG for the content pipeline.
 
-Topology:
+Topology (post-WordPress / YouTube / image extension):
 
-    START → transcribe → extract → kb_curator
-                                       ├─▶ writer ─▶ notion_blog ─┐
-                                       └─▶ research ─▶ notion_research ─┐
-                                                                         ├─▶ validator → END
+    START → transcribe → extract ─┬─▶ kb_curator ─┬─▶ writer ─▶ notion_blog ─┐
+                                  │               └─▶ research ─▶ notion_research ──────┐
+                                  ├─▶ extract_image ───────────────────────┐            │
+                                  └─▶ youtube_upload ──────────────────────┼────────────┤
+                                                                            ▼            │
+                                                                    wordpress_draft ─────┤
+                                                                                         ▼
+                                                                                     validator → END
 
-`kb_curator` fans out to two parallel branches; LangGraph automatically
-synchronizes at `validator` (the node runs once both branches resolve).
+`extract` fans out to three siblings: ``kb_curator`` (the existing
+writer/research lineage), ``extract_image`` (smart-frame featured image),
+and ``youtube_upload`` (draft short on YouTube). LangGraph synchronises
+on join nodes via disjoint state keys.
 
 Checkpointing: SqliteSaver — durable across HITL `interrupt()` from kb_curator.
 
@@ -33,13 +39,16 @@ from langgraph.types import RetryPolicy
 
 from pipeline.contracts import InputContractError
 from pipeline.nodes.extract import node_extract
+from pipeline.nodes.extract_image import node_extract_image
 from pipeline.nodes.kb_curator import node_kb_curator
 from pipeline.nodes.notion_blog import node_notion_blog
 from pipeline.nodes.notion_research import node_notion_research
 from pipeline.nodes.research import node_research
 from pipeline.nodes.transcribe import node_transcribe
 from pipeline.nodes.validator import node_validator
+from pipeline.nodes.wordpress_draft import node_wordpress_draft
 from pipeline.nodes.writer import node_writer
+from pipeline.nodes.youtube_upload import node_youtube_upload
 from pipeline.state import State
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -118,6 +127,11 @@ def build_graph(start_at: str = "transcribe"):
     g.add_node("research", node_research, retry_policy=_RETRY_POLICY)
     g.add_node("notion_blog", node_notion_blog, retry_policy=_RETRY_POLICY)
     g.add_node("notion_research", node_notion_research, retry_policy=_RETRY_POLICY)
+    # New nodes (no retry policy — they catch their own errors and degrade
+    # gracefully instead of bubbling exceptions into the graph).
+    g.add_node("extract_image", node_extract_image)
+    g.add_node("youtube_upload", node_youtube_upload)
+    g.add_node("wordpress_draft", node_wordpress_draft)
     # Validator does no I/O retry-worth: it just inspects state + sends a
     # summary that already retries internally.
     g.add_node("validator", node_validator)
@@ -126,12 +140,19 @@ def build_graph(start_at: str = "transcribe"):
     if start_at == "transcribe":
         g.add_edge("transcribe", "extract")
     g.add_edge("extract", "kb_curator")
+    g.add_edge("extract", "extract_image")
+    g.add_edge("extract", "youtube_upload")
     g.add_edge("kb_curator", "writer")
     g.add_edge("kb_curator", "research")
     g.add_edge("writer", "notion_blog")
     g.add_edge("research", "notion_research")
-    g.add_edge("notion_blog", "validator")
+    # wordpress_draft synchronises on both notion_blog (page id) and
+    # extract_image (featured image). LangGraph waits on both.
+    g.add_edge("notion_blog", "wordpress_draft")
+    g.add_edge("extract_image", "wordpress_draft")
+    g.add_edge("wordpress_draft", "validator")
     g.add_edge("notion_research", "validator")
+    g.add_edge("youtube_upload", "validator")
     g.add_edge("validator", END)
 
     CHECKPOINT_DB.parent.mkdir(parents=True, exist_ok=True)
