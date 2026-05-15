@@ -30,6 +30,7 @@ except ImportError:  # pragma: no cover
 from pipeline.banned_sources import banned_reason
 from pipeline.contracts import assert_inputs
 from pipeline.llm import call_llm
+from pipeline.local_books import find_local_book
 from pipeline.runtime import (
     VAULT_PATH,
     append_metric,
@@ -199,13 +200,47 @@ def _classify_url(url: str, client: httpx.Client) -> tuple[str, str]:
     return "yes", f"verified {len(extracted)} chars"
 
 
+def _try_local_book(row: Dict[str, str]) -> bool:
+    """Mutate row to point at a local file when Type=Book and inventory matches.
+
+    Returns True on hit so the caller can skip HTTP verification entirely.
+    Source URL set to `file://...`; downstream summarizer reads from disk.
+    """
+    if (row.get("Type") or "").strip().lower() != "book":
+        return False
+    url = (row.get("Source URL") or "").strip()
+    if url.startswith("file://"):
+        return True  # already local
+    title = row.get("Title") or ""
+    author = row.get("Author/Host") or ""
+    if not title:
+        return False
+    match = find_local_book(title, author)
+    if match is None:
+        return False
+    row["Source URL"] = match.file_url
+    row["Reachable"] = "yes"
+    row["Reachability Reason"] = f"local-curated: {match.path.name}"
+    return True
+
+
 def _verify_rows(
     rows: List[Dict[str, str]], timeout: float = 10.0
 ) -> tuple[List[Dict[str, str]], int]:
-    """Classify each row's Source URL, mutate Reachable + Reachability Reason
-    in-place when missing, drop rows the curator marked Reachable=no with no
-    Alt URL (the daily summarizer can't use them anyway). Returns the surviving
-    rows and the count of dropped rows."""
+    """Classify each row's Source URL via full HTTP fetch + extraction.
+
+    Curator-supplied Reachable values are advisory only — every row that
+    isn't already local is independently re-classified, because the curator
+    has historically over-vouched on web URLs it never fetched (e.g. AI book-
+    summary sites returning 403 to bots). Curator's `Reachable=no` is
+    preserved as-is (no point re-fetching what curator already rejected).
+
+    Type=Book rows are tried against the local inventory first; on a hit the
+    row's Source URL is rewritten to `file://...` and HTTP fetch is skipped.
+
+    Returns (rows, count_marked_unreachable). Rows are kept regardless — the
+    summarizer filters on Reachable=yes.
+    """
     kept: List[Dict[str, str]] = []
     dropped = 0
     with httpx.Client(
@@ -214,28 +249,32 @@ def _verify_rows(
         headers={"User-Agent": "Mozilla/5.0 painforwisdom-research/3"},
     ) as client:
         for r in rows:
+            if _try_local_book(r):
+                kept.append(r)
+                continue
+
             url = (r.get("Source URL") or "").strip()
             existing_reach = (r.get("Reachable") or "").strip().lower()
             existing_reason = (r.get("Reachability Reason") or "").strip()
 
-            if not existing_reach:
-                state, reason = _classify_url(url, client)
+            if existing_reach == "no":
+                kept.append(r)
+                dropped += 1
+                continue
+
+            state, reason = _classify_url(url, client)
+            if existing_reach == "yes" and state == "no":
+                r["Reachable"] = "no"
+                r["Reachability Reason"] = (
+                    existing_reason + f" | OVERRIDDEN: {reason}"
+                ).strip(" |")
+            else:
                 r["Reachable"] = state
-                if not existing_reason:
+                if not existing_reason or state == "no":
                     r["Reachability Reason"] = reason
-            elif existing_reach == "yes":
-                # Curator already vouched — only run defense-in-depth banned check.
-                banned = banned_reason(url)
-                if banned:
-                    r["Reachable"] = "no"
-                    r["Reachability Reason"] = (
-                        existing_reason + f" | OVERRIDDEN: banned-domain {banned}"
-                    ).strip(" |")
 
             if r.get("Reachable") == "no":
                 dropped += 1
-                # Still keep the row in the CSV — Phase 2b/Notion needs it
-                # recorded with Reachable=no. Daily summarizer filters on Reachable=yes.
             kept.append(r)
     return kept, dropped
 

@@ -121,19 +121,32 @@ automated agent**. The daily summarizer is now downstream of you and cannot read
 - Papers behind hard publisher paywalls when an open-access mirror exists (PMC,
   arXiv, author's page) — propose the open mirror as `Source URL`.
 
+**Book references — never propose AI-summary sites.** Commercial book-summary
+sites (`bookey.app`, `blinkist.com`, `getabstract.com`, `shortform.com`,
+`12min.com`, `fourminutebooks.com`) return summaries of a book, not the book
+itself, and are banned. If the only URL you can find for a Book is on one of
+those sites, leave `Source URL` empty (or mark `Reachable=no` with a one-line
+reason) and let the pipeline's local-book lookup take over. The pipeline
+maintains a local inventory under `books/` (z-library bridge + curated folders)
+and will automatically rewrite the row to a `file://` path when the title/author
+match — you don't need to know which books are local.
+
 **Banned source domains (NEVER propose, even when the page returns HTTP 200):**
 `amazon.com`, `amazon.co.uk`, `amazon.de`, `goodreads.com`, `archive.org`,
 `pubmed.ncbi.nlm.nih.gov` (abstract-only — `pmc.ncbi.nlm.nih.gov` is fine),
 `jstor.org`, `sciencedirect.com`, `springer.com`, `link.springer.com`,
 `wiley.com`, `onlinelibrary.wiley.com`, `tandfonline.com`, `journals.sagepub.com`,
 `nytimes.com`, `wsj.com`, `ft.com`, `economist.com`, `newyorker.com`,
-`bloomberg.com`, `harpers.org`, `theatlantic.com`.
+`bloomberg.com`, `harpers.org`, `theatlantic.com`,
+`bookey.app`, `blinkist.com`, `getabstract.com`, `shortform.com`,
+`12min.com`, `fourminutebooks.com`.
 
-These either gate behind paywalls or emit non-fetchable content (listing pages,
-preview-only previews). If the only good source is on one of these domains, find
-a freely-readable analog (article by same author, open-access version of the
-paper, podcast transcript covering the same angle, blog post) and use THAT as
-`Source URL`. Note the original work in `Specific Location`.
+These either gate behind paywalls, emit non-fetchable content (listing pages,
+preview-only previews), or return AI-generated summaries instead of the source.
+If the only good source is on one of these domains, find a freely-readable analog
+(article by same author, open-access version of the paper, podcast transcript
+covering the same angle, blog post) and use THAT as `Source URL`. Note the
+original work in `Specific Location`.
 
 If you cannot find a reachable analog, **set `Reachable=no`** in the CSV row
 (see Step 4) and add a one-sentence `Reachability Reason` so the daily

@@ -52,6 +52,15 @@ BANNED_DOMAINS: frozenset[str] = frozenset(
         "bloomberg.com",
         "harpers.org",
         "theatlantic.com",
+        # AI / commercial book-summary sites — substitute for the actual book,
+        # commonly 403 to bots, and even when fetchable they emit summary prose
+        # rather than the source text. Not a legitimate citation analog.
+        "bookey.app",
+        "blinkist.com",
+        "getabstract.com",
+        "shortform.com",
+        "12min.com",
+        "fourminutebooks.com",
     }
 )
 
