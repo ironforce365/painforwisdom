@@ -29,6 +29,12 @@ try:
 except ImportError:  # pragma: no cover
     trafilatura = None
 
+# Load .env so NOTION_API_KEY is available when invoked from systemd / cron
+# (no inherited shell env). Mirrors augment_research_tasks.py.
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+
 from pipeline.notion_client import (
     RESEARCH_DATA_SOURCE_ID,
     extract_property,
@@ -136,8 +142,16 @@ def classify_row(
     paywall_flag: bool,
     skip_fetch: bool = False,
     http_client: Optional[httpx.Client] = None,
+    reachable: str = "",
 ) -> Tuple[str, str]:
     """Return (class, reason) for a single row."""
+    # Short-circuit: if the augmenter has already marked this row Reachable=yes
+    # in Notion (Alt Source URL + reason set), trust that. Otherwise the audit
+    # would reclassify every previously-augmented row as paywalled/404 (because
+    # the original Source URL is still the broken one) and the daily timer
+    # would burn quota re-augmenting the same rows.
+    if (reachable or "").lower() == "yes":
+        return CLASS_REACHABLE, "Already augmented (Notion Reachable=yes)."
     ref_type_lower = (ref_type or "").lower()
     spec_loc = specific_location or ""
 
@@ -234,6 +248,8 @@ def collect_rows(limit: Optional[int] = None) -> List[Dict[str, Any]]:
                 "source_url": extract_property(page, "Source URL"),
                 "paywall_flag": extract_property(page, "Paywall"),
                 "vault_entry": extract_property(page, "Vault Entry"),
+                "reachable": extract_property(page, "Reachable"),
+                "alt_source_url": extract_property(page, "Alt Source URL"),
             }
         )
         if limit and len(rows) >= limit:
@@ -410,6 +426,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 paywall_flag=bool(r["paywall_flag"]),
                 skip_fetch=args.skip_fetch,
                 http_client=None if args.skip_fetch else client,
+                reachable=r.get("reachable", ""),
             )
             classified.append({"page_id": r["page_id"], "class": cls, "reason": reason})
             if i % 10 == 0 or i == len(rows):

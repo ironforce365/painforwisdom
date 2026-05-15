@@ -301,6 +301,11 @@ def main(argv: list[str] | None = None) -> int:
     n_fail = 0
     n_zlib_hit = 0
     n_halt = 0
+    # Disable z-library for rest of run once daily quota is hit, but keep
+    # processing remaining rows via LLM analog fallback (Papers/Podcasts +
+    # any subsequent Books). Quota refresh happens daily on z-lib side; the
+    # systemd timer will retry the skipped Books tomorrow.
+    zlib_quota_exhausted = False
 
     for i, row in enumerate(unreachable, start=1):
         title = row.get("title", "")[:60]
@@ -321,15 +326,18 @@ def main(argv: list[str] | None = None) -> int:
             alt_url, reason = _check_curated_local(row)
             if alt_url:
                 print(f"  curated-local hit -> {alt_url}")
+            elif zlib_quota_exhausted:
+                print(f"  z-library skip (quota exhausted earlier) — falling through to web search")
+                reason = ""
             else:
                 alt_url, reason = _try_zlibrary(row)
                 if alt_url:
                     n_zlib_hit += 1
                     print(f"  z-library hit -> {alt_url}")
                 elif "quota-exceeded" in reason:
-                    print(f"  HALT: Z-Library quota exceeded — {reason}")
-                    n_halt = len(unreachable) - i + 1
-                    break
+                    print(f"  z-library quota exceeded — disabling z-lib for rest of run, falling through to web search: {reason}")
+                    zlib_quota_exhausted = True
+                    reason = ""
                 elif "not-configured" in reason:
                     print(f"  z-library skip (not configured) — falling through to web search")
                     reason = ""
