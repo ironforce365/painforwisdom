@@ -34,3 +34,12 @@ reports/
 pipeline/state/
 pipeline/checkpoints.db-wal
 pipeline/checkpoints.db-shm
+
+# Tooling scratch + runtime state
+.playwright-mcp/
+*.log
+data/.daily_brief_watchdog.last_alert
+
+# Local draft markdown (homepage candidates, blog post drafts).
+# Final versions live elsewhere; keep the repo root + tracked dirs clean.
+data/temp/
