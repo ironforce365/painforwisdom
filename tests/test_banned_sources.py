@@ -24,6 +24,14 @@ class BannedSourcesTest(unittest.TestCase):
         self.assertTrue(is_banned("https://archive.org/details/something"))
         self.assertTrue(is_banned("https://jstor.org/stable/123"))
 
+    def test_summary_sites_banned(self):
+        self.assertTrue(is_banned("https://www.bookey.app/book/endure"))
+        self.assertTrue(is_banned("https://www.blinkist.com/en/books/atomic-habits-en"))
+        self.assertTrue(is_banned("https://www.getabstract.com/en/summary/123"))
+        self.assertTrue(is_banned("https://www.shortform.com/book/comfort-crisis"))
+        self.assertTrue(is_banned("https://www.12min.com/books/foo"))
+        self.assertTrue(is_banned("https://fourminutebooks.com/endure-summary/"))
+
     def test_www_prefix_banned(self):
         self.assertTrue(is_banned("https://www.amazon.com/Comfort-Crisis/dp/0593138767"))
         self.assertTrue(is_banned("https://www.nytimes.com/2024/01/01/foo"))

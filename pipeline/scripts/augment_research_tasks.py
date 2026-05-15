@@ -45,6 +45,7 @@ load_dotenv(PROJECT_ROOT / ".env")
 
 from pipeline.banned_sources import is_banned  # noqa: E402
 from pipeline.llm import call_llm  # noqa: E402
+from pipeline.local_books import find_local_book  # noqa: E402
 from pipeline.notion_client import get_client  # noqa: E402
 from pipeline.runtime import append_metric  # noqa: E402
 from pipeline.zlibrary_bridge import BookFailure, BookText, fetch as zlib_fetch  # noqa: E402
@@ -58,10 +59,6 @@ WEB_FETCH_TIMEOUT = 15.0
 NOTION_PACING_S = 0.5
 
 EXTRACTED_BOOKS_DIR = PROJECT_ROOT / "books" / "extracted"
-CURATED_BOOKS_DIR = PROJECT_ROOT / "books"
-# Subdirs that are NOT manually-curated book folders.
-CURATED_SKIP_DIRS = frozenset({"extracted", "raw"})
-CURATED_BOOK_SUFFIXES = frozenset({".epub", ".pdf", ".txt", ".mobi", ".azw3"})
 
 SEARCH_SYSTEM = """You are a research librarian helping a runner-coach find freely-readable analog references.
 
@@ -163,52 +160,17 @@ def _search_for_analog(row: Dict[str, Any], model: str) -> AnalogProposal:
     return proposal
 
 
-def _title_slug_candidates(title: str) -> list[str]:
-    """Map a Notion row title to ordered candidate slugs for books/<slug>/.
-
-    Tries the broader (full-title) slug first, then narrower (subtitle-stripped)
-    slugs. Each slug capped at 80 chars to match how the user names folders.
-    """
-    candidates: list[str] = []
-
-    def add(text: str) -> None:
-        slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:80]
-        if slug and slug not in candidates:
-            candidates.append(slug)
-
-    # 1. Full title (no stripping) — matches folders named after the full title.
-    add(title)
-    # 2. Strip chapter markers like "-- Ch. 8 ...".
-    no_chapters = re.split(r"\s+--\s+|\s+—\s+", title, maxsplit=1)[0]
-    no_chapters = re.sub(r"\bch\.?\s*\d+\b", "", no_chapters, flags=re.IGNORECASE)
-    add(no_chapters)
-    # 3. Strip colon-subtitle.
-    no_subtitle = re.split(r":\s+", no_chapters, maxsplit=1)[0]
-    add(no_subtitle)
-    return candidates
-
-
 def _check_curated_local(row: Dict[str, Any]) -> tuple[Optional[str], str]:
-    """Check `books/<slug>/` for a manually-curated copy. Returns
-    (alt_source_url, reason) on hit, (None, "") on miss."""
+    """Probe local book inventory (books/<slug>/ and books/raw/) for a hit.
+    Returns (alt_source_url, reason) on hit, (None, "") on miss. Delegates
+    to the shared `local_books.find_local_book` so the daily-pipeline node
+    and this retro-augment script share one definition of "local match"."""
     title = row.get("title", "")
-    for slug in _title_slug_candidates(title):
-        folder = CURATED_BOOKS_DIR / slug
-        if not folder.is_dir() or folder.name in CURATED_SKIP_DIRS:
-            continue
-        files = [
-            f for f in folder.iterdir()
-            if f.is_file() and f.suffix.lower() in CURATED_BOOK_SUFFIXES
-        ]
-        if not files:
-            continue
-        # Pick largest file (full book over excerpts).
-        chosen = max(files, key=lambda f: f.stat().st_size)
-        return (
-            f"file://{chosen}",
-            f"curated-local: {chosen.suffix.lstrip('.')} ({chosen.stat().st_size} bytes)",
-        )
-    return None, ""
+    author = row.get("author_host", "")
+    match = find_local_book(title, author)
+    if match is None:
+        return None, ""
+    return match.file_url, f"curated-local: {match.path.name}"
 
 
 def _try_zlibrary(row: Dict[str, Any]) -> tuple[Optional[str], str]:
@@ -339,6 +301,11 @@ def main(argv: list[str] | None = None) -> int:
     n_fail = 0
     n_zlib_hit = 0
     n_halt = 0
+    # Disable z-library for rest of run once daily quota is hit, but keep
+    # processing remaining rows via LLM analog fallback (Papers/Podcasts +
+    # any subsequent Books). Quota refresh happens daily on z-lib side; the
+    # systemd timer will retry the skipped Books tomorrow.
+    zlib_quota_exhausted = False
 
     for i, row in enumerate(unreachable, start=1):
         title = row.get("title", "")[:60]
@@ -359,15 +326,18 @@ def main(argv: list[str] | None = None) -> int:
             alt_url, reason = _check_curated_local(row)
             if alt_url:
                 print(f"  curated-local hit -> {alt_url}")
+            elif zlib_quota_exhausted:
+                print(f"  z-library skip (quota exhausted earlier) — falling through to web search")
+                reason = ""
             else:
                 alt_url, reason = _try_zlibrary(row)
                 if alt_url:
                     n_zlib_hit += 1
                     print(f"  z-library hit -> {alt_url}")
                 elif "quota-exceeded" in reason:
-                    print(f"  HALT: Z-Library quota exceeded — {reason}")
-                    n_halt = len(unreachable) - i + 1
-                    break
+                    print(f"  z-library quota exceeded — disabling z-lib for rest of run, falling through to web search: {reason}")
+                    zlib_quota_exhausted = True
+                    reason = ""
                 elif "not-configured" in reason:
                     print(f"  z-library skip (not configured) — falling through to web search")
                     reason = ""

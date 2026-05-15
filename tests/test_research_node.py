@@ -9,6 +9,7 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -103,28 +104,144 @@ class ClassifyUrlTest(unittest.TestCase):
 
 class VerifyRowsTest(unittest.TestCase):
     def test_curator_yes_with_banned_url_gets_overridden(self):
-        # Curator vouched yes, but URL is banned. Defense-in-depth flips to no.
-        # Patch _classify_url not called when Reachable=yes — so we test the
-        # banned-domain branch directly.
         rows = [
             {
                 "Title": "x",
+                "Type": "Paper",
                 "Source URL": "https://www.jstor.org/stable/123",
                 "Reachable": "yes",
                 "Reachability Reason": "originally vouched by curator",
             }
         ]
-
-        def handler(req):
-            return httpx.Response(200, text=GOOD_BODY)
-
-        # Monkey-patch the module's httpx.Client builder is overkill; _verify_rows
-        # opens its own client. Banned check runs first on Reachable=yes path,
-        # so we don't need the client to fire at all.
         kept, dropped = _verify_rows(rows)
         self.assertEqual(kept[0]["Reachable"], "no")
         self.assertIn("banned-domain", kept[0]["Reachability Reason"])
         self.assertEqual(dropped, 1)
+
+    def test_curator_yes_with_bookey_url_gets_overridden(self):
+        # The specific bug that triggered this fix — bookey.app returns 403 to
+        # bots; curator vouched yes; banned list now catches it.
+        rows = [
+            {
+                "Title": "Endure",
+                "Type": "Book",
+                "Author/Host": "Some Unknown Author",  # won't match local
+                "Source URL": "https://www.bookey.app/book/endure",
+                "Reachable": "yes",
+                "Reachability Reason": "vouched",
+            }
+        ]
+        kept, dropped = _verify_rows(rows)
+        self.assertEqual(kept[0]["Reachable"], "no")
+        self.assertIn("banned-domain", kept[0]["Reachability Reason"])
+        self.assertEqual(dropped, 1)
+
+    def test_curator_yes_404_gets_overridden_by_http_fetch(self):
+        # Curator vouched yes for a URL that 404s. New behavior: full HTTP
+        # verify catches this even though URL is not on the banned list.
+        rows = [
+            {
+                "Title": "x",
+                "Type": "Article",
+                "Source URL": "https://example.com/dead-link",
+                "Reachable": "yes",
+                "Reachability Reason": "vouched by curator",
+            }
+        ]
+
+        def fake_classify(url, client):
+            return "no", "http-status: 404"
+
+        with patch("pipeline.nodes.research._classify_url", side_effect=fake_classify):
+            kept, dropped = _verify_rows(rows)
+        self.assertEqual(kept[0]["Reachable"], "no")
+        self.assertIn("OVERRIDDEN", kept[0]["Reachability Reason"])
+        self.assertIn("404", kept[0]["Reachability Reason"])
+        self.assertEqual(dropped, 1)
+
+    def test_curator_no_is_preserved_without_refetch(self):
+        rows = [
+            {
+                "Title": "x",
+                "Type": "Paper",
+                "Source URL": "https://paywalled.example/foo",
+                "Reachable": "no",
+                "Reachability Reason": "paywall (deliberate)",
+            }
+        ]
+
+        called = {"n": 0}
+
+        def fake_classify(url, client):
+            called["n"] += 1
+            return "yes", "verified 9999 chars"
+
+        with patch("pipeline.nodes.research._classify_url", side_effect=fake_classify):
+            kept, dropped = _verify_rows(rows)
+        self.assertEqual(kept[0]["Reachable"], "no")
+        self.assertEqual(called["n"], 0)
+        self.assertEqual(dropped, 1)
+
+    def test_local_book_match_overrides_web_url(self):
+        # When a Book row matches the local inventory, _verify_rows rewrites
+        # the Source URL to file:// and skips HTTP verify entirely.
+        from pipeline.local_books import LocalBook
+
+        rows = [
+            {
+                "Title": "Endure",
+                "Type": "Book",
+                "Author/Host": "Alex Hutchinson",
+                "Source URL": "https://www.bookey.app/book/endure",
+                "Reachable": "yes",
+                "Reachability Reason": "vouched",
+            }
+        ]
+        fake_path = Path("/home/x/books/raw/HutchinsonAlex_Endure_2018_engli_1.epub")
+        fake_match = LocalBook(
+            path=fake_path, display_title="Endure", display_author="Hutchinson Alex"
+        )
+
+        called = {"http": 0}
+
+        def fake_classify(url, client):
+            called["http"] += 1
+            return "yes", "verified"
+
+        with patch("pipeline.nodes.research.find_local_book", return_value=fake_match):
+            with patch(
+                "pipeline.nodes.research._classify_url", side_effect=fake_classify
+            ):
+                kept, dropped = _verify_rows(rows)
+
+        self.assertEqual(kept[0]["Source URL"], f"file://{fake_path}")
+        self.assertEqual(kept[0]["Reachable"], "yes")
+        self.assertIn("local-curated", kept[0]["Reachability Reason"])
+        self.assertEqual(called["http"], 0)
+        self.assertEqual(dropped, 0)
+
+    def test_non_book_row_is_not_local_matched(self):
+        # Type=Paper should never trigger local lookup even if title matches.
+        rows = [
+            {
+                "Title": "Endure",
+                "Type": "Paper",
+                "Author/Host": "Alex Hutchinson",
+                "Source URL": "https://pmc.ncbi.nlm.nih.gov/articles/PMC1/",
+            }
+        ]
+
+        def fake_classify(url, client):
+            return "yes", "verified"
+
+        with patch(
+            "pipeline.nodes.research.find_local_book", return_value=None
+        ) as mock_find:
+            with patch(
+                "pipeline.nodes.research._classify_url", side_effect=fake_classify
+            ):
+                _verify_rows(rows)
+        mock_find.assert_not_called()
 
 
 if __name__ == "__main__":
