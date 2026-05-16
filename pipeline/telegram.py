@@ -31,16 +31,27 @@ def _prefix(text: str) -> str:
     return f"{prefix}{text}" if prefix else text
 
 
-def send(text: str, chat_id: Optional[str] = None) -> int:
+def send(
+    text: str,
+    chat_id: Optional[str] = None,
+    parse_mode: Optional[str] = None,
+) -> int:
     """Fire-and-forget. Returns subprocess exit code.
 
     `chat_id` overrides $TELEGRAM_CHAT_ID for this call only — used to route
     daily-summarizer messages to a dedicated channel without polluting the
-    main content-pipeline chat."""
+    main content-pipeline chat.
+
+    `parse_mode` (e.g. "HTML", "MarkdownV2") enables Telegram rich-text so
+    `<a href="...">link</a>` and other inline formatting render as expected.
+    Plain text (default) is safer because no character needs escaping.
+    """
     _check()
     env = os.environ.copy()
     if chat_id:
         env["TELEGRAM_CHAT_ID"] = chat_id
+    if parse_mode:
+        env["TELEGRAM_PARSE_MODE"] = parse_mode
     proc = subprocess.run(
         [str(TELEGRAM_IO), "send", _prefix(text)],
         cwd=str(PROJECT_ROOT),

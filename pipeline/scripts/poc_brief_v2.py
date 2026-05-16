@@ -274,18 +274,13 @@ def _per_row_summary(source: Dict[str, Any]) -> str:
             "routing through local `claude -p` for a focalized pre-summary",
             flush=True,
         )
-        try:
-            text = _focal_summary_local(source, raw)
-            print(f"[poc-v2]   focal summary: {len(text)} chars", flush=True)
-        except (subprocess.TimeoutExpired, RuntimeError, FileNotFoundError) as exc:
-            # Fall back to a hard truncation so the pipeline still moves —
-            # losing detail is better than crashing the brief.
-            print(
-                f"[poc-v2]   focal pre-summary failed ({type(exc).__name__}: {exc}); "
-                f"falling back to first {LOCAL_SUMMARY_THRESHOLD_CHARS} chars",
-                flush=True,
-            )
-            text = raw[:LOCAL_SUMMARY_THRESHOLD_CHARS]
+        # No truncate fallback. If the focal pre-summary fails, the brief
+        # crashes loudly. A brief built on the first 500k chars of a 4.7MB
+        # source is content built on lost data — explicit fail beats silent
+        # half-content. The outer loop's crash-tolerance still moves to the
+        # next brief; this just means we don't produce a low-quality one.
+        text = _focal_summary_local(source, raw)
+        print(f"[poc-v2]   focal summary: {len(text)} chars", flush=True)
     else:
         text = raw
     user = (

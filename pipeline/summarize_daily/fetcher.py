@@ -12,6 +12,9 @@ Caches every successful fetch by SHA-256 of URL at
 from __future__ import annotations
 
 import hashlib
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
@@ -19,6 +22,14 @@ from urllib.parse import urlparse
 import httpx
 
 from pipeline.runtime import PROJECT_ROOT
+
+
+# Binary book formats need to be text-extracted before they're fed to any LLM
+# (raw PDF/EPUB bytes broke the daily-brief synthesis on 2026-05-16).
+# `pdftotext` ships with poppler-utils; `ebook-convert` ships with calibre.
+_PDFTOTEXT = shutil.which("pdftotext")
+_EBOOK_CONVERT = shutil.which("ebook-convert")
+_EXTRACT_TIMEOUT_S = 600
 
 try:
     import trafilatura
@@ -65,12 +76,70 @@ def _cache_path(url: str) -> Path:
     return CACHE_DIR / f"{digest}.txt"
 
 
+_PDF_MAGIC = b"%PDF-"
+_EPUB_MAGIC = b"PK\x03\x04"
+
+
+def _looks_binary(head: bytes) -> bool:
+    """Coarse sniff for PDF/EPUB headers. We only need to catch the two
+    formats the z-library bridge actually drops into `books/`."""
+    return head.startswith(_PDF_MAGIC) or head.startswith(_EPUB_MAGIC)
+
+
+def _extract_pdf(path: Path) -> str:
+    if _PDFTOTEXT is None:
+        raise FetchError("pdftotext not installed (apt-get install poppler-utils)")
+    proc = subprocess.run(
+        [_PDFTOTEXT, "-layout", "-enc", "UTF-8", str(path), "-"],
+        capture_output=True,
+        text=True,
+        timeout=_EXTRACT_TIMEOUT_S,
+    )
+    if proc.returncode != 0:
+        raise FetchError(f"pdftotext failed (rc={proc.returncode}): {proc.stderr[:200]}")
+    out = proc.stdout or ""
+    if len(out) < 200:
+        raise FetchError(f"pdftotext thin-extract: {len(out)} chars")
+    return out
+
+
+def _extract_epub(path: Path) -> str:
+    if _EBOOK_CONVERT is None:
+        raise FetchError("ebook-convert not installed (apt-get install calibre)")
+    with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as tmp:
+        tmp_path = Path(tmp.name)
+    try:
+        proc = subprocess.run(
+            [_EBOOK_CONVERT, str(path), str(tmp_path)],
+            capture_output=True,
+            text=True,
+            timeout=_EXTRACT_TIMEOUT_S,
+        )
+        if proc.returncode != 0:
+            raise FetchError(f"ebook-convert failed (rc={proc.returncode}): {proc.stderr[:200]}")
+        text = tmp_path.read_text(errors="replace")
+    finally:
+        tmp_path.unlink(missing_ok=True)
+    if len(text) < 200:
+        raise FetchError(f"ebook-convert thin-extract: {len(text)} chars")
+    return text
+
+
 def _fetch_local(path: str) -> str:
+    """Read a local file. If it's a PDF or EPUB (z-library bridge drops both
+    into `books/`), extract the text — otherwise the raw bytes get cached and
+    later fed to claude -p / litellm, which both choke on binary input (this
+    was the 2026-05-16 daily-brief failure)."""
     if path.startswith("file://"):
         path = urlparse(path).path
     p = Path(path)
     if not p.exists():
         raise FetchError(f"local-file missing: {path}")
+    head = p.read_bytes()[:8]
+    if head.startswith(_PDF_MAGIC):
+        return _extract_pdf(p)
+    if head.startswith(_EPUB_MAGIC):
+        return _extract_epub(p)
     return p.read_text(errors="replace")
 
 
@@ -123,7 +192,14 @@ def fetch(url: str, *, client: Optional[httpx.Client] = None, use_cache: bool = 
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     cached = _cache_path(url)
     if use_cache and cached.exists() and cached.stat().st_size > 0:
-        return cached.read_text()
+        # Older cache entries from before the binary-extraction fix may
+        # contain raw PDF/EPUB bytes. Detect by magic and invalidate so we
+        # re-fetch through the new text-extraction path.
+        head = cached.read_bytes()[:8]
+        if _looks_binary(head):
+            cached.unlink()
+        else:
+            return cached.read_text()
 
     own_client = client is None
     if own_client:

@@ -282,6 +282,13 @@ def _summary_50w(cluster_dir: Path, cluster: Cluster) -> str:
     return body or f"{cluster.theme} / {cluster.sub_angle} — {len(cluster.rows)} sources synthesized."
 
 
+def _esc(text: str) -> str:
+    """Escape `& < >` for Telegram HTML parse mode. Required for any dynamic
+    content interpolated into the message — otherwise a theme name with `&`
+    in it would 400 the sendMessage call."""
+    return (text or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 def _send_telegram(
     cluster: Cluster,
     cluster_dir: Path,
@@ -304,41 +311,40 @@ def _send_telegram(
     # Progress-aware header so the dedicated channel reads as a queue:
     # `Audio 1/3 ready`, `Audio 2/3 ready`, etc.
     header = (
-        f"🎧 Audio {index}/{total} ready — {cluster.theme}"
-        if audio_url
-        else f"📚 Brief {index}/{total} — {cluster.theme} (audio rendering)"
+        f"🎧 Audio {index}/{total} ready — {_esc(cluster.theme)}"
+        if notebooklm_url
+        else f"📚 Brief {index}/{total} — {_esc(cluster.theme)} (publish failed)"
     )
     lines = [
         header,
-        f"Sub-angle: {cluster.sub_angle}",
+        f"Sub-angle: {_esc(cluster.sub_angle)}",
         f"Sources: {len(cluster.rows)} | Notion: {notion_ok} ok / {notion_fail} fail",
     ]
     if skipped:
         lines.append(f"⚠️ Skipped {len(skipped)} unreachable source(s) — see below.")
-    lines.extend(["", summary, ""])
-    # Audio URL is the click-to-listen link Gonzalo actually wants on his phone.
-    # Notebook URL is kept as a fallback for "open the project in NotebookLM"
-    # when the audio is still rendering or the CDN URL has rotated.
-    if audio_url:
-        lines.append(f"🎧 Listen ▶ {audio_url}")
-        if notebooklm_url:
-            lines.append(f"NotebookLM project: {notebooklm_url}")
-    elif notebooklm_url:
-        lines.append(f"NotebookLM ▶ {notebooklm_url}")
-        lines.append("(audio still rendering — open the mobile app to listen)")
+    lines.extend(["", _esc(summary), ""])
+    # The `audio_url` field (Google CDN URL) is dropped from the message —
+    # it requires Google Sign-In and isn't shareable. The NotebookLM project
+    # URL opens the audio panel in the mobile app, which is what Gonzalo
+    # actually clicks on his commute. Rendered as an HTML href so the URL
+    # doesn't take up half the line.
+    if notebooklm_url:
+        lines.append(f'🎧 <a href="{notebooklm_url}">Listen</a>')
     else:
-        lines.append(f"Cluster dir: {cluster_dir.relative_to(PROJECT_ROOT)}")
+        lines.append(f"Cluster dir: <code>{_esc(str(cluster_dir.relative_to(PROJECT_ROOT)))}</code>")
     if skipped:
         lines.append("")
         lines.append("Skipped sources:")
         for s in skipped:
-            lines.append(f"• {s.get('title','')[:60]} — {s.get('error','')}")
-            lines.append(f"  {s.get('url','')}")
+            lines.append(f"• {_esc(s.get('title','')[:60])} — {_esc(s.get('error',''))}")
+            url = s.get("url", "")
+            if url:
+                lines.append(f'  <a href="{url}">source</a>')
         lines.append("")
-        lines.append("To ban permanently: add the URL to config/fetch_denylist.txt.")
+        lines.append("To ban permanently: add the URL to <code>config/fetch_denylist.txt</code>.")
     text = "\n".join(lines)
     try:
-        rc = send(text, chat_id=_daily_chat_id())
+        rc = send(text, chat_id=_daily_chat_id(), parse_mode="HTML")
         print(f"Telegram send rc={rc}")
     except Exception as exc:  # noqa: BLE001
         print(f"!! Telegram send failed: {exc}")
@@ -360,15 +366,15 @@ def _send_brief_crash_telegram(
         print(f"!! Telegram import failed: {exc}")
         return
     lines = [
-        f"⚠️ Brief {index}/{total} crashed — {cluster.theme}",
-        f"Sub-angle: {cluster.sub_angle}",
+        f"⚠️ Brief {index}/{total} crashed — {_esc(cluster.theme)}",
+        f"Sub-angle: {_esc(cluster.sub_angle)}",
         "",
-        error[:500],
+        f"<code>{_esc(error[:500])}</code>",
         "",
         f"{total - index} brief(s) still to come this run — continuing.",
     ]
     try:
-        rc = send("\n".join(lines), chat_id=_daily_chat_id())
+        rc = send("\n".join(lines), chat_id=_daily_chat_id(), parse_mode="HTML")
         print(f"Telegram send (crash) rc={rc}")
     except Exception as exc:  # noqa: BLE001
         print(f"!! Telegram send failed: {exc}")
@@ -388,17 +394,19 @@ def _send_fetch_failure_telegram(
     header = "❌ Daily brief ABORTED" if aborted else "⚠️ Daily brief — fetch failures"
     lines = [
         header,
-        f"Theme: {cluster.theme}  /  sub-angle: {cluster.sub_angle}",
+        f"Theme: {_esc(cluster.theme)}  /  sub-angle: {_esc(cluster.sub_angle)}",
         f"Failed sources: {len(skipped)} / {len(cluster.rows)}",
         "",
     ]
     for s in skipped:
-        lines.append(f"• {s.get('title','')[:60]} — {s.get('error','')}")
-        lines.append(f"  {s.get('url','')}")
+        lines.append(f"• {_esc(s.get('title','')[:60])} — {_esc(s.get('error',''))}")
+        url = s.get("url", "")
+        if url:
+            lines.append(f'  <a href="{url}">source</a>')
     lines.append("")
-    lines.append("Ban a URL: add it to config/fetch_denylist.txt.")
+    lines.append("Ban a URL: add it to <code>config/fetch_denylist.txt</code>.")
     try:
-        rc = send("\n".join(lines), chat_id=_daily_chat_id())
+        rc = send("\n".join(lines), chat_id=_daily_chat_id(), parse_mode="HTML")
         print(f"Telegram send (failure) rc={rc}")
     except Exception as exc:  # noqa: BLE001
         print(f"!! Telegram send failed: {exc}")
