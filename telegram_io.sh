@@ -30,11 +30,18 @@ if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
 fi
 
 _send() {
-    # Interpret \n as real newlines so multi-line messages render correctly
-    local text response ok
+    # Interpret \n as real newlines so multi-line messages render correctly.
+    # $TELEGRAM_PARSE_MODE (optional) selects Telegram's parse_mode for the
+    # message — "HTML" enables <a href="...">link</a>, <b>, <i>, <code>, etc.
+    # When unset, plain text is sent (current behavior).
+    local text response ok parse_mode_args=()
     text=$(printf '%b' "$1")
+    if [ -n "${TELEGRAM_PARSE_MODE:-}" ]; then
+        parse_mode_args=(--data-urlencode "parse_mode=${TELEGRAM_PARSE_MODE}")
+    fi
     response=$(curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
         --data-urlencode "chat_id=${CHAT_ID}" \
+        "${parse_mode_args[@]}" \
         --data-urlencode "text=${text}")
     ok=$(echo "$response" | python3 -c "import sys,json; print(json.load(sys.stdin).get('ok','false'))" 2>/dev/null)
     if [ "$ok" != "True" ]; then
