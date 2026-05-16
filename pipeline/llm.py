@@ -151,7 +151,16 @@ def call_llm(
             "max_tokens": max_tokens,
         }
         if billing_mode == "subscription":
-            kwargs["extra_headers"] = {"anthropic-beta": "oauth-2025-04-20"}
+            # `oauth-2025-04-20` is the subscription-billing opt-in.
+            # `context-1m-2025-08-07` unlocks Sonnet 4 family's 1M-token
+            # context window. Without it, requests >200k input tokens are
+            # rejected with `rate_limit_error: "Extra usage is required for
+            # long context requests"` — which is what was killing 2/3 daily
+            # briefs on 2026-05-16. Anthropic accepts a comma-separated list
+            # in a single `anthropic-beta` header value.
+            kwargs["extra_headers"] = {
+                "anthropic-beta": "oauth-2025-04-20,context-1m-2025-08-07",
+            }
         if effective_tools:
             kwargs["tools"] = effective_tools
 
