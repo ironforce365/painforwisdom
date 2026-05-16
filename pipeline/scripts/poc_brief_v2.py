@@ -10,13 +10,35 @@ summarizer in Phase 4 will populate this list dynamically from Notion.
 """
 from __future__ import annotations
 
+import os
 import re
+import subprocess
 import sys
 from datetime import date
 from typing import Any, Dict, List
 
 from pipeline.llm import call_llm
 from pipeline.runtime import PROJECT_ROOT
+
+
+# All content-generation LLM calls go to Opus 4.7. Sonnet's synthesis wasn't
+# producing dense-enough briefs; Opus is the quality bar for content gen.
+# (Subscription billing — no $ cost, only quota.)
+BRIEF_MODEL = "claude-opus-4-7"
+
+# Local pre-summarization via `claude -p`: bypass the Anthropic API 200k
+# per-request cap by routing long sources through the Claude Code CLI
+# (which uses the Ultra subscription's 1M context window). The focalized
+# summary is then fed to litellm.completion in place of the raw source.
+LOCAL_SUMMARY_THRESHOLD_CHARS = 500_000  # ~125k tokens — anything larger gets focal-summarized
+LOCAL_SUMMARY_CHUNK_CHARS = 500_000      # chunk size when source needs splitting
+LOCAL_SUMMARY_MAX_CHUNKS = 5             # caps coverage at ~2.5MB of source text
+LOCAL_CLAUDE_TIMEOUT_S = 900             # 15 min per claude -p invocation
+LOCAL_CLAUDE_MODEL = "claude-sonnet-4-6"  # focal pre-summary doesn't need Opus quality
+
+# Absolute path so this works under systemd-user (which inherits a minimal
+# PATH that does NOT include `~/.local/bin`). Override with $CLAUDE_BIN.
+LOCAL_CLAUDE_BIN = os.environ.get("CLAUDE_BIN") or os.path.expanduser("~/.local/bin/claude")
 
 
 # ---------- prompts ----------
@@ -101,6 +123,138 @@ def _read_cache(slug: str) -> str:
     return (PROJECT_ROOT / "briefs" / ".cache" / f"{slug}.txt").read_text()
 
 
+def _focal_prompt(source: Dict[str, Any]) -> str:
+    """Build a focusing prompt from the research-agent metadata so the local
+    claude pass only summarizes the parts of the source that actually bear
+    on the angle Gonzalo cares about.
+
+    Three fields steer the focus, in priority order:
+      1. specific_location: chapter / episode / page range to zoom into.
+      2. research_angle: the question the cluster is answering.
+      3. relevance: why the agent picked this source over others.
+    """
+    angle = source.get("research_angle") or "(no angle)"
+    relevance = (source.get("relevance") or "").strip()
+    location = (source.get("specific_location") or "").strip()
+    title = source.get("title") or "(untitled)"
+    author = source.get("author_host") or "(unknown)"
+    parts = [
+        "You are creating a focalized research summary of ONE source. Another LLM "
+        "will use your summary (not the raw source) for cross-source synthesis, so "
+        "density > polish, citations > prose.",
+        f"Source: {title} — {author}",
+        f"Research angle: {angle}",
+    ]
+    if relevance:
+        parts.append(f"Why this source was chosen: {relevance}")
+    if location:
+        parts.append(
+            f"FOCUS WINDOW: zero in on {location}. Skim past unrelated chapters, "
+            "side stories, and tangential material — they are not load-bearing."
+        )
+    parts.append(
+        "Output a dense ~1500-2500 word summary covering ONLY the parts of the source "
+        "that bear on the research angle. Verbatim-quote impactful passages (each on "
+        "its own line, prefixed with `> `). End with a one-line **Takeaway:** capturing "
+        "the operator-grade conclusion. No motivational framing, no hedging."
+    )
+    return "\n\n".join(parts)
+
+
+_FOCAL_SYSTEM_PROMPT = (
+    "You are a research summarizer producing a focalized digest of a source "
+    "for downstream synthesis. Output dense markdown only. Do not call tools. "
+    "Do not narrate your process. Do not ask follow-up questions."
+)
+_FOCAL_DISALLOWED_TOOLS = "Bash Edit Write Read Glob Grep WebFetch WebSearch NotebookEdit"
+
+
+def _claude_p_focal(prompt: str, text: str) -> str:
+    """One `claude -p` invocation against the OAuth subscription.
+
+    `--bare` is INTENTIONALLY NOT used here: bare-mode forces API-key auth
+    and would 401 on the OAuth-subscription token. Instead we lean it out via:
+      * `--system-prompt` — replaces Claude Code's full default prompt with a
+        minimal summarizer directive.
+      * `--disallowedTools` — blocks file/web/shell tool use so the model
+        can only return text.
+      * `--model claude-sonnet-4-6` — focal pre-summary doesn't need Opus.
+
+    Subscription billing — no $ cost, only quota.
+    """
+    # Strip ANTHROPIC_* env vars so `claude` uses its own OAuth keychain
+    # (~/.claude/.credentials.json) instead of a stale token that load_dotenv
+    # already injected into this Python process. The keychain is refreshed by
+    # the `claude` CLI itself; a stale .env token would 401.
+    child_env = {k: v for k, v in os.environ.items()
+                 if k not in ("ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY")}
+    proc = subprocess.run(
+        [
+            LOCAL_CLAUDE_BIN, "-p", prompt,
+            "--system-prompt", _FOCAL_SYSTEM_PROMPT,
+            "--disallowedTools", _FOCAL_DISALLOWED_TOOLS,
+            "--model", LOCAL_CLAUDE_MODEL,
+        ],
+        input=text,
+        capture_output=True,
+        text=True,
+        timeout=LOCAL_CLAUDE_TIMEOUT_S,
+        env=child_env,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"claude -p failed (rc={proc.returncode}): {proc.stderr[:500]}")
+    out = (proc.stdout or "").strip()
+    if not out:
+        raise RuntimeError(f"claude -p produced empty output; stderr={proc.stderr[:500]}")
+    return out
+
+
+def _focal_summary_local(source: Dict[str, Any], raw_text: str) -> str:
+    """Pre-summarize a too-large source via local `claude -p` so the downstream
+    litellm call stays under the Anthropic API 200k per-request cap.
+
+    Chunks the source if it exceeds `LOCAL_SUMMARY_CHUNK_CHARS`, then merges
+    per-chunk summaries via a final `claude -p` pass. The same focal prompt
+    is reused for both phases so the merge inherits the research-angle bias.
+    """
+    prompt = _focal_prompt(source)
+    n = len(raw_text)
+    if n <= LOCAL_SUMMARY_CHUNK_CHARS:
+        print(f"[poc-v2]   focal pre-summary (single chunk, {n} chars)...", flush=True)
+        return _claude_p_focal(prompt, raw_text)
+
+    chunks = [
+        raw_text[i:i + LOCAL_SUMMARY_CHUNK_CHARS]
+        for i in range(0, n, LOCAL_SUMMARY_CHUNK_CHARS)
+    ]
+    if len(chunks) > LOCAL_SUMMARY_MAX_CHUNKS:
+        print(
+            f"[poc-v2]   source is {n} chars — capping at {LOCAL_SUMMARY_MAX_CHUNKS} chunks "
+            f"(~{LOCAL_SUMMARY_MAX_CHUNKS * LOCAL_SUMMARY_CHUNK_CHARS} chars / "
+            f"{LOCAL_SUMMARY_MAX_CHUNKS * LOCAL_SUMMARY_CHUNK_CHARS // 4000}k tokens). "
+            "Reduce source coverage by re-augmenting the cache to chapter-only.",
+            flush=True,
+        )
+        chunks = chunks[:LOCAL_SUMMARY_MAX_CHUNKS]
+
+    print(f"[poc-v2]   focal pre-summary ({len(chunks)} chunks of {LOCAL_SUMMARY_CHUNK_CHARS} chars)...", flush=True)
+    chunk_summaries: List[str] = []
+    for i, chunk in enumerate(chunks, 1):
+        print(f"[poc-v2]     chunk {i}/{len(chunks)}...", flush=True)
+        s = _claude_p_focal(prompt, chunk)
+        chunk_summaries.append(f"--- Chunk {i}/{len(chunks)} ---\n{s}")
+
+    print(f"[poc-v2]   merging {len(chunk_summaries)} chunk summaries...", flush=True)
+    merge_prompt = (
+        prompt
+        + "\n\nYou will receive multiple chunk-level summaries of one large source. "
+        "Merge them into a single coherent focalized summary at the same density. "
+        "Eliminate redundancy across chunks. Preserve every concrete claim, quote, "
+        "mechanism, and study reference. Re-order if needed for clarity."
+    )
+    return _claude_p_focal(merge_prompt, "\n\n".join(chunk_summaries))
+
+
 def _read_vault(rel_path: str) -> str:
     """Vault entry path is stored as a slug like '2026-03-27-pre-run-fatigue-is-forecast'.
     Resolves under obsidian-vault/gonzalo-book/entries/."""
@@ -113,7 +267,27 @@ def _read_vault(rel_path: str) -> str:
 
 
 def _per_row_summary(source: Dict[str, Any]) -> str:
-    text = _read_cache(source["slug"])
+    raw = _read_cache(source["slug"])
+    if len(raw) > LOCAL_SUMMARY_THRESHOLD_CHARS:
+        print(
+            f"[poc-v2]   source '{source['slug']}' is {len(raw)} chars (>{LOCAL_SUMMARY_THRESHOLD_CHARS}) — "
+            "routing through local `claude -p` for a focalized pre-summary",
+            flush=True,
+        )
+        try:
+            text = _focal_summary_local(source, raw)
+            print(f"[poc-v2]   focal summary: {len(text)} chars", flush=True)
+        except (subprocess.TimeoutExpired, RuntimeError, FileNotFoundError) as exc:
+            # Fall back to a hard truncation so the pipeline still moves —
+            # losing detail is better than crashing the brief.
+            print(
+                f"[poc-v2]   focal pre-summary failed ({type(exc).__name__}: {exc}); "
+                f"falling back to first {LOCAL_SUMMARY_THRESHOLD_CHARS} chars",
+                flush=True,
+            )
+            text = raw[:LOCAL_SUMMARY_THRESHOLD_CHARS]
+    else:
+        text = raw
     user = (
         f"Research angle: {source['research_angle']}\n\n"
         f"Source title: {source['title']}\n"
@@ -121,7 +295,7 @@ def _per_row_summary(source: Dict[str, Any]) -> str:
         f"--- BEGIN SOURCE TEXT ---\n{text}\n--- END SOURCE TEXT ---"
     )
     return call_llm(
-        model="claude-sonnet-4-6",
+        model=BRIEF_MODEL,
         system_prompt=DEEP_DIVE_PER_ROW_SYSTEM,
         user_message=user,
         max_tokens=1200,
@@ -134,7 +308,7 @@ def _synthesis(per_row_summaries: List[Dict[str, str]]) -> str:
         blocks.append(f"### {s['title']} — {s['author_host']}\n{s['summary']}")
     user = "\n\n---\n\n".join(blocks)
     return call_llm(
-        model="claude-sonnet-4-6",
+        model=BRIEF_MODEL,
         system_prompt=DEEP_DIVE_SYNTHESIS_SYSTEM.format(n=len(per_row_summaries)),
         user_message=user,
         max_tokens=1500,
@@ -147,7 +321,7 @@ def _application(deep_dive_md: str, vault_text: str, n_sources: int) -> str:
         f"--- BEGIN DEEP-DIVE BRIEF ({n_sources} sources) ---\n{deep_dive_md}\n--- END DEEP-DIVE BRIEF ---"
     )
     return call_llm(
-        model="claude-sonnet-4-6",
+        model=BRIEF_MODEL,
         system_prompt=APPLICATION_SYSTEM.format(n=n_sources),
         user_message=user,
         max_tokens=2000,
@@ -161,7 +335,7 @@ def _audio_prompts(deep_dive_md: str, application_md: str, theme: str, sub_angle
         f"--- APPLICATION BRIEF ---\n{application_md}"
     )
     return call_llm(
-        model="claude-sonnet-4-6",
+        model=BRIEF_MODEL,
         system_prompt=AUDIO_PROMPTS_SYSTEM,
         user_message=user,
         max_tokens=2000,
