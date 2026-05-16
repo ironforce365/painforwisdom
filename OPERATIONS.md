@@ -190,7 +190,15 @@ Background automations run via **systemd --user**. `crontab -l` is empty by desi
 
 | Unit | Schedule | What it does |
 |------|----------|--------------|
-| `painforwisdom-daily-brief.timer` → `painforwisdom-daily-brief.service` | Daily 06:00 local | `python -m pipeline.summarize_daily --apply --mcp-publish --max-cost-usd 1.0` — picks one cluster from Notion Research queue → builds brief at `briefs/<theme>/<date>--<sub-slug>/` → uploads to NotebookLM → posts Telegram summary. |
+| `painforwisdom-daily-brief.timer` → `painforwisdom-daily-brief.service` | Daily 06:00 local | `python -m pipeline.summarize_daily --apply --mcp-publish --max-cost-usd 1.0 --count 3` — picks up to 3 distinct-theme clusters from Notion Research queue → builds 3 briefs at `briefs/<theme>/<date>--<sub-slug>/` → uploads each to NotebookLM → posts 3 Telegram summaries (one per brief) to the `daily_summary` channel with a direct audio-overview link each. |
+
+The `--count` flag (default 3) feeds Gonzalo's 2h commute + 1h run listening window. Each brief gets its own audio overview and its own Telegram message so they queue up in the dedicated `daily_summary` channel.
+
+The Telegram message uses the **direct audio CDN URL** (`audio_url` field returned by `nlm studio status --full --json`) so the click-to-listen works on mobile without navigating NotebookLM's notebook → studio panel. If the audio is still rendering at poll timeout, the message falls back to the NotebookLM project URL plus a note to open the mobile app.
+
+### Telegram channel routing
+
+`TELEGRAM_DAILY_SUMMARY_CHAT_ID` in `.env` routes daily-summarizer messages to a dedicated channel (`daily_summary` = `-1003515954802`), so the main `content_pipeline` chat stays focused on per-transcript pipeline progress. If unset, daily messages fall back to `TELEGRAM_CHAT_ID`. The bot must be a member of the channel with post permission before this works.
 
 Unit files: `~/.config/systemd/user/painforwisdom-daily-brief.{service,timer}`.
 
