@@ -63,6 +63,8 @@ def _run_one_brief(
     cluster: Cluster,
     *,
     mcp_publish: bool,
+    index: int = 1,
+    total: int = 1,
 ) -> tuple[int, set[str]]:
     """Build + publish + notify for a single cluster.
 
@@ -149,6 +151,8 @@ def _run_one_brief(
         len(errors),
         skipped=skipped,
         audio_url=audio_url,
+        index=index,
+        total=total,
     )
 
     append_metric(
@@ -230,7 +234,12 @@ def main(argv: list[str] | None = None) -> int:
             )
             break
         print(f"\n--- Daily brief {i}/{args.count} ---")
-        rc, used_ids = _run_one_brief(cluster, mcp_publish=args.mcp_publish)
+        rc, used_ids = _run_one_brief(
+            cluster,
+            mcp_publish=args.mcp_publish,
+            index=i,
+            total=args.count,
+        )
         consumed |= used_ids
         used_themes.add(cluster.theme)
         if rc != 0:
@@ -267,6 +276,8 @@ def _send_telegram(
     notion_fail: int,
     skipped: list[dict] | None = None,
     audio_url: str = "",
+    index: int = 1,
+    total: int = 1,
 ) -> None:
     try:
         from pipeline.telegram import send  # noqa: WPS433 (local import: optional dep)
@@ -276,8 +287,15 @@ def _send_telegram(
 
     skipped = skipped or []
     summary = _summary_50w(cluster_dir, cluster)
+    # Progress-aware header so the dedicated channel reads as a queue:
+    # `Audio 1/3 ready`, `Audio 2/3 ready`, etc.
+    header = (
+        f"🎧 Audio {index}/{total} ready — {cluster.theme}"
+        if audio_url
+        else f"📚 Brief {index}/{total} — {cluster.theme} (audio rendering)"
+    )
     lines = [
-        f"📚 Daily brief — {cluster.theme}",
+        header,
         f"Sub-angle: {cluster.sub_angle}",
         f"Sources: {len(cluster.rows)} | Notion: {notion_ok} ok / {notion_fail} fail",
     ]
