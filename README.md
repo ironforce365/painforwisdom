@@ -134,7 +134,7 @@ Background automations run via **systemd user units** (not crontab — `crontab 
 
 | Unit | Schedule | Purpose |
 |------|----------|---------|
-| `painforwisdom-daily-brief.timer` → `.service` | Every day 06:00 local | Runs `python -m pipeline.summarize_daily --apply --mcp-publish --max-cost-usd 1.0` — picks one cluster from Notion's Research queue, builds a brief, publishes to NotebookLM, posts Telegram summary. |
+| `painforwisdom-daily-brief.timer` → `.service` | Every day 06:00 local | Runs `python -m pipeline.summarize_daily --apply --mcp-publish --max-cost-usd 1.0 --count 3` — picks up to 3 distinct-theme clusters from Notion's Research queue, builds 3 briefs, publishes each to NotebookLM, posts one Telegram message per brief (with a direct audio-overview link) to the dedicated `daily_summary` channel. |
 
 Unit files: `~/.config/systemd/user/painforwisdom-daily-brief.{service,timer}`.
 

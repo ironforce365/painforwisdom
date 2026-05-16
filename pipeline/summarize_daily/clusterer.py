@@ -77,15 +77,21 @@ def pick_cluster(
     rows: List[Dict[str, Any]],
     *,
     skip_themes: Optional[set[str]] = None,
+    excluded_page_ids: Optional[set[str]] = None,
 ) -> Optional[Cluster]:
     """Pick the largest sub-cluster within the most-pending theme.
 
     skip_themes: themes to deprioritize (already covered this week, etc.).
+    excluded_page_ids: Notion page ids already consumed in this run — filtered
+    out before clustering so multi-cluster daily runs don't reuse rows.
     """
     skip_themes = skip_themes or set()
+    excluded_page_ids = excluded_page_ids or set()
     by_theme: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
     for r in rows:
         if r["coaching_theme"] in skip_themes:
+            continue
+        if r.get("page_id") in excluded_page_ids:
             continue
         by_theme[r["coaching_theme"]].append(r)
 

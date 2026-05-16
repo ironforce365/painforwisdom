@@ -18,6 +18,7 @@ Failure handling:
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -51,6 +52,7 @@ class PublishResult:
     notebook_url: str
     artifact_id: str
     status: str  # completed | rendering | failed
+    audio_url: str = ""  # direct streamable audio URL (Google CDN); empty if not yet rendered
     detail: str = ""
 
 
@@ -147,7 +149,7 @@ def _poll_audio(notebook_id: str, artifact_id: str, max_s: int = POLL_MAX_S) -> 
     """Returns status: completed | rendering | failed."""
     deadline = time.time() + max_s
     while time.time() < deadline:
-        rc, stdout, stderr = _run_nlm(["studio", "status", notebook_id])
+        rc, stdout, _stderr = _run_nlm(["studio", "status", notebook_id])
         if rc == 0 and artifact_id in stdout:
             # Tiny parser — search for status line near artifact id
             lines = stdout.splitlines()
@@ -162,6 +164,28 @@ def _poll_audio(notebook_id: str, artifact_id: str, max_s: int = POLL_MAX_S) -> 
                                     return status
         time.sleep(POLL_INTERVAL_S)
     return "rendering"
+
+
+def _fetch_audio_url(notebook_id: str, artifact_id: str) -> str:
+    """Look up the direct streamable audio URL for a completed artifact.
+
+    Returns empty string if the artifact is missing the `audio_url` field
+    (still rendering, failed, or older artifact). The URL is a Google CDN
+    link that plays directly in browsers and mobile audio apps."""
+    rc, stdout, _stderr = _run_nlm(["studio", "status", notebook_id, "--full", "--json"])
+    if rc != 0:
+        return ""
+    try:
+        artifacts = json.loads(stdout)
+    except (json.JSONDecodeError, ValueError):
+        return ""
+    if not isinstance(artifacts, list):
+        return ""
+    for art in artifacts:
+        if isinstance(art, dict) and art.get("id") == artifact_id:
+            url = art.get("audio_url") or ""
+            return url if isinstance(url, str) else ""
+    return ""
 
 
 # ----------------------- focus-prompt template ---------------------------
@@ -305,6 +329,11 @@ def publish(
     (cluster_dir / "audio_artifact_id.txt").write_text(artifact_id + "\n")
 
     status = _poll_audio(notebook_id, artifact_id)
+    audio_url = ""
+    if status == "completed":
+        audio_url = _fetch_audio_url(notebook_id, artifact_id)
+        if audio_url:
+            (cluster_dir / "audio_url.txt").write_text(audio_url + "\n")
     if status == "rendering":
         (cluster_dir / "audio_pending.txt").write_text(
             f"artifact {artifact_id} still rendering at poll timeout; "
@@ -316,4 +345,5 @@ def publish(
         notebook_url=notebook_url,
         artifact_id=artifact_id,
         status=status,
+        audio_url=audio_url,
     )
