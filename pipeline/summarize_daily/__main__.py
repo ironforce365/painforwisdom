@@ -74,7 +74,7 @@ def _run_one_brief(
     """
     consumed_page_ids = {r.get("page_id", "") for r in cluster.rows if r.get("page_id")}
 
-    print(f"\n=== Building brief: {cluster.theme} / {cluster.sub_angle} ===")
+    print(f"\n=== Building brief {index}/{total}: {cluster.theme} / {cluster.sub_angle} ===")
     try:
         cluster_dir, skipped = write_brief(cluster)
     except FetchError as exc:
@@ -85,6 +85,20 @@ def _run_one_brief(
                       "title": r.get("title", ""), "error": "all-rows-failed"}
                      for r in cluster.rows],
             aborted=True,
+        )
+        return 1, consumed_page_ids
+    except Exception as exc:  # noqa: BLE001
+        # Anything else from the LLM/synthesis stack (rate limits, long-context
+        # gating, transient 5xx, etc.) used to crash the whole systemd unit and
+        # silently kill the remaining briefs in the run. Now: log, alert,
+        # mark this cluster's rows as consumed (so the next iteration picks a
+        # different theme), and keep going.
+        print(f"!! Brief {index}/{total} crashed: {type(exc).__name__}: {exc}")
+        _send_brief_crash_telegram(
+            cluster,
+            index=index,
+            total=total,
+            error=f"{type(exc).__name__}: {exc}",
         )
         return 1, consumed_page_ids
     print(f"Brief written: {cluster_dir}")
@@ -326,6 +340,36 @@ def _send_telegram(
     try:
         rc = send(text, chat_id=_daily_chat_id())
         print(f"Telegram send rc={rc}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"!! Telegram send failed: {exc}")
+
+
+def _send_brief_crash_telegram(
+    cluster: Cluster,
+    *,
+    index: int,
+    total: int,
+    error: str,
+) -> None:
+    """Notify when a brief crashes mid-LLM (rate limit, long context, transient
+    upstream error). Distinct from a fetch failure: the cluster's sources were
+    reachable but the synthesis step couldn't finish."""
+    try:
+        from pipeline.telegram import send  # noqa: WPS433
+    except Exception as exc:  # noqa: BLE001
+        print(f"!! Telegram import failed: {exc}")
+        return
+    lines = [
+        f"⚠️ Brief {index}/{total} crashed — {cluster.theme}",
+        f"Sub-angle: {cluster.sub_angle}",
+        "",
+        error[:500],
+        "",
+        f"{total - index} brief(s) still to come this run — continuing.",
+    ]
+    try:
+        rc = send("\n".join(lines), chat_id=_daily_chat_id())
+        print(f"Telegram send (crash) rc={rc}")
     except Exception as exc:  # noqa: BLE001
         print(f"!! Telegram send failed: {exc}")
 
