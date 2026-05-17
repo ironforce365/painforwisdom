@@ -221,7 +221,7 @@ systemctl --user cat painforwisdom-daily-brief.service painforwisdom-daily-brief
 ### Manual run / reset
 
 ```bash
-# Stop a restart loop (service has Restart=on-failure / RestartSec=300 / StartLimitBurst=1)
+# Stop a restart loop (service has Restart=on-failure / RestartSec=300 / StartLimitBurst=3 / StartLimitIntervalSec=2h)
 systemctl --user stop painforwisdom-daily-brief.service
 
 # Fire it now as a one-shot (writes to journal, same as scheduled run)
