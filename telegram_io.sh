@@ -12,13 +12,22 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Load .env if present
+# Load .env if present. Caller-set TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID /
+# TELEGRAM_PARSE_MODE take precedence over .env so a caller can route a single
+# send to a non-default channel without editing .env.
+_caller_bot_token="${TELEGRAM_BOT_TOKEN:-}"
+_caller_chat_id="${TELEGRAM_CHAT_ID:-}"
+_caller_parse_mode="${TELEGRAM_PARSE_MODE:-}"
 if [ -f "$SCRIPT_DIR/.env" ]; then
     # shellcheck disable=SC1091
     set -a
     source "$SCRIPT_DIR/.env"
     set +a
 fi
+[ -n "$_caller_bot_token" ] && TELEGRAM_BOT_TOKEN="$_caller_bot_token"
+[ -n "$_caller_chat_id" ] && TELEGRAM_CHAT_ID="$_caller_chat_id"
+[ -n "$_caller_parse_mode" ] && TELEGRAM_PARSE_MODE="$_caller_parse_mode"
+unset _caller_bot_token _caller_chat_id _caller_parse_mode
 
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 CHAT_ID="${TELEGRAM_CHAT_ID:-}"

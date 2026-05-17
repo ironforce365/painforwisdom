@@ -76,7 +76,16 @@ fi
 
 msg="🚨 daily-brief watchdog: $(IFS='; '; echo "${problems[*]}")"$'\n'"recover: systemctl --user reset-failed $TIMER_UNIT && systemctl --user start $TIMER_UNIT"
 
-if "$ROOT/telegram_io.sh" send "$msg" >> "$LOG_FILE" 2>&1; then
+# Route alert to the daily-summary channel so it lands where Gonzalo reads the
+# briefs — falls back to the pipeline default when the override is unset.
+# Pulled from .env via a single source so cron (which has a bare env) sees it.
+if [ -f "$ROOT/.env" ]; then
+    # shellcheck disable=SC1091
+    set -a; . "$ROOT/.env"; set +a
+fi
+alert_chat_id="${TELEGRAM_DAILY_SUMMARY_CHAT_ID:-${TELEGRAM_CHAT_ID:-}}"
+
+if TELEGRAM_CHAT_ID="$alert_chat_id" "$ROOT/telegram_io.sh" send "$msg" >> "$LOG_FILE" 2>&1; then
     echo "$now" > "$STATE_FILE"
     log "ALERT_SENT problems=${problems[*]}"
 else
