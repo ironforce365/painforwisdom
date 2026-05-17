@@ -49,6 +49,8 @@ fi
 export XDG_RUNTIME_DIR="/run/user/$(id -u)"
 export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
 
+heal_note=""
+
 timer_state=$(systemctl --user is-active "$TIMER_UNIT" 2>/dev/null || true)
 case "$timer_state" in
     active)
@@ -56,12 +58,43 @@ case "$timer_state" in
     "")
         problems+=("user systemd unreachable from cron (timer state unknown)") ;;
     *)
-        problems+=("timer $TIMER_UNIT state=$timer_state") ;;
+        # Heal-then-notify: try to restart the timer ourselves before paging.
+        # If it comes back active, suppress the timer problem and surface the
+        # heal action instead. If it stays down, fall through to the alert.
+        log "AUTO_HEAL_ATTEMPT timer was state=$timer_state"
+        systemctl --user reset-failed "$TIMER_UNIT" >> "$LOG_FILE" 2>&1 || true
+        if systemctl --user start "$TIMER_UNIT" >> "$LOG_FILE" 2>&1; then
+            sleep 2
+            new_state=$(systemctl --user is-active "$TIMER_UNIT" 2>/dev/null || true)
+            if [ "$new_state" = active ]; then
+                log "AUTO_HEAL_OK timer recovered from $timer_state to $new_state"
+                heal_note="auto-healed: timer was $timer_state, restarted ok"
+            else
+                problems+=("timer $TIMER_UNIT state=$timer_state; heal failed (now=$new_state)")
+            fi
+        else
+            problems+=("timer $TIMER_UNIT state=$timer_state; heal failed (start rc=$?)")
+        fi
+        ;;
 esac
 
 # --- decide whether to alert ----------------------------------------------
 if [ "${#problems[@]}" -eq 0 ]; then
-    log "OK newest=${age_h}h timer=$timer_state"
+    if [ -n "$heal_note" ]; then
+        # Auto-heal happened with no other outstanding problem. Send a low-noise
+        # notice (one-shot, no dedupe) so we know self-recovery fired. The
+        # persistent timer will fire the missed run on its own.
+        notice="ℹ️ daily-brief watchdog: $heal_note"
+        if [ -f "$ROOT/.env" ]; then
+            # shellcheck disable=SC1091
+            set -a; . "$ROOT/.env"; set +a
+        fi
+        notice_chat_id="${TELEGRAM_DAILY_SUMMARY_CHAT_ID:-${TELEGRAM_CHAT_ID:-}}"
+        TELEGRAM_CHAT_ID="$notice_chat_id" "$ROOT/telegram_io.sh" send "$notice" >> "$LOG_FILE" 2>&1 || true
+        log "AUTO_HEAL_NOTICE_SENT $heal_note"
+    else
+        log "OK newest=${age_h}h timer=$timer_state"
+    fi
     exit 0
 fi
 
@@ -74,7 +107,11 @@ if [ "$since_alert" -lt $(( DEDUPE_HOURS * 3600 )) ]; then
     exit 0
 fi
 
-msg="🚨 daily-brief watchdog: $(IFS='; '; echo "${problems[*]}")"$'\n'"recover: systemctl --user reset-failed $TIMER_UNIT && systemctl --user start $TIMER_UNIT"
+msg="🚨 daily-brief watchdog: $(IFS='; '; echo "${problems[*]}")"
+if [ -n "$heal_note" ]; then
+    msg="$msg"$'\n'"note: $heal_note"
+fi
+msg="$msg"$'\n'"recover: systemctl --user reset-failed $TIMER_UNIT && systemctl --user start $TIMER_UNIT"
 
 # Route alert to the daily-summary channel so it lands where Gonzalo reads the
 # briefs — falls back to the pipeline default when the override is unset.
