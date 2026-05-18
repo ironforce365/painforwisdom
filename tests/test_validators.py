@@ -81,5 +81,34 @@ class PreValidatorTest(unittest.TestCase):
         self.assertEqual(len(sec_failed), 1)
 
 
+import tempfile  # noqa: E402
+
+from pipeline.nodes.validators.branch_research import node_bv_research  # noqa: E402
+
+
+class BvResearchTest(unittest.TestCase):
+    def test_missing_csv_is_core_fail(self):
+        out = node_bv_research({"research_csv_path": "", "notion_task_count": 0})
+        self.assertEqual(out["branch_verdict_research"], "FAIL")
+        self.assertEqual(out["branch_validations_done"], ["research"])
+        names = [f["name"] for f in out["branch_findings_research"] if not f["ok"]]
+        self.assertIn("research_report.csv exists", names)
+
+    def test_csv_present_with_matching_notion_count_passes(self):
+        with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False) as fh:
+            fh.write("title,url\nA,https://a\nB,https://b\n")
+            csv_path = fh.name
+        out = node_bv_research({"research_csv_path": csv_path, "notion_task_count": 2})
+        self.assertEqual(out["branch_verdict_research"], "PASS")
+        self.assertEqual(out["branch_validations_done"], ["research"])
+
+    def test_csv_present_but_notion_count_mismatch_fails(self):
+        with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False) as fh:
+            fh.write("title,url\nA,https://a\n")
+            csv_path = fh.name
+        out = node_bv_research({"research_csv_path": csv_path, "notion_task_count": 0})
+        self.assertEqual(out["branch_verdict_research"], "FAIL")
+
+
 if __name__ == "__main__":
     unittest.main()
