@@ -275,8 +275,8 @@ def _call_llm_for_plan(state: State, approval_history: List[Tuple[str, str]]) ->
     """
     system_prompt = _build_system_prompt()
     user_msg = _user_message(state, approval_history=approval_history)
-    model = os.environ.get("PIPELINE_MODEL", "claude-sonnet-4-6")
-    result = call_llm(model, system_prompt, user_msg, max_tokens=4000)
+    model = os.environ.get("PIPELINE_MODEL", "claude-opus-4-7")
+    result = call_llm(model, system_prompt, user_msg, max_tokens=8000)
     try:
         plan = _parse_plan(result["text"])
         return plan, result
@@ -292,7 +292,7 @@ def _call_llm_for_plan(state: State, approval_history: List[Tuple[str, str]]) ->
         else:
             print("[kb-curator] YAML parse error, retrying once with block-scalar guidance")
             retry_msg = user_msg + "\n\n" + _retry_prompt_for_yaml(result["text"], msg)
-        result2 = call_llm(model, system_prompt, retry_msg, max_tokens=4000)
+        result2 = call_llm(model, system_prompt, retry_msg, max_tokens=8000)
         plan = _parse_plan(result2["text"])
         # Sum cost / tokens conservatively across both calls
         for k in ("input_tokens", "output_tokens", "cache_read_tokens", "cache_creation_tokens", "cost_usd", "duration_s"):
