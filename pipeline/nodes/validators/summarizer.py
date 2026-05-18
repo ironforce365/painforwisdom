@@ -160,7 +160,8 @@ def node_summarizer(state: State) -> Dict[str, Any]:
     verdict, _verdicts = _aggregate_verdict(state)
     findings = _all_findings(state)
 
-    run_dir = Path(state["run_dir"])
+    run_dir_str = state.get("run_dir", "")
+    run_dir = Path(run_dir_str)
     audit_dir = run_dir / "validator"
     audit_dir.mkdir(parents=True, exist_ok=True)
     summary_dir = run_dir / "pipeline-summary"
@@ -192,7 +193,7 @@ def node_summarizer(state: State) -> Dict[str, Any]:
 
     duration = time.time() - t0
     append_metric(
-        run_telemetry_path(state["run_dir"]),
+        run_telemetry_path(run_dir_str),
         "summarizer",
         duration_s=round(duration, 2),
         verdict=verdict,
