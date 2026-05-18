@@ -97,7 +97,7 @@ Match existing pipeline ops patterns (systemd timer, watchdog, structured teleme
 
 ### Testing (TEST)
 
-Match existing pipeline test patterns (stdlib `unittest`, `MockTransport`, smoke E2E).
+Match existing pipeline test patterns (stdlib `unittest`, `MockTransport`, smoke E2E). Test coverage extends across phases — each phase adds its own unit tests as a completion criterion; the REQ-IDs below anchor the test-discipline conventions in specific phases but DO NOT confine test work to those phases.
 
 - [ ] **TEST-01**: Unit tests per voicenote node (splitter, translator, extractor-wrapper, source adapters, state, vault writer) using stdlib `unittest`
 - [ ] **TEST-02**: `httpx.MockTransport` for Telegram + Notion + Anthropic mocks (match `pipeline/` convention)
@@ -163,64 +163,72 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| POC-01 | TBD | Pending |
-| POC-02 | TBD | Pending |
-| POC-03 | TBD | Pending |
-| POC-04 | TBD | Pending |
-| POC-05 | TBD | Pending |
-| CAP-01 | TBD | Pending |
-| CAP-02 | TBD | Pending |
-| CAP-03 | TBD | Pending |
-| CAP-04 | TBD | Pending |
-| TG-01 | TBD | Pending |
-| TG-02 | TBD | Pending |
-| TG-03 | TBD | Pending |
-| TG-04 | TBD | Pending |
-| TG-05 | TBD | Pending |
-| TG-06 | TBD | Pending |
-| NTN-01 | TBD | Pending |
-| NTN-02 | TBD | Pending |
-| NTN-03 | TBD | Pending |
-| NTN-04 | TBD | Pending |
-| NTN-05 | TBD | Pending |
-| PROC-01 | TBD | Pending |
-| PROC-02 | TBD | Pending |
-| PROC-03 | TBD | Pending |
-| PROC-04 | TBD | Pending |
-| PROC-05 | TBD | Pending |
-| PROC-06 | TBD | Pending |
-| PROC-07 | TBD | Pending |
-| REV-01 | TBD | Pending |
-| REV-02 | TBD | Pending |
-| REV-03 | TBD | Pending |
-| REV-04 | TBD | Pending |
-| REV-05 | TBD | Pending |
-| REV-06 | TBD | Pending |
-| REV-07 | TBD | Pending |
-| VAULT-01 | TBD | Pending |
-| VAULT-02 | TBD | Pending |
-| VAULT-03 | TBD | Pending |
-| VAULT-04 | TBD | Pending |
-| VAULT-05 | TBD | Pending |
-| VAULT-06 | TBD | Pending |
-| OPS-01 | TBD | Pending |
-| OPS-02 | TBD | Pending |
-| OPS-03 | TBD | Pending |
-| OPS-04 | TBD | Pending |
-| OPS-05 | TBD | Pending |
-| OPS-06 | TBD | Pending |
-| OPS-07 | TBD | Pending |
-| OPS-08 | TBD | Pending |
-| TEST-01 | TBD | Pending |
-| TEST-02 | TBD | Pending |
-| TEST-03 | TBD | Pending |
-| TEST-04 | TBD | Pending |
+| POC-01 | Phase 0 | Pending |
+| POC-02 | Phase 0 | Pending |
+| POC-03 | Phase 0 | Pending |
+| POC-04 | Phase 0 | Pending |
+| POC-05 | Phase 0 | Pending |
+| CAP-01 | Phase 1 | Pending |
+| CAP-02 | Phase 1 | Pending |
+| CAP-03 | Phase 1 | Pending |
+| CAP-04 | Phase 1 | Pending |
+| TG-01 | Phase 1 | Pending |
+| TG-02 | Phase 1 | Pending |
+| TG-03 | Phase 1 | Pending |
+| TG-04 | Phase 1 | Pending |
+| TG-05 | Phase 1 | Pending |
+| TG-06 | Phase 1 | Pending |
+| NTN-01 | Phase 2 | Pending |
+| NTN-02 | Phase 2 | Pending |
+| NTN-03 | Phase 2 | Pending |
+| NTN-04 | Phase 2 | Pending |
+| NTN-05 | Phase 2 | Pending |
+| PROC-01 | Phase 1 | Pending |
+| PROC-02 | Phase 1 | Pending |
+| PROC-03 | Phase 1 | Pending |
+| PROC-04 | Phase 1 | Pending |
+| PROC-05 | Phase 1 | Pending |
+| PROC-06 | Phase 1 | Pending |
+| PROC-07 | Phase 1 | Pending |
+| REV-01 | Phase 3 | Pending |
+| REV-02 | Phase 3 | Pending |
+| REV-03 | Phase 3 | Pending |
+| REV-04 | Phase 3 | Pending |
+| REV-05 | Phase 3 | Pending |
+| REV-06 | Phase 3 | Pending |
+| REV-07 | Phase 3 | Pending |
+| VAULT-01 | Phase 4 | Pending |
+| VAULT-02 | Phase 4 | Pending |
+| VAULT-03 | Phase 4 | Pending |
+| VAULT-04 | Phase 4 | Pending |
+| VAULT-05 | Phase 4 | Pending |
+| VAULT-06 | Phase 4 | Pending |
+| OPS-01 | Phase 5 | Pending |
+| OPS-02 | Phase 5 | Pending |
+| OPS-03 | Phase 5 | Pending |
+| OPS-04 | Phase 5 | Pending |
+| OPS-05 | Phase 5 | Pending |
+| OPS-06 | Phase 5 | Pending |
+| OPS-07 | Phase 5 | Pending |
+| OPS-08 | Phase 5 | Pending |
+| TEST-01 | Phase 1 | Pending |
+| TEST-02 | Phase 1 | Pending |
+| TEST-03 | Phase 5 | Pending |
+| TEST-04 | Phase 2 | Pending |
 
 **Coverage:**
 - v1 requirements: 52 total
-- Mapped to phases: 0 (will be filled by roadmapper)
-- Unmapped: 52 ⚠️ (expected — roadmapper resolves)
+- Mapped to phases: 52
+- Unmapped: 0 ✓
+
+**Phase totals:**
+- Phase 0 (PoC & Pre-Flight): 5 requirements
+- Phase 1 (Telegram Capture + Processing Pipeline): 19 requirements
+- Phase 2 (Notion Backfill): 6 requirements
+- Phase 3 (Review UX): 7 requirements
+- Phase 4 (Vault Hand-Off & Submodule Commit): 6 requirements
+- Phase 5 (Operations & Hardening): 9 requirements
 
 ---
 *Requirements defined: 2026-05-18*
-*Last updated: 2026-05-18 after initial definition*
+*Last updated: 2026-05-18 after roadmap creation — Traceability filled*
