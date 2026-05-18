@@ -1,20 +1,33 @@
 """LangGraph DAG for the content pipeline.
 
-Topology (post-WordPress / YouTube / image extension):
+Topology (per-branch validators + summarizer join):
 
-    START → transcribe → extract ─┬─▶ kb_curator ─┬─▶ writer ─▶ notion_blog ─┐
-                                  │               └─▶ research ─▶ notion_research ──────┐
-                                  ├─▶ extract_image ───────────────────────┐            │
-                                  └─▶ youtube_upload ──────────────────────┼────────────┤
-                                                                            ▼            │
-                                                                    wordpress_draft ─────┤
-                                                                                         ▼
-                                                                                     validator → END
+    START → transcribe → extract ─┬─▶ kb_curator → pre_validator ─┬─▶ writer ─▶ notion_blog ─┐
+                                  │                               └─▶ research ─▶ notion_research ─▶ bv_research ──┐
+                                  ├─▶ extract_image ──────────────────────────────────────────┐                    │
+                                  └─▶ youtube_upload ─▶ bv_youtube ────────────────────────────┼────────────────────┤
+                                                                                               ▼                    │
+                                                                                       wordpress_draft ─▶ bv_wordpress ─▶ summarizer → END
+                                                                                                                          ▲
+                                                                                                                          │
+                                                                                                                bv_research ┘
 
 `extract` fans out to three siblings: ``kb_curator`` (the existing
 writer/research lineage), ``extract_image`` (smart-frame featured image),
 and ``youtube_upload`` (draft short on YouTube). LangGraph synchronises
 on join nodes via disjoint state keys.
+
+`pre_validator` runs once after kb_curator and owns the shared upstream
+checks (transcript, extraction, vault entry, themes/frameworks, timeline).
+Each terminal branch then has its own validator (``bv_research``,
+``bv_wordpress``, ``bv_youtube``) checking only the artifacts that branch
+produced.
+
+`summarizer` is a join with three inbound edges. LangGraph fires it once
+per parent completion (3 fires per run); the node is idempotent on the
+first 2 fires (returns {} without side effects) and only aggregates +
+writes the audit report + sends Telegram on the third (final) fire when
+all branch validators have reported.
 
 Checkpointing: SqliteSaver — durable across HITL `interrupt()` from kb_curator.
 
@@ -45,7 +58,11 @@ from pipeline.nodes.notion_blog import node_notion_blog
 from pipeline.nodes.notion_research import node_notion_research
 from pipeline.nodes.research import node_research
 from pipeline.nodes.transcribe import node_transcribe
-from pipeline.nodes.validator import node_validator
+from pipeline.nodes.validators.branch_research import node_bv_research
+from pipeline.nodes.validators.branch_wordpress import node_bv_wordpress
+from pipeline.nodes.validators.branch_youtube import node_bv_youtube
+from pipeline.nodes.validators.pre import node_pre_validator
+from pipeline.nodes.validators.summarizer import node_summarizer
 from pipeline.nodes.wordpress_draft import node_wordpress_draft
 from pipeline.nodes.writer import node_writer
 from pipeline.nodes.youtube_upload import node_youtube_upload
@@ -132,9 +149,13 @@ def build_graph(start_at: str = "transcribe"):
     g.add_node("extract_image", node_extract_image)
     g.add_node("youtube_upload", node_youtube_upload)
     g.add_node("wordpress_draft", node_wordpress_draft)
-    # Validator does no I/O retry-worth: it just inspects state + sends a
-    # summary that already retries internally.
-    g.add_node("validator", node_validator)
+    # Per-branch validators + summarizer join. None need retry: they only
+    # inspect state and (for summarizer) send Telegram with internal retry.
+    g.add_node("pre_validator", node_pre_validator)
+    g.add_node("bv_research", node_bv_research)
+    g.add_node("bv_wordpress", node_bv_wordpress)
+    g.add_node("bv_youtube", node_bv_youtube)
+    g.add_node("summarizer", node_summarizer)
 
     g.add_edge(START, start_at)
     if start_at == "transcribe":
@@ -142,18 +163,25 @@ def build_graph(start_at: str = "transcribe"):
     g.add_edge("extract", "kb_curator")
     g.add_edge("extract", "extract_image")
     g.add_edge("extract", "youtube_upload")
-    g.add_edge("kb_curator", "writer")
-    g.add_edge("kb_curator", "research")
+    # pre_validator runs once between kb_curator and the writer/research fan-out
+    # so shared upstream findings are computed exactly once.
+    g.add_edge("kb_curator", "pre_validator")
+    g.add_edge("pre_validator", "writer")
+    g.add_edge("pre_validator", "research")
     g.add_edge("writer", "notion_blog")
     g.add_edge("research", "notion_research")
-    # wordpress_draft synchronises on both notion_blog (page id) and
-    # extract_image (featured image). LangGraph waits on both.
     g.add_edge("notion_blog", "wordpress_draft")
     g.add_edge("extract_image", "wordpress_draft")
-    g.add_edge("wordpress_draft", "validator")
-    g.add_edge("notion_research", "validator")
-    g.add_edge("youtube_upload", "validator")
-    g.add_edge("validator", END)
+    # Per-branch validators at the tail of each terminal branch.
+    g.add_edge("wordpress_draft", "bv_wordpress")
+    g.add_edge("notion_research", "bv_research")
+    g.add_edge("youtube_upload", "bv_youtube")
+    # Summarizer is a join: 3 inbound edges. LangGraph fires it once per parent
+    # completion; the node is idempotent on early fires (see summarizer.py).
+    g.add_edge("bv_wordpress", "summarizer")
+    g.add_edge("bv_research", "summarizer")
+    g.add_edge("bv_youtube", "summarizer")
+    g.add_edge("summarizer", END)
 
     CHECKPOINT_DB.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(CHECKPOINT_DB), check_same_thread=False)
