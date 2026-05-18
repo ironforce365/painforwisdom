@@ -160,5 +160,77 @@ class BvYoutubeTest(unittest.TestCase):
         self.assertEqual(out["branch_verdict_youtube"], "PARTIAL")
 
 
+from pipeline.nodes.validators.summarizer import node_summarizer  # noqa: E402
+
+
+class SummarizerTest(unittest.TestCase):
+    def _state(self, done, **overrides):
+        base = {
+            "run_id": "2026-05-18_120000_001",
+            "run_dir": tempfile.mkdtemp(prefix="sumtest_"),
+            "transcript_path": "/x/transcript_t.md",
+            "video_date": "2026-05-18",
+            "content_quality": "Strong",
+            "vault_entry_slug": "demo-slug",
+            "blog_post_title": "Demo",
+            "blog_post_path": "/x/blog.md",
+            "notion_blog_url": "https://www.notion.so/demo-abc",
+            "notion_task_count": 2,
+            "research_csv_path": "/x/research.csv",
+            "youtube_skipped": True,
+            "youtube_skip_reason": "dormant",
+            "wordpress_skipped": True,
+            "wordpress_skip_reason": "no blog post",
+            "image_extraction_failed": True,
+            "branch_validations_done": done,
+            "pre_findings": [],
+            "pre_verdict": "PASS",
+            "branch_findings_research": [],
+            "branch_verdict_research": "PASS",
+            "branch_findings_wordpress": [],
+            "branch_verdict_wordpress": "PASS",
+            "branch_findings_youtube": [],
+            "branch_verdict_youtube": "PASS",
+        }
+        base.update(overrides)
+        return base
+
+    def test_no_op_when_fewer_than_three_branches_done(self):
+        with patch("pipeline.nodes.validators.summarizer.telegram_send") as ts:
+            out = node_summarizer(self._state(done=["research"]))
+        self.assertEqual(out, {})
+        ts.assert_not_called()
+
+    def test_no_op_on_two_of_three(self):
+        with patch("pipeline.nodes.validators.summarizer.telegram_send") as ts:
+            out = node_summarizer(self._state(done=["research", "youtube"]))
+        self.assertEqual(out, {})
+        ts.assert_not_called()
+
+    def test_emits_summary_on_third_fire(self):
+        with patch("pipeline.nodes.validators.summarizer.telegram_send", return_value=0) as ts:
+            out = node_summarizer(self._state(done=["research", "youtube", "wordpress"]))
+        self.assertEqual(out["validator_verdict"], "PASS")
+        self.assertTrue(out["validator_report_path"].endswith("audit_report.md"))
+        self.assertTrue(out["pipeline_summary_path"].endswith("pipeline_summary.md"))
+        ts.assert_called_once()
+
+    def test_aggregated_verdict_is_fail_if_any_branch_fails(self):
+        with patch("pipeline.nodes.validators.summarizer.telegram_send", return_value=0):
+            out = node_summarizer(self._state(
+                done=["research", "youtube", "wordpress"],
+                branch_verdict_research="FAIL",
+            ))
+        self.assertEqual(out["validator_verdict"], "FAIL")
+
+    def test_aggregated_verdict_is_partial_if_any_branch_partial(self):
+        with patch("pipeline.nodes.validators.summarizer.telegram_send", return_value=0):
+            out = node_summarizer(self._state(
+                done=["research", "youtube", "wordpress"],
+                branch_verdict_youtube="PARTIAL",
+            ))
+        self.assertEqual(out["validator_verdict"], "PARTIAL")
+
+
 if __name__ == "__main__":
     unittest.main()
