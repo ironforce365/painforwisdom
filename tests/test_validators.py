@@ -110,5 +110,37 @@ class BvResearchTest(unittest.TestCase):
         self.assertEqual(out["branch_verdict_research"], "FAIL")
 
 
+from unittest.mock import patch  # noqa: E402
+
+from pipeline.nodes.validators.branch_wordpress import node_bv_wordpress  # noqa: E402
+
+
+class BvWordpressTest(unittest.TestCase):
+    def test_missing_blog_post_is_core_fail(self):
+        out = node_bv_wordpress({"blog_post_path": "", "notion_blog_url": ""})
+        self.assertEqual(out["branch_verdict_wordpress"], "FAIL")
+        self.assertEqual(out["branch_validations_done"], ["wordpress"])
+
+    def test_missing_notion_blog_url_is_core_fail(self):
+        with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as fh:
+            fh.write("# blog\n")
+            bp = fh.name
+        out = node_bv_wordpress({"blog_post_path": bp, "notion_blog_url": ""})
+        self.assertEqual(out["branch_verdict_wordpress"], "FAIL")
+
+    def test_dormant_wordpress_is_not_a_failure(self):
+        with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as fh:
+            fh.write("# blog\n")
+            bp = fh.name
+        with patch("pipeline.nodes.validators.branch_wordpress.fetch_page_blocks", return_value=[{"x": 1}]):
+            out = node_bv_wordpress({
+                "blog_post_path": bp,
+                "notion_blog_url": "https://www.notion.so/foo-abc123",
+                "wordpress_dormant": True,
+                "image_extraction_failed": True,
+            })
+        self.assertEqual(out["branch_verdict_wordpress"], "PASS")
+
+
 if __name__ == "__main__":
     unittest.main()
