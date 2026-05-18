@@ -126,6 +126,7 @@ def call_llm(
     max_tokens: int = 2000,
     tools: Optional[List[Dict[str, Any]]] = None,
     web_search: bool = False,
+    long_context: bool = False,
     max_retries: int = 4,
     base_backoff_s: float = 4.0,
 ) -> Dict[str, Any]:
@@ -134,6 +135,13 @@ def call_llm(
     On a transient auth error we re-read the token from disk and retry once
     immediately (claude CLI may have rotated it mid-run). On rate-limit we
     exponentially back off.
+
+    ``long_context``: opt into Anthropic's 1M-token tier via
+    ``context-1m-2025-08-07``. Set True only when input genuinely exceeds the
+    default 200k cap. The tier is gated on subscription accounts; opting in
+    without the "Extra usage" billing add-on returns a misleading
+    ``rate_limit_error: "Extra usage is required for long context requests"``
+    even on tiny requests — so we keep it off by default.
     """
     effective_tools: List[Dict[str, Any]] = list(tools or [])
     if web_search and not any(t.get("type", "").startswith("web_search") for t in effective_tools):
@@ -151,16 +159,17 @@ def call_llm(
             "max_tokens": max_tokens,
         }
         if billing_mode == "subscription":
-            # `oauth-2025-04-20` is the subscription-billing opt-in.
+            # `oauth-2025-04-20` is the subscription-billing opt-in. Always on.
             # `context-1m-2025-08-07` unlocks Sonnet 4 family's 1M-token
-            # context window. Without it, requests >200k input tokens are
-            # rejected with `rate_limit_error: "Extra usage is required for
-            # long context requests"` — which is what was killing 2/3 daily
-            # briefs on 2026-05-16. Anthropic accepts a comma-separated list
-            # in a single `anthropic-beta` header value.
-            kwargs["extra_headers"] = {
-                "anthropic-beta": "oauth-2025-04-20,context-1m-2025-08-07",
-            }
+            # context window — only attached when the caller explicitly asks
+            # for it. Sending it on small requests causes Anthropic to reject
+            # with `rate_limit_error: "Extra usage is required for long
+            # context requests"` unless the subscription has the long-context
+            # billing add-on enabled.
+            beta = ["oauth-2025-04-20"]
+            if long_context:
+                beta.append("context-1m-2025-08-07")
+            kwargs["extra_headers"] = {"anthropic-beta": ",".join(beta)}
         if effective_tools:
             kwargs["tools"] = effective_tools
 

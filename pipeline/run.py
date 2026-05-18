@@ -91,10 +91,41 @@ def _format_proposal(payload: Dict[str, Any]) -> str:
     )
 
 
-def _format_error_prompt(stage: str, exc: Exception) -> str:
+def _classify_non_recoverable(exc: Exception) -> Optional[str]:
+    """Return a short human-readable reason if `exc` cannot be fixed by a retry.
+
+    Recovery via `retry` only helps for transient failures (network blip,
+    rate-limit window passing). The cases below will fail identically on a
+    re-run, so we surface that to the user instead of inviting a futile retry.
+    """
+    if isinstance(exc, InputContractError):
+        return "input contract violation — retry would hit the same check"
+    msg = str(exc).lower()
+    if "extra usage is required for long context requests" in msg:
+        return (
+            "Anthropic long-context tier rejected the request — "
+            "subscription lacks the long-context billing add-on, retry will fail identically"
+        )
+    if "invalid authentication credentials" in msg or "unauthorized" in msg:
+        return "auth credentials rejected after in-call refresh — retry would re-fail"
+    return None
+
+
+def _format_error_prompt(
+    stage: str,
+    exc: Exception,
+    non_recoverable_reason: Optional[str] = None,
+) -> str:
     msg = f"{type(exc).__name__}: {exc}"
     if len(msg) > 800:
         msg = msg[:800] + " …(truncated)"
+    if non_recoverable_reason:
+        return (
+            f"🚫 Pipeline error in `{stage}` — NON-RECOVERABLE\n\n"
+            f"Reason: {non_recoverable_reason}\n\n"
+            f"{msg}\n\n"
+            "Reply `abort` to quarantine this video. `retry` will not help."
+        )
     return (
         f"⚠️ Pipeline error in `{stage}`\n\n"
         f"{msg}\n\n"
@@ -122,6 +153,26 @@ def _ask_indefinitely(prompt: str, reminder_interval: int) -> str:
             return reply
         waited += reminder_interval
         print(f"[run] no reply after {waited // 60} min — re-posting prompt as reminder")
+
+
+def _ask_bounded(
+    prompt: str, reminder_interval: int, max_reminders: int = 5
+) -> Optional[str]:
+    """Like `_ask_indefinitely` but gives up after `max_reminders` re-posts.
+
+    Returns the reply on success, or None when the reminder budget is
+    exhausted. Used for error-recovery prompts so a stuck pipeline does not
+    block indefinitely waiting for a Telegram reply that may never come.
+    """
+    for n in range(1, max_reminders + 1):
+        reply = telegram_ask(prompt, timeout_seconds=reminder_interval)
+        if reply:
+            return reply
+        print(
+            f"[run] no reply after reminder {n}/{max_reminders} "
+            f"({(n * reminder_interval) // 60} min total) — re-posting"
+        )
+    return None
 
 
 def _last_failed_node(graph, config) -> str:
@@ -223,6 +274,10 @@ def _drive_graph(
         except (InputContractError, Exception) as exc:  # noqa: BLE001
             stage = _last_failed_node(graph, config)
             print(f"[run] pipeline raised in {stage}: {type(exc).__name__}: {exc}")
+            non_recoverable_reason = _classify_non_recoverable(exc)
+            if non_recoverable_reason:
+                print(f"[run] non-recoverable: {non_recoverable_reason}")
+            prompt = _format_error_prompt(stage, exc, non_recoverable_reason)
             if args.auto_approve:
                 # In tests, abort fast rather than block forever waiting for
                 # a Telegram reply that no one will send.
@@ -230,16 +285,24 @@ def _drive_graph(
                     # Non-blocking: surface the error to Telegram so smoke
                     # failures are visible on phone, but still re-raise so
                     # the test exits fast instead of waiting for a reply.
-                    rc = telegram_send(_format_error_prompt(stage, exc))
+                    rc = telegram_send(prompt)
                     if rc != 0:
                         print(f"[run] telegram-on-error send rc={rc} (non-fatal)")
                 raise
-            prompt = _format_error_prompt(stage, exc)
             t_wait = time.time()
-            reply = _ask_indefinitely(prompt, args.reminder_interval).strip().lower()
+            reply_raw = _ask_bounded(prompt, args.reminder_interval, max_reminders=5)
             hitl_wait += time.time() - t_wait
+            if reply_raw is None:
+                print("[run] error-recovery reminder budget exhausted — aborting")
+                raise
+            reply = reply_raw.strip().lower()
             print(f"[run] error-recovery reply: {reply!r}")
             if reply.startswith("retry"):
+                if non_recoverable_reason:
+                    print(
+                        "[run] retry requested but error is non-recoverable — aborting anyway"
+                    )
+                    raise
                 # Re-invoke with `None` — LangGraph resumes from the last
                 # successful checkpoint and re-runs the failed node.
                 pending = None
