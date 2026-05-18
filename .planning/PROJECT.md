@@ -75,7 +75,7 @@ If everything else fails, this must work: a Spanish voice message sent via Teleg
 
 ## Constraints
 
-- **Tech stack:** Python 3.x, LangGraph runtime, `python-telegram-bot`, stdlib `unittest`, `notion-client`, local Whisper — **no new core dependencies** unless explicitly required.
+- **Tech stack:** Python 3.x, plain Python pipeline (NOT LangGraph for the voicenote flow — linear, doesn't need DAG/checkpoints), `python-telegram-bot==22.7` (one explicit new dep — verified NOT already in repo; current Telegram path is curl-via-`telegram_io.sh` which is insufficient for inline keyboards + getFile + CallbackQuery), stdlib `unittest`, `notion-client`, local Whisper (bumped to `large-v3` for voicenote runs). **Minimal new deps with explicit rationale; PTB is the only addition.**
 - **Repo:** Single repo (`painforwisdom`). New module is `voicenote/`, sibling to `pipeline/`. No standalone service, no second deployment target.
 - **Auth:** Gonzalo only. Telegram `user_id` allowlist. All other senders silently rejected. (Closes the `_wait_reply` chat-id gap noted in `CONCERNS.md`.)
 - **Vendor cost:** No paid transcription vendor. Local Whisper only for v1. Translation uses the Anthropic LLM already wired in.
@@ -93,6 +93,7 @@ If everything else fails, this must work: a Spanish voice message sent via Teleg
 | Reuse local Whisper (not OpenAI/Deepgram) | Zero new vendor; Spanish quality re-evaluated after backfill | — Pending |
 | Reuse existing `coaching-thought-extractor` + `kb-curator` agents | Same downstream contract as video pipeline; new entries are indistinguishable in vault | — Pending |
 | Processing order: transcribe → split (ES) → translate per chunk → extract per chunk | Preserves Spanish nuance through segmentation; avoids "translation flattens before split" failure mode | — Pending |
+| Vault stays English-uniform; preserve ES verbatim per entry | Pitfalls research raised ES→EN voice flattening risk. AnythingLLM embedder consideration: mixed-language vault breaks EN-only embedders, only works with multilingual embedders. Locked: English entry + `source_es:` frontmatter + `## Source (ES)` body section retains the original voice; vault retrieval stays language-uniform; ES voice recoverable on demand | — Pending |
 | Cron poll (not webhook) for Telegram | No public URL or tunnel needed; matches existing scheduled-job ops pattern | — Pending |
 | Review-before-commit via Telegram inline buttons | Long voice → multiple entries is high-leverage but error-prone; human confirm is cheap insurance | — Pending |
 | Overlap with existing entries → flag, don't skip | Avoids losing nuance from a second pass on the same thought; manual reconciliation cheaper than missing material | — Pending |
@@ -100,6 +101,13 @@ If everything else fails, this must work: a Spanish voice message sent via Teleg
 | `user_id` allowlist on bot | Closes chat-id-gap noted in `CONCERNS.md`; matches single-user reality | — Pending |
 | Keep raw `.ogg` per entry | Replay on extraction failure; cheap on disk; gitignored | — Pending |
 | Frontmatter: `source:` + `parent_note:` | Full traceability — vault entry → source audio/page; siblings linked across the same long note | — Pending |
+| Backfill (29 Voicepal subpages) ships in Phase 2 — early | Features research: 29 subpages = natural test corpus for splitter prompt; validates dual-source abstraction before Telegram complexity layers on; idempotency + dry-run de-risk irreversible vault writes | — Pending |
+| Plain Python pipeline for voicenote (NOT LangGraph) | Architecture research: flow is linear (transcribe → split → translate → extract → review → commit) with one async pause (Telegram review). LangGraph DAG/`interrupt()` over-spec. Existing LangGraph runtime stays untouched; voicenote runs alongside | — Pending |
+| State persistence in SQLite `voicenote/state/voicenote.db` | Tables: `long_notes` (status state machine), `drafts` (per-chunk approval), `telegram_cursor` (idempotency), `processed_notion_pages` (backfill dedup). Single source of truth across cron ticks | — Pending |
+| Bot lifecycle: short-lived drain via systemd user timer | Matches existing `painforwisdom-daily-brief.timer` ops pattern; no persistent daemon; same heal-then-notify watchdog shape | — Pending |
+| Build order is PoC-first: P0 validates Spanish Whisper quality + LLM split reliability | Per `feedback_poc_before_migration` memory; these are the two HIGH-risk assumptions; if either fails the architecture pivots before any module scaffolding | — Pending |
+| One cross-boundary touch into existing `pipeline/`: refactor `vault_writer.py:apply_curation_plan` as a shared helper + add `commit_vault_submodule()` | Closes existing `[high]` CONCERNS.md bug (kb_curator writes but never commits); both pipelines share one vault-write code path | — Pending |
+| Cost forecast extension: `pipeline.cost_forecast --voicenote` before any backfill or large replay | Per `feedback_cost_forecast_before_replay` memory; bound LLM token quota share before running 29-subpage backfill or long voice notes | — Pending |
 
 ## Evolution
 
@@ -119,4 +127,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-18 after initialization*
+*Last updated: 2026-05-18 after initialization + post-research adjustments*
