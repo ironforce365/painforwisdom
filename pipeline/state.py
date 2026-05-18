@@ -77,8 +77,24 @@ class State(TypedDict, total=False):
     wordpress_skip_reason: str
     wordpress_bundle_path: str
 
-    # Stage 6 — validator
-    validator_verdict: str  # PASS | PARTIAL | FAIL
+    # Stage 6 — pre-validator (runs once after kb_curator)
+    pre_findings: List[Dict[str, Any]]
+    pre_verdict: str  # PASS | PARTIAL | FAIL
+
+    # Stage 6 — per-branch validators (one per terminal branch)
+    branch_findings_research: List[Dict[str, Any]]
+    branch_verdict_research: str
+    branch_findings_wordpress: List[Dict[str, Any]]
+    branch_verdict_wordpress: str
+    branch_findings_youtube: List[Dict[str, Any]]
+    branch_verdict_youtube: str
+
+    # Summarizer join: each branch validator appends its name. Reducer-backed
+    # so the three parallel writes merge instead of overwriting.
+    branch_validations_done: Annotated[List[str], add]
+
+    # Stage 6 — summarizer (set on final fire only)
+    validator_verdict: str  # PASS | PARTIAL | FAIL — aggregate across all branches
     validator_report_path: str
     pipeline_summary_path: str
 
