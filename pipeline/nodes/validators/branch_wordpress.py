@@ -83,6 +83,17 @@ def _audit(state: State) -> List[Dict[str, Any]]:
 
 def node_bv_wordpress(state: State) -> Dict[str, Any]:
     print("[bv_wordpress] start")
+    # wordpress_draft has two inbound edges (notion_blog, extract_image) and
+    # LangGraph fires it as soon as either parent emits. The first fire often
+    # happens after extract_image (when notion_blog hasn't run yet), so
+    # wordpress_draft skips with "no blog post" and we get called with empty
+    # blog_post_path. Committing a verdict here would lock in a stale FAIL
+    # that wins the summarizer race when bv_research finishes later. Bail
+    # out instead — wordpress_draft will re-fire after notion_blog completes
+    # and trigger us again with real state.
+    if not state.get("blog_post_path") and not state.get("notion_blog_url"):
+        print("[bv_wordpress] skip (premature fire; blog lineage not done yet)")
+        return {}
     findings = _audit(state)
     verdict = verdict_from(findings)
     print(f"[bv_wordpress] done verdict={verdict}")

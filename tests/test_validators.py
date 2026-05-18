@@ -116,17 +116,30 @@ from pipeline.nodes.validators.branch_wordpress import node_bv_wordpress  # noqa
 
 
 class BvWordpressTest(unittest.TestCase):
-    def test_missing_blog_post_is_core_fail(self):
+    def test_premature_fire_returns_empty(self):
+        # wordpress_draft fires after either extract_image OR notion_blog. If
+        # neither blog_post_path nor notion_blog_url is set, this is the
+        # early fire from extract_image — don't commit a verdict because
+        # wordpress_draft will re-fire when notion_blog completes.
         out = node_bv_wordpress({"blog_post_path": "", "notion_blog_url": ""})
-        self.assertEqual(out["branch_verdict_wordpress"], "FAIL")
-        self.assertEqual(out["branch_validations_done"], ["wordpress"])
+        self.assertEqual(out, {})
 
-    def test_missing_notion_blog_url_is_core_fail(self):
+    def test_blog_present_but_notion_missing_is_core_fail(self):
         with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as fh:
             fh.write("# blog\n")
             bp = fh.name
         out = node_bv_wordpress({"blog_post_path": bp, "notion_blog_url": ""})
         self.assertEqual(out["branch_verdict_wordpress"], "FAIL")
+        self.assertEqual(out["branch_validations_done"], ["wordpress"])
+
+    def test_notion_present_but_blog_missing_is_core_fail(self):
+        with patch("pipeline.nodes.validators.branch_wordpress.fetch_page_blocks", return_value=[{"x": 1}]):
+            out = node_bv_wordpress({
+                "blog_post_path": "",
+                "notion_blog_url": "https://www.notion.so/foo-abc123",
+            })
+        self.assertEqual(out["branch_verdict_wordpress"], "FAIL")
+        self.assertEqual(out["branch_validations_done"], ["wordpress"])
 
     def test_dormant_wordpress_is_not_a_failure(self):
         with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as fh:
