@@ -142,5 +142,23 @@ class BvWordpressTest(unittest.TestCase):
         self.assertEqual(out["branch_verdict_wordpress"], "PASS")
 
 
+from pipeline.nodes.validators.branch_youtube import node_bv_youtube  # noqa: E402
+
+
+class BvYoutubeTest(unittest.TestCase):
+    def test_url_present_passes(self):
+        out = node_bv_youtube({"youtube_url": "https://youtu.be/abc"})
+        self.assertEqual(out["branch_verdict_youtube"], "PASS")
+        self.assertEqual(out["branch_validations_done"], ["youtube"])
+
+    def test_skipped_with_reason_passes_secondary(self):
+        out = node_bv_youtube({"youtube_url": "", "youtube_skipped": True, "youtube_skip_reason": "dormant"})
+        self.assertEqual(out["branch_verdict_youtube"], "PASS")
+
+    def test_silent_failure_is_secondary_partial(self):
+        out = node_bv_youtube({"youtube_url": "", "youtube_skipped": False})
+        self.assertEqual(out["branch_verdict_youtube"], "PARTIAL")
+
+
 if __name__ == "__main__":
     unittest.main()
