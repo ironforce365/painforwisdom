@@ -153,6 +153,13 @@ def node_summarizer(state: State) -> Dict[str, Any]:
         # reported. Returning {} leaves state untouched.
         print(f"[summarizer] skip (done={sorted(done)} expected={sorted(EXPECTED_BRANCHES)})")
         return {}
+    if state.get("validator_verdict"):
+        # Branch validators may re-fire if their upstream fan-in node (e.g.
+        # wordpress_draft has two inbound edges) is triggered twice. Once
+        # we've already produced a summary, ignore subsequent fires so we
+        # don't send a second Telegram message.
+        print(f"[summarizer] skip (already sent, verdict={state.get('validator_verdict')!r})")
+        return {}
 
     t0 = time.time()
     print("[summarizer] start (all branches done)")

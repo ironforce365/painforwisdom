@@ -231,6 +231,18 @@ class SummarizerTest(unittest.TestCase):
             ))
         self.assertEqual(out["validator_verdict"], "PARTIAL")
 
+    def test_skip_when_validator_verdict_already_set(self):
+        # Once summarizer has produced a verdict, subsequent fires must no-op
+        # so re-fired upstream branches (e.g. wordpress_draft has 2 inbound
+        # edges and may run twice) don't send a second Telegram message.
+        with patch("pipeline.nodes.validators.summarizer.telegram_send") as ts:
+            out = node_summarizer(self._state(
+                done=["research", "youtube", "wordpress", "wordpress"],
+                validator_verdict="PASS",
+            ))
+        self.assertEqual(out, {})
+        ts.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
