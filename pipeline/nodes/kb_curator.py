@@ -233,11 +233,21 @@ def _vault_snapshot() -> str:
     return "\n".join(parts)
 
 
-def _parse_plan(text: str) -> Dict[str, Any]:
+def _parse_plan(text: str, *, diag: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     m = _PLAN_PATTERN.search(text)
     if not m:
+        diag_str = ""
+        if diag:
+            diag_str = (
+                f"\n[diag] stop_reason={diag.get('stop_reason')!r} "
+                f"output_tokens={diag.get('output_tokens')} "
+                f"text_chars={len(text)} "
+                f"opener_count={text.count('---kb-plan---')}"
+            )
         raise RuntimeError(
-            "kb-curator: response missing ---kb-plan--- markers. Got:\n" + text[:600]
+            "kb-curator: response missing ---kb-plan--- markers."
+            + diag_str
+            + "\nGot (tail 800 chars):\n" + text[-800:]
         )
     payload = m.group(1)
     try:
@@ -278,7 +288,7 @@ def _call_llm_for_plan(state: State, approval_history: List[Tuple[str, str]]) ->
     model = os.environ.get("PIPELINE_MODEL", "claude-opus-4-7")
     result = call_llm(model, system_prompt, user_msg, max_tokens=8000)
     try:
-        plan = _parse_plan(result["text"])
+        plan = _parse_plan(result["text"], diag=result)
         return plan, result
     except RuntimeError as exc:
         msg = str(exc)
@@ -293,7 +303,7 @@ def _call_llm_for_plan(state: State, approval_history: List[Tuple[str, str]]) ->
             print("[kb-curator] YAML parse error, retrying once with block-scalar guidance")
             retry_msg = user_msg + "\n\n" + _retry_prompt_for_yaml(result["text"], msg)
         result2 = call_llm(model, system_prompt, retry_msg, max_tokens=8000)
-        plan = _parse_plan(result2["text"])
+        plan = _parse_plan(result2["text"], diag=result2)
         # Sum cost / tokens conservatively across both calls
         for k in ("input_tokens", "output_tokens", "cache_read_tokens", "cache_creation_tokens", "cost_usd", "duration_s"):
             result2[k] = (result.get(k, 0) or 0) + (result2.get(k, 0) or 0)
