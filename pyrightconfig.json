@@ -1,0 +1,17 @@
+{
+  "include": [
+    "pipeline",
+    "tests"
+  ],
+  "exclude": [
+    "**/__pycache__",
+    "**/.venv",
+    "runs"
+  ],
+  "executionEnvironments": [
+    {
+      "root": "."
+    }
+  ],
+  "reportMissingImports": "warning"
+}
