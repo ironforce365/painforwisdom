@@ -48,9 +48,11 @@ from pipeline.llm import call_llm  # noqa: E402
 from pipeline.local_books import find_local_book  # noqa: E402
 from pipeline.notion_client import get_client  # noqa: E402
 from pipeline.runtime import append_metric  # noqa: E402
+from pipeline.telegram import send as telegram_send  # noqa: E402
 from pipeline.zlibrary_bridge import BookFailure, BookText, fetch as zlib_fetch  # noqa: E402
 
 AUGMENT_LOG_PATH = PROJECT_ROOT / "reports" / "augment-runs.jsonl"
+AUGMENT_FAILURES_DIR = PROJECT_ROOT / "reports"
 
 
 COST_PER_ROW_FORECAST = 0.05
@@ -301,10 +303,14 @@ def main(argv: list[str] | None = None) -> int:
     n_fail = 0
     n_zlib_hit = 0
     n_halt = 0
-    # Disable z-library for rest of run once daily quota is hit, but keep
-    # processing remaining rows via LLM analog fallback (Papers/Podcasts +
-    # any subsequent Books). Quota refresh happens daily on z-lib side; the
-    # systemd timer will retry the skipped Books tomorrow.
+    n_books_attempted = 0
+    n_nonbook_attempted = 0
+    book_failures: list[Dict[str, Any]] = []  # for end-of-run telegram summary
+    # Once z-library reports daily quota exhaustion, skip remaining z-library
+    # attempts for this run. Per user preference (2026-05-21): on Book failure
+    # we do NOT fall through to web-search analog — we mark Reachable=no and
+    # surface the failure list via Telegram so Gonzalo can source manually.
+    # Quota refresh is daily on z-lib side; the next run picks them up.
     zlib_quota_exhausted = False
 
     for i, row in enumerate(unreachable, start=1):
@@ -319,28 +325,55 @@ def main(argv: list[str] | None = None) -> int:
 
         alt_url: Optional[str] = None
         reason = ""
+        book_skip_to_unreachable = False
 
         if type_ == "book":
+            n_books_attempted += 1
             # First: check books/<slug>/ for a manually curated copy. Skips
             # z-library entirely on hit — saves quota + bandwidth.
             alt_url, reason = _check_curated_local(row)
             if alt_url:
                 print(f"  curated-local hit -> {alt_url}")
             elif zlib_quota_exhausted:
-                print(f"  z-library skip (quota exhausted earlier) — falling through to web search")
-                reason = ""
+                print(f"  z-library skip (quota exhausted earlier in this run)")
+                reason = "z-library: quota-exceeded (earlier in run)"
+                book_skip_to_unreachable = True
             else:
                 alt_url, reason = _try_zlibrary(row)
                 if alt_url:
                     n_zlib_hit += 1
                     print(f"  z-library hit -> {alt_url}")
                 elif "quota-exceeded" in reason:
-                    print(f"  z-library quota exceeded — disabling z-lib for rest of run, falling through to web search: {reason}")
+                    print(f"  z-library quota exceeded — disabling z-lib for rest of run: {reason}")
                     zlib_quota_exhausted = True
-                    reason = ""
-                elif "not-configured" in reason:
-                    print(f"  z-library skip (not configured) — falling through to web search")
-                    reason = ""
+                    book_skip_to_unreachable = True
+                else:
+                    # not-found, not-configured, image-only-pdf, subprocess-error,
+                    # extract-failed — all map to "book unreachable, notify
+                    # Gonzalo". No web-search analog fallback.
+                    print(f"  z-library failed: {reason}")
+                    book_skip_to_unreachable = True
+
+            if book_skip_to_unreachable:
+                _notion_update(
+                    client,
+                    page_id=row["page_id"],
+                    reachable="no",
+                    reachability_reason=reason or "z-library: failure",
+                )
+                _telemetry(row, "book-unreachable", 0.0)
+                book_failures.append({
+                    "page_id": row.get("page_id", ""),
+                    "title": row.get("title", ""),
+                    "author": row.get("author_host", ""),
+                    "source_url": row.get("source_url", ""),
+                    "reason": reason,
+                })
+                n_fail += 1
+                continue
+
+        if not type_ == "book":
+            n_nonbook_attempted += 1
 
         if not alt_url:
             try:
@@ -406,7 +439,65 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  marked Reachable=no: {n_fail}")
     print(f"  halted/skipped: {n_halt}")
     print(f"LLM spend:        ${spent:.2f}")
+
+    # Per-run failure log + Telegram summary (user preference 2026-05-21:
+    # per-run digest, not per-row). Skipped on dry-run paths since those
+    # return earlier.
+    _write_failures_and_notify(
+        book_failures=book_failures,
+        n_books_attempted=n_books_attempted,
+        n_zlib_hit=n_zlib_hit,
+        n_success=n_success,
+        n_halt=n_halt,
+        zlib_quota_exhausted=zlib_quota_exhausted,
+    )
     return 0
+
+
+def _write_failures_and_notify(
+    *,
+    book_failures: list[Dict[str, Any]],
+    n_books_attempted: int,
+    n_zlib_hit: int,
+    n_success: int,
+    n_halt: int,
+    zlib_quota_exhausted: bool,
+) -> None:
+    today = time.strftime("%Y-%m-%d")
+    failures_path = AUGMENT_FAILURES_DIR / f"augment-failures-{today}.jsonl"
+    if book_failures:
+        AUGMENT_FAILURES_DIR.mkdir(parents=True, exist_ok=True)
+        with failures_path.open("w") as f:
+            for fail in book_failures:
+                f.write(json.dumps(fail) + "\n")
+
+    # Build Telegram summary
+    quota_note = " ⚠️ z-library quota hit mid-run" if zlib_quota_exhausted else ""
+    nonbook_aug = max(0, n_success - n_zlib_hit)  # approx — z-lib hits are book-only augments
+    lines = [
+        f"🟡 augment-research run finished {today}{quota_note}",
+        f"   z-library hits: {n_zlib_hit} / {n_books_attempted} books attempted",
+        f"   non-book augmentations: {nonbook_aug} (papers/podcasts via web-search analog)",
+    ]
+    if book_failures:
+        lines.append(f"   failed books: {len(book_failures)} — see reports/augment-failures-{today}.jsonl")
+        # Surface first few titles so user has actionable preview
+        sample = book_failures[:5]
+        for fail in sample:
+            t = (fail.get("title") or "?")[:70]
+            lines.append(f"     • {t}")
+        if len(book_failures) > 5:
+            lines.append(f"     • … and {len(book_failures) - 5} more")
+    else:
+        lines.append("   failed books: 0 ✅")
+    if n_halt:
+        lines.append(f"   halted (budget): {n_halt} rows unprocessed")
+
+    msg = "\n".join(lines)
+    try:
+        telegram_send(msg)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[telegram] send failed: {exc}", file=sys.stderr)
 
 
 if __name__ == "__main__":
