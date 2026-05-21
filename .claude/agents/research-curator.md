@@ -50,6 +50,43 @@ You receive:
 
 ## YOUR PROCESS
 
+### Step 0 — Pre-flight retrieval (stateful curation)
+
+**You are STATEFUL.** Before issuing any web searches, query Notion for what
+the vault already has on this theme. This is mandatory:
+
+1. Extract the **coaching theme slug** from the coaching thought extraction
+   (e.g. `deliberate-discomfort`, `rest-guilt`, `strategic-vs-manufactured-suffering`).
+2. Run:
+   ```
+   python -c "
+   from dotenv import load_dotenv; load_dotenv()
+   import json
+   from pipeline.notion_client import fetch_theme_research_tasks
+   rows = fetch_theme_research_tasks('<theme-slug>')
+   print(json.dumps(rows, indent=2))
+   "
+   ```
+   (Run from the painforwisdom repo root. Returns a flat list of dicts with
+   `title`, `author_host`, `specific_location`, `research_angle`, `source_url`,
+   `vault_entry`, `category`, `relevance`, `status` per existing row.)
+3. From the returned list, build the **already-covered set** in your head:
+   `{(title_slug, author_slug, location_slug)}` where:
+   - `title_slug` = lowercase + ASCII-fold + strip punctuation
+   - `author_slug` = lowercase last-name token (e.g. "Goggins" from "David Goggins")
+   - `location_slug` = chapter/section/episode number normalized
+     (e.g. `Ch. 5`, `Chapter 5`, `Ch 5` all → `ch-5`; empty if no specific location)
+4. Treat the existing rows as **input context for your research**, not just
+   exclusions. If three entries already reference `[[atomic-habits]]` Ch. 5,
+   Ch. 11, and Ch. 13 under this theme — that tells you Atomic Habits is core
+   to this theme's vocabulary; you may propose Ch. 7 if it covers a genuinely
+   distinct angle, but DON'T re-propose any of the three already covered.
+
+**Smart-dedup rule:** Two references are duplicates iff
+`(title_slug, author_slug, location_slug)` all match. Same (title, author)
+with a DIFFERENT specific location is NOT a duplicate — it's a legitimate
+second chapter/episode reference.
+
 ### Step 1 — Identify research angles
 
 From the coaching thought, extract 2-4 distinct research angles. These are the
@@ -64,6 +101,13 @@ motivation, research angles might be:
 - Practical frameworks for sustainable motivation
 
 ### Step 2 — For each research angle, find material in two categories
+
+**Before proposing each candidate, apply the smart-dedup rule from Step 0.**
+If `(title_slug, author_slug, location_slug)` matches an already-covered row,
+do NOT add it to the CSV. Instead, log it to `research-index.md` as:
+`*Already covered by [[<existing-vault-entry>]]*` so Gonzalo has visibility
+into what you filtered. You may STILL propose a different chapter/episode of
+the same source if it covers a distinct angle.
 
 **Category A — Comprehensive understanding**
 Material that gives Gonzalo a solid, well-rounded foundation on this topic.

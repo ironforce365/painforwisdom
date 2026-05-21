@@ -422,6 +422,37 @@ def extract_property(page: Dict[str, Any], name: str) -> Any:
     return None
 
 
+def fetch_theme_research_tasks(theme: str) -> List[Dict[str, Any]]:
+    """Stateful research-curator helper: fetch all Research Tasks for a theme.
+
+    Returns flat dicts (NOT raw Notion pages) keyed by the field names the
+    research-curator agent reads. Used to seed the curator's "already-covered"
+    set so it does NOT propose duplicate references during web search.
+
+    Filter is Coaching Theme equality on the rich_text property. Returns rows
+    of any Status (To Read/Listen, Summarized, Archived-Duplicate) because the
+    curator should treat all of them as "already in vault on this theme."
+    """
+    filter_obj = {"property": "Coaching Theme", "rich_text": {"equals": theme}}
+    rows: List[Dict[str, Any]] = []
+    for page in query_research_tasks(filter=filter_obj, page_size=100):
+        rows.append({
+            "page_id": page.get("id", ""),
+            "title": extract_property(page, "Title"),
+            "type": extract_property(page, "Type"),
+            "status": extract_property(page, "Status"),
+            "author_host": extract_property(page, "Author/Host") or "",
+            "specific_location": extract_property(page, "Specific Location") or "",
+            "research_angle": extract_property(page, "Research Angle") or "",
+            "source_url": extract_property(page, "Source URL") or "",
+            "alt_source_url": extract_property(page, "Alt Source URL") or "",
+            "vault_entry": extract_property(page, "Vault Entry") or "",
+            "category": extract_property(page, "Category") or "",
+            "relevance": extract_property(page, "Relevance") or "",
+        })
+    return rows
+
+
 def fetch_page_blocks(page_id_str: str) -> List[Dict[str, Any]]:
     """Used by validator to fetch back a created page and confirm body non-empty."""
     client = get_client()
