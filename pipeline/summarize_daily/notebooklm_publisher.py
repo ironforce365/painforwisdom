@@ -45,6 +45,13 @@ _SOURCE_ID_RE = re.compile(r"Source ID:\s*([0-9a-f-]+)", re.IGNORECASE)
 _ARTIFACT_ID_RE = re.compile(r"Artifact ID:\s*([0-9a-f-]+)", re.IGNORECASE)
 _NB_ID_RE = re.compile(r"ID:\s*([0-9a-f-]+)", re.IGNORECASE)
 
+# nlm CLI emits ANSI SGR escapes (color/bold) which break the ID regexes.
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
+
+
+def _strip_ansi(s: str) -> str:
+    return _ANSI_RE.sub("", s)
+
 
 @dataclass
 class PublishResult:
@@ -70,7 +77,7 @@ def _run_nlm(args: List[str], timeout: int = 180) -> tuple[int, str, str]:
         text=True,
         timeout=timeout,
     )
-    return completed.returncode, completed.stdout, completed.stderr
+    return completed.returncode, _strip_ansi(completed.stdout), _strip_ansi(completed.stderr)
 
 
 def _read_or_create_notebook(theme: str) -> str:
