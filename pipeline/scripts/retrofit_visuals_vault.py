@@ -352,6 +352,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--force", action="store_true", help="Re-run even if outputs exist.")
     parser.add_argument("--dry-run", action="store_true", help="Print plan only.")
     parser.add_argument("--telegram", action="store_true", help="Post a summary to Telegram at end.")
+    parser.add_argument(
+        "--inter-cluster-sleep",
+        type=int,
+        default=20,
+        help="Seconds to sleep between clusters to ease NotebookLM rate-limit on slides/info (default 20).",
+    )
     args = parser.parse_args(argv)
 
     if args.today:
@@ -378,6 +384,8 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     results: List[Dict[str, Any]] = []
     for i, cluster_dir in enumerate(clusters, start=1):
+        if i > 1 and not args.dry_run and args.inter_cluster_sleep > 0:
+            time.sleep(args.inter_cluster_sleep)
         print(f"[{i}/{len(clusters)}] {cluster_dir.relative_to(PROJECT_ROOT)}")
         r = _retrofit_one(cluster_dir, force=args.force, dry_run=args.dry_run)
         print(f"  → status={r['status']}")
