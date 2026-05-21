@@ -437,9 +437,13 @@ def _theory_vault(
         f"Date: {today}\n\n"
         f"--- DEEP-DIVE BRIEF ({n_sources} sources) ---\n{deep_dive_md}\n--- END DEEP-DIVE ---"
     )
+    # `.replace` instead of `.format`: the template embeds {date}, {theme},
+    # {sub_angle}, {theme_slug}, {sub_slug} as literal placeholders for the
+    # LLM to fill, not Python — `str.format` would raise KeyError on those.
+    # Only {n} is meant to be substituted by Python.
     return call_llm(
         model=BRIEF_MODEL,
-        system_prompt=THEORY_VAULT_SYSTEM.format(n=n_sources),
+        system_prompt=THEORY_VAULT_SYSTEM.replace("{n}", str(n_sources)),
         user_message=user,
         max_tokens=2500,
     )["text"]
