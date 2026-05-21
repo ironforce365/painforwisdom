@@ -122,6 +122,7 @@ def _run_one_brief(
 
     notebooklm_url = ""
     audio_url = ""
+    visuals: dict[str, str] = {}
     if mcp_publish:
         try:
             from pipeline.summarize_daily.notebooklm_publisher import publish
@@ -143,12 +144,31 @@ def _run_one_brief(
             )
             notebooklm_url = result.notebook_url
             audio_url = result.audio_url
+            visuals = {
+                "slide_deck": result.slide_deck_path,
+                "mind_map": result.mindmap_path,
+                "infographic": result.infographic_path,
+            }
             print(
                 f"NotebookLM: {result.notebook_url}  status={result.status}  "
-                f"audio_url={'yes' if audio_url else 'no'}"
+                f"audio_url={'yes' if audio_url else 'no'}  "
+                f"slides={'yes' if result.slide_deck_path else 'no'}  "
+                f"mindmap={'yes' if result.mindmap_path else 'no'}  "
+                f"infographic={'yes' if result.infographic_path else 'no'}"
             )
         except Exception as exc:  # noqa: BLE001
             print(f"!! MCP publish failed: {exc}")
+
+    # Vault dir for the derivative theory + application entries written by
+    # poc_brief_v2.run_cluster. Resolved here (not via the publisher) so the
+    # Telegram message can surface it even if NotebookLM publish failed.
+    sub_slug_for_vault = cluster_dir.name.split("--", 1)[-1] if "--" in cluster_dir.name else cluster_dir.name
+    today_for_vault = cluster_dir.name.split("--", 1)[0] if "--" in cluster_dir.name else ""
+    vault_brief_dir = (
+        PROJECT_ROOT / "obsidian-vault" / "gonzalo-book" / "deep-dive"
+        / cluster.theme / f"{today_for_vault}--{sub_slug_for_vault}"
+        if today_for_vault else None
+    )
 
     # Notion gets the notebook URL (long-lived); audio_url is a CDN URL that
     # may rotate, so it's not the right thing to persist back to the source row.
@@ -167,6 +187,8 @@ def _run_one_brief(
         audio_url=audio_url,
         index=index,
         total=total,
+        visuals=visuals,
+        vault_dir=vault_brief_dir if vault_brief_dir and vault_brief_dir.exists() else None,
     )
 
     append_metric(
@@ -179,6 +201,9 @@ def _run_one_brief(
         notion_fail=len(errors),
         notebooklm_url=notebooklm_url,
         audio_url=audio_url,
+        slide_deck_path=visuals.get("slide_deck", ""),
+        mindmap_path=visuals.get("mind_map", ""),
+        infographic_path=visuals.get("infographic", ""),
         cluster_dir=str(cluster_dir.relative_to(PROJECT_ROOT)),
     )
     return 0, consumed_page_ids
@@ -299,6 +324,8 @@ def _send_telegram(
     audio_url: str = "",
     index: int = 1,
     total: int = 1,
+    visuals: dict[str, str] | None = None,
+    vault_dir: Path | None = None,
 ) -> None:
     try:
         from pipeline.telegram import send  # noqa: WPS433 (local import: optional dep)
@@ -307,6 +334,7 @@ def _send_telegram(
         return
 
     skipped = skipped or []
+    visuals = visuals or {}
     summary = _summary_50w(cluster_dir, cluster)
     # Progress-aware header so the dedicated channel reads as a queue:
     # `Audio 1/3 ready`, `Audio 2/3 ready`, etc.
@@ -332,6 +360,26 @@ def _send_telegram(
         lines.append(f'🎧 <a href="{notebooklm_url}">Listen</a>')
     else:
         lines.append(f"Cluster dir: <code>{_esc(str(cluster_dir.relative_to(PROJECT_ROOT)))}</code>")
+    # Companion visuals live in the same NotebookLM studio panel as the audio,
+    # so a single tap on Listen surfaces all of them. The line below is a status
+    # indicator — it tells Gonzalo which artifacts to expect when he opens the
+    # notebook on his commute, without burning screen space on three redundant
+    # links to the same URL.
+    visual_indicators = []
+    if visuals.get("slide_deck"):
+        visual_indicators.append("📊 Slides")
+    if visuals.get("mind_map"):
+        visual_indicators.append("🧠 Mind map")
+    if visuals.get("infographic"):
+        visual_indicators.append("🖼️ Infographic")
+    if visual_indicators:
+        lines.append(" + ".join(visual_indicators) + " in the same notebook")
+    if vault_dir is not None:
+        try:
+            vault_rel = vault_dir.relative_to(PROJECT_ROOT)
+        except ValueError:
+            vault_rel = vault_dir
+        lines.append(f"📁 Vault: <code>{_esc(str(vault_rel))}</code>")
     if skipped:
         lines.append("")
         lines.append("Skipped sources:")

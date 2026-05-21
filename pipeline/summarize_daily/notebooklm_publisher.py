@@ -58,9 +58,18 @@ class PublishResult:
     notebook_id: str
     notebook_url: str
     artifact_id: str
-    status: str  # completed | rendering | failed
+    status: str  # audio status: completed | rendering | failed
     audio_url: str = ""  # direct streamable audio URL (Google CDN); empty if not yet rendered
     detail: str = ""
+    # Companion artifacts — populated when slides/mindmap/infographic generation
+    # is requested alongside the audio. Each path is a local download in
+    # cluster_dir; each artifact_id remains useful for re-downloading later.
+    slide_deck_artifact_id: str = ""
+    slide_deck_path: str = ""
+    mindmap_artifact_id: str = ""
+    mindmap_path: str = ""
+    infographic_artifact_id: str = ""
+    infographic_path: str = ""
 
 
 class PublishError(Exception):
@@ -152,25 +161,181 @@ def _trigger_audio(
     return m.group(1)
 
 
-def _poll_audio(notebook_id: str, artifact_id: str, max_s: int = POLL_MAX_S) -> str:
-    """Returns status: completed | rendering | failed."""
+def _poll_artifact(
+    notebook_id: str,
+    artifact_id: str,
+    max_s: int = POLL_MAX_S,
+) -> str:
+    """Generic poller for any studio artifact (audio, slide_deck, infographic,
+    mind_map). Returns: completed | rendering | failed.
+
+    `studio status` returns a JSON array of artifacts; we look up the matching
+    id and read its `.status` field directly. Tolerant of `in_progress` (the
+    nlm CLI's word for "still rendering") and the simpler `completed/failed`.
+    """
     deadline = time.time() + max_s
     while time.time() < deadline:
         rc, stdout, _stderr = _run_nlm(["studio", "status", notebook_id])
-        if rc == 0 and artifact_id in stdout:
-            # Tiny parser — search for status line near artifact id
-            lines = stdout.splitlines()
-            for idx, line in enumerate(lines):
-                if artifact_id in line:
-                    for follow in lines[idx : idx + 5]:
-                        if '"status"' in follow:
-                            m = re.search(r'"status":\s*"([^"]+)"', follow)
-                            if m:
-                                status = m.group(1)
-                                if status in ("completed", "failed"):
-                                    return status
+        if rc == 0:
+            try:
+                artifacts = json.loads(stdout)
+            except (json.JSONDecodeError, ValueError):
+                artifacts = None
+            if isinstance(artifacts, list):
+                for art in artifacts:
+                    if isinstance(art, dict) and art.get("id") == artifact_id:
+                        status = art.get("status", "")
+                        if status in ("completed", "failed"):
+                            return status
+                        # in_progress / queued / unknown → keep polling
+                        break
         time.sleep(POLL_INTERVAL_S)
     return "rendering"
+
+
+def _create_slides(
+    notebook_id: str,
+    source_ids: List[str],
+    focus_prompt: str,
+    fmt: str = "detailed_deck",
+) -> str:
+    """Kick off a slide-deck generation. Returns artifact_id (still rendering)."""
+    rc, stdout, stderr = _run_nlm(
+        [
+            "slides",
+            "create",
+            notebook_id,
+            "--format",
+            fmt,
+            "--source-ids",
+            ",".join(source_ids),
+            "--focus",
+            focus_prompt,
+            "--confirm",
+        ],
+        timeout=180,
+    )
+    if rc != 0:
+        raise PublishError(f"nlm slides create failed: {stderr[:500]}")
+    m = _ARTIFACT_ID_RE.search(stdout)
+    if not m:
+        raise PublishError(f"could not parse slide-deck artifact id from: {stdout[:500]}")
+    return m.group(1)
+
+
+def _create_infographic(
+    notebook_id: str,
+    source_ids: List[str],
+    focus_prompt: str,
+    *,
+    orientation: str = "portrait",
+    detail: str = "detailed",
+    style: str = "scientific",
+) -> str:
+    """Kick off infographic generation. Returns artifact_id (still rendering)."""
+    rc, stdout, stderr = _run_nlm(
+        [
+            "infographic",
+            "create",
+            notebook_id,
+            "--style",
+            style,
+            "--orientation",
+            orientation,
+            "--detail",
+            detail,
+            "--source-ids",
+            ",".join(source_ids),
+            "--focus",
+            focus_prompt,
+            "--confirm",
+        ],
+        timeout=180,
+    )
+    if rc != 0:
+        raise PublishError(f"nlm infographic create failed: {stderr[:500]}")
+    m = _ARTIFACT_ID_RE.search(stdout)
+    if not m:
+        raise PublishError(f"could not parse infographic artifact id from: {stdout[:500]}")
+    return m.group(1)
+
+
+def _create_mindmap(notebook_id: str, source_ids: List[str], title: str) -> str:
+    """Create mind map (synchronous on the nlm side). Returns artifact_id.
+
+    `mindmap create` doesn't accept --focus; the mechanism scope is encoded in
+    the title (e.g. 'rest-guilt — physiology pathway map') and in the source
+    set, which is already curated to the cluster's brief files + vault entry.
+    """
+    rc, stdout, stderr = _run_nlm(
+        [
+            "mindmap",
+            "create",
+            notebook_id,
+            "--title",
+            title,
+            "--source-ids",
+            ",".join(source_ids),
+            "--confirm",
+        ],
+        timeout=180,
+    )
+    if rc != 0:
+        raise PublishError(f"nlm mindmap create failed: {stderr[:500]}")
+    # mindmap create prints `  ID: <uuid>` rather than `Artifact ID:`. Either
+    # regex would match; we use _NB_ID_RE because the line literally starts
+    # with `ID:`.
+    m = _NB_ID_RE.search(stdout)
+    if not m:
+        raise PublishError(f"could not parse mind-map id from: {stdout[:500]}")
+    return m.group(1)
+
+
+# `nlm download <kind>` does NOT accept the `-p/--profile` flag (unlike the
+# create subcommands). Profile must be passed via the NLM_PROFILE env var.
+_DOWNLOAD_KIND_ARGS: Dict[str, List[str]] = {
+    "slide-deck": ["--format", "pdf", "--no-progress"],
+    "mind-map": [],
+    "infographic": ["--no-progress"],
+}
+
+
+def _download_artifact(
+    notebook_id: str,
+    artifact_id: str,
+    kind: str,
+    dest_path: Path,
+) -> Path:
+    """Download an artifact into dest_path. kind ∈ {slide-deck, mind-map, infographic}."""
+    if kind not in _DOWNLOAD_KIND_ARGS:
+        raise PublishError(f"unknown download kind: {kind}")
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
+    env = os.environ.copy()
+    env["NLM_PROFILE"] = NLM_PROFILE
+    completed = subprocess.run(
+        [
+            "nlm",
+            "download",
+            kind,
+            notebook_id,
+            "--id",
+            artifact_id,
+            "-o",
+            str(dest_path),
+            *_DOWNLOAD_KIND_ARGS[kind],
+        ],
+        capture_output=True,
+        text=True,
+        timeout=180,
+        env=env,
+    )
+    if completed.returncode != 0:
+        raise PublishError(
+            f"nlm download {kind} failed: {_strip_ansi(completed.stderr or completed.stdout)[:500]}"
+        )
+    if not dest_path.exists():
+        raise PublishError(f"nlm download {kind} reported success but {dest_path} is missing")
+    return dest_path
 
 
 def _fetch_audio_url(notebook_id: str, artifact_id: str) -> str:
@@ -278,6 +443,39 @@ def render_focus_prompt(
     )
 
 
+def render_slides_focus(theme: str, sub_angle: str) -> str:
+    """Slide-deck focus prompt — terminology + mechanism only, no application.
+
+    Audios already cover application; slides exist as a reference deck Gonzalo
+    can revisit when the neurobiology gets dense in the audio."""
+    return (
+        f"Generate a slide deck explaining ONLY the neurobiology and physiology "
+        f"terminology and mechanisms referenced in these sources. For each term "
+        f"(neurotransmitter, brain region, hormone, pathway, neural structure, "
+        f"endocrine response, autonomic state): define it, describe what triggers "
+        f"it, what it produces, and its downstream effect. Do NOT include personal "
+        f"application, protocol adjustments, motivational framing, or anecdotes — "
+        f"those live in the audio overview and the application brief. Listener: "
+        f"{LISTENER_NAME}, {LISTENER_BIO}. Theme: {theme}. Sub-angle: {sub_angle}. "
+        f"Make every slide dense with mechanistic detail; this is a reference deck, "
+        f"not a pep talk."
+    )
+
+
+def render_infographic_focus(theme: str, sub_angle: str) -> str:
+    """One-page biology poster — pathways, neurons, hormones, structures."""
+    return (
+        f"One-page biology reference poster. Visualize the pathways, neurons, "
+        f"hormones, brain regions, and biological structures named in these "
+        f"sources. Show directional arrows between elements where a causal chain "
+        f"exists (e.g. inflammation → cytokines → bloodstream → blood-brain "
+        f"barrier → microglia → dopamine reduction → motivation loss / sickness "
+        f"behavior). Label every node with its function. Concise labels — this "
+        f"is a glance-card not a textbook. Listener: {LISTENER_NAME}. Theme: "
+        f"{theme}. Sub-angle: {sub_angle}."
+    )
+
+
 # ----------------------------- main entry --------------------------------
 
 
@@ -335,7 +533,41 @@ def publish(
     (cluster_dir / "notebooklm_url.txt").write_text(notebook_url + "\n")
     (cluster_dir / "audio_artifact_id.txt").write_text(artifact_id + "\n")
 
-    status = _poll_audio(notebook_id, artifact_id)
+    # Companion visual artifacts: slide deck + infographic + mind map. All run
+    # against the same source set as the audio. Slides + infographic queue on
+    # NotebookLM's side and poll later; mindmap returns synchronously. Each
+    # failure is isolated so a broken visual doesn't kill the audio result.
+    slides_id, slides_path = "", ""
+    mindmap_id, mindmap_path = "", ""
+    infographic_id, infographic_path = "", ""
+
+    try:
+        slides_id = _create_slides(
+            notebook_id, source_ids, render_slides_focus(theme, sub_angle)
+        )
+        (cluster_dir / "slide_deck_artifact_id.txt").write_text(slides_id + "\n")
+    except PublishError as exc:
+        print(f"!! slides create failed: {exc}")
+
+    try:
+        infographic_id = _create_infographic(
+            notebook_id, source_ids, render_infographic_focus(theme, sub_angle)
+        )
+        (cluster_dir / "infographic_artifact_id.txt").write_text(infographic_id + "\n")
+    except PublishError as exc:
+        print(f"!! infographic create failed: {exc}")
+
+    try:
+        mindmap_id = _create_mindmap(
+            notebook_id,
+            source_ids,
+            f"{theme} — {sub_angle} pathway map",
+        )
+        (cluster_dir / "mindmap_artifact_id.txt").write_text(mindmap_id + "\n")
+    except PublishError as exc:
+        print(f"!! mindmap create failed: {exc}")
+
+    status = _poll_artifact(notebook_id, artifact_id)
     audio_url = ""
     if status == "completed":
         audio_url = _fetch_audio_url(notebook_id, artifact_id)
@@ -347,10 +579,45 @@ def publish(
             f"will appear in NotebookLM mobile app when ready.\n"
         )
 
+    # Visuals are usually done by the time audio polling returns (slides ~3 min,
+    # infographic ~2 min, audio ~10 min). If a visual is still rendering or has
+    # failed, skip the download silently — the artifact_id was persisted above
+    # so it can be retried later.
+    for kind, art_id, fname, attr in (
+        ("slide-deck", slides_id, "slides.pdf", "slides_path"),
+        ("infographic", infographic_id, "infographic.png", "infographic_path"),
+        ("mind-map", mindmap_id, "mindmap.json", "mindmap_path"),
+    ):
+        if not art_id:
+            continue
+        try:
+            visual_status = _poll_artifact(
+                notebook_id, art_id, max_s=300
+            ) if kind != "mind-map" else "completed"
+            if visual_status != "completed":
+                print(f"!! {kind} not ready (status={visual_status}); skipping download")
+                continue
+            dest = cluster_dir / fname
+            _download_artifact(notebook_id, art_id, kind, dest)
+            if attr == "slides_path":
+                slides_path = str(dest)
+            elif attr == "infographic_path":
+                infographic_path = str(dest)
+            elif attr == "mindmap_path":
+                mindmap_path = str(dest)
+        except PublishError as exc:
+            print(f"!! {kind} download failed: {exc}")
+
     return PublishResult(
         notebook_id=notebook_id,
         notebook_url=notebook_url,
         artifact_id=artifact_id,
         status=status,
         audio_url=audio_url,
+        slide_deck_artifact_id=slides_id,
+        slide_deck_path=slides_path,
+        mindmap_artifact_id=mindmap_id,
+        mindmap_path=mindmap_path,
+        infographic_artifact_id=infographic_id,
+        infographic_path=infographic_path,
     )
