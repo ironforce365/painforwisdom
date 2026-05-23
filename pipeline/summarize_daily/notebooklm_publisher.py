@@ -193,6 +193,49 @@ def _poll_artifact(
     return "rendering"
 
 
+# NotebookLM rate-limits slide-deck and infographic creation independently
+# of audio + mindmap (which use a different orchestration pipeline). Daily
+# fires (3 briefs * 2 visuals = 6 calls) stay under the cap, but the
+# retrofit script can burst 23+ clusters * 2 visuals in minutes. Sleep
+# between attempts when the CLI returns "Rate limited" in stdout.
+_RATE_LIMIT_MARKER = "Rate limited"
+_RATE_LIMIT_BACKOFF_S = (90, 180, 300)  # cumulative ~9.5 min over 3 retries
+
+
+def _is_rate_limited(stdout: str, stderr: str) -> bool:
+    return _RATE_LIMIT_MARKER in (stdout or "") or _RATE_LIMIT_MARKER in (stderr or "")
+
+
+def _run_nlm_with_rate_retry(
+    args: List[str],
+    *,
+    timeout: int = 180,
+    kind: str = "nlm",
+) -> tuple[int, str, str]:
+    """Wrap `_run_nlm` with up to 3 retries on detected rate-limit responses.
+
+    The nlm CLI exits non-zero with "Rate limited" in stdout for slide/info
+    create when NotebookLM throttles. Mindmap + audio creates go through a
+    separate orchestration that doesn't throttle the same way.
+    """
+    rc, stdout, stderr = _run_nlm(args, timeout=timeout)
+    if rc == 0 or not _is_rate_limited(stdout, stderr):
+        return rc, stdout, stderr
+    for attempt, wait_s in enumerate(_RATE_LIMIT_BACKOFF_S, start=1):
+        print(
+            f"!! {kind} rate-limited (attempt {attempt}/{len(_RATE_LIMIT_BACKOFF_S)}). "
+            f"Sleeping {wait_s}s then retrying.",
+            flush=True,
+        )
+        time.sleep(wait_s)
+        rc, stdout, stderr = _run_nlm(args, timeout=timeout)
+        if rc == 0:
+            return rc, stdout, stderr
+        if not _is_rate_limited(stdout, stderr):
+            return rc, stdout, stderr
+    return rc, stdout, stderr
+
+
 def _create_slides(
     notebook_id: str,
     source_ids: List[str],
@@ -200,7 +243,7 @@ def _create_slides(
     fmt: str = "detailed_deck",
 ) -> str:
     """Kick off a slide-deck generation. Returns artifact_id (still rendering)."""
-    rc, stdout, stderr = _run_nlm(
+    rc, stdout, stderr = _run_nlm_with_rate_retry(
         [
             "slides",
             "create",
@@ -214,9 +257,14 @@ def _create_slides(
             "--confirm",
         ],
         timeout=180,
+        kind="slides create",
     )
     if rc != 0:
-        raise PublishError(f"nlm slides create failed: {stderr[:500]}")
+        # Include stdout in the surfaced error: the nlm CLI prints
+        # "Error: Rate limited ..." on stdout (not stderr) for create
+        # endpoints, so a stderr-only message would be empty.
+        detail = (stderr or "").strip() or (stdout or "").strip()
+        raise PublishError(f"nlm slides create failed: {detail[:500]}")
     m = _ARTIFACT_ID_RE.search(stdout)
     if not m:
         raise PublishError(f"could not parse slide-deck artifact id from: {stdout[:500]}")
@@ -233,7 +281,7 @@ def _create_infographic(
     style: str = "scientific",
 ) -> str:
     """Kick off infographic generation. Returns artifact_id (still rendering)."""
-    rc, stdout, stderr = _run_nlm(
+    rc, stdout, stderr = _run_nlm_with_rate_retry(
         [
             "infographic",
             "create",
@@ -251,9 +299,11 @@ def _create_infographic(
             "--confirm",
         ],
         timeout=180,
+        kind="infographic create",
     )
     if rc != 0:
-        raise PublishError(f"nlm infographic create failed: {stderr[:500]}")
+        detail_msg = (stderr or "").strip() or (stdout or "").strip()
+        raise PublishError(f"nlm infographic create failed: {detail_msg[:500]}")
     m = _ARTIFACT_ID_RE.search(stdout)
     if not m:
         raise PublishError(f"could not parse infographic artifact id from: {stdout[:500]}")
