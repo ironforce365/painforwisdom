@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -49,8 +50,12 @@ BOOKS_EXTRACTED_DIR = Path(
     )
 )
 
-# Quality threshold for image-only PDF detection.
-IMAGE_ONLY_PDF_CHAR_RATIO = 200  # chars per page; below = scanned image
+# Quality threshold for image-only / empty-extraction detection. Applied to
+# every bridge output (epub/pdf/mobi) — `processed_output_format="txt"` flattens
+# the extension to .txt, so a suffix-gated check would silently miss scanned
+# PDFs that processed to near-empty text. page_count defaults to 1 for formats
+# without paging, so the ratio collapses to absolute char_count for those.
+IMAGE_ONLY_PDF_CHAR_RATIO = 200
 
 
 FailureReason = Literal[
@@ -128,6 +133,87 @@ def _parse_bridge_response(stdout: str) -> dict | None:
     return None
 
 
+def _build_query_ladder(title: str, author: str) -> list[str]:
+    """Return up to 3 z-lib search queries, ordered most→least specific.
+
+    Z-lib search is finicky on:
+      - Long titles with `:` subtitles
+      - Multi-author strings ("Ryan, Deci" / "A & B" / "X; Y")
+      - Initials with dots ("James W. Pennebaker")
+
+    Rungs:
+      1. `f"{title} {author}"` — current behavior; literal.
+      2. title-before-colon + first-author-lastname.
+      3. title-before-colon only.
+
+    Duplicates and empty rungs are filtered. Always returns at least one query
+    if either title or author is non-empty.
+    """
+    title = (title or "").strip()
+    author = (author or "").strip()
+
+    # Title minus subtitle (everything before first ':').
+    title_core = title.split(":", 1)[0].strip()
+
+    # First author's last whitespace-separated token. Handles:
+    #   "Ryan, Deci"            -> "Ryan"      (comma = first author then list)
+    #   "James W. Pennebaker"   -> "Pennebaker"
+    #   "Pennebaker & Smyth"    -> "Pennebaker"
+    #   "Tedeschi and Calhoun"  -> "Tedeschi"
+    first_author = re.split(r"[,&;]| and ", author, maxsplit=1)[0].strip()
+    first_lastname = first_author.split()[-1] if first_author else ""
+
+    rungs = [
+        f"{title} {author}".strip(),
+        f"{title_core} {first_lastname}".strip(),
+        title_core,
+    ]
+    # Dedupe while preserving order; drop empties.
+    seen: set[str] = set()
+    ladder: list[str] = []
+    for q in rungs:
+        q = " ".join(q.split())  # collapse whitespace
+        if q and q not in seen:
+            seen.add(q)
+            ladder.append(q)
+    return ladder
+
+
+# Derivative-work title markers. These are commonly attached to companion
+# products built around a source book (workbook, study guide, summary, etc.)
+# that share the same author but are NOT the cited source.
+_DERIVATIVE_KEYWORDS = (
+    "workbook",
+    "handbook",
+    "summary",
+    "summaries",
+    "study guide",
+    "companion",
+    "analysis",
+    "abridged",
+    "encyclopedia",
+    "dictionary",
+)
+
+
+def _reject_derivatives(candidates: list, original_title: str) -> list:
+    """Drop candidates whose title contains a derivative keyword UNLESS the
+    same keyword appears in the original (caller-supplied) title — meaning
+    the caller explicitly asked for the workbook/handbook/etc."""
+    orig_lower = (original_title or "").lower()
+    keep: list = []
+    for c in candidates:
+        ctitle = (c.get("title") or "").lower()
+        bad = False
+        for kw in _DERIVATIVE_KEYWORDS:
+            if kw in ctitle and kw not in orig_lower:
+                bad = True
+                break
+        if not bad:
+            keep.append(c)
+    return keep
+
+
 def get_download_limits() -> dict | BookFailure:
     """Returns {"daily_limit": N, "remaining": M} or BookFailure."""
     if not _repo_configured():
@@ -157,22 +243,64 @@ def fetch(title: str, author: str) -> Union[BookText, BookFailure]:
         )
 
     # 1. Search via EAPI (not multi-source — that routes to Anna's Archive/LibGen).
-    search_query = f"{title} {author}".strip()
-    rc, stdout, stderr = _bridge_call(
-        "search",
-        {"query": search_query, "count": 5, "languages": ["english"]},
-    )
-    if rc != 0:
-        return BookFailure("subprocess-error", stderr[:500])
-    search_result = _parse_bridge_response(stdout)
-    if not search_result:
-        return BookFailure("subprocess-error", "could not parse search response")
+    # Query ladder: z-lib search is finicky on long titles with colons/subtitles
+    # and multi-author strings ("Lastname, Firstname & Other"). Try literal
+    # first, then progressively simplify. First rung returning >=1 hit wins.
+    query_ladder = _build_query_ladder(title, author)
+    # Last-name of first listed author — used to validate that downstream
+    # ladder rungs (which drop author from the query) don't ingest a wrong
+    # book that happens to share a keyword. Rung 1 (literal title+author)
+    # skips this check since the author is already in the query.
+    first_author = re.split(r"[,&;]| and ", (author or "").strip(), maxsplit=1)[0].strip()
+    first_lastname = first_author.split()[-1].lower() if first_author else ""
 
-    books = search_result.get("books") or search_result.get("results") or []
-    if not books:
-        return BookFailure("not-found", f"No results for: {search_query}")
+    book = None
+    attempts_log: list[str] = []
+    for rung_idx, query in enumerate(query_ladder):
+        rc, stdout, stderr = _bridge_call(
+            "search",
+            {"query": query, "count": 5, "languages": ["english"]},
+        )
+        if rc != 0:
+            return BookFailure("subprocess-error", stderr[:500])
+        search_result = _parse_bridge_response(stdout)
+        if not search_result:
+            return BookFailure("subprocess-error", "could not parse search response")
+        candidates = search_result.get("books") or search_result.get("results") or []
 
-    book = books[0]
+        # On rungs that dropped the author from the query (rung 2+), require
+        # the result's author field to contain the original first-author last
+        # name. Prevents ingesting unrelated books that share a title keyword.
+        accepted: list = []
+        if candidates and rung_idx > 0 and first_lastname:
+            for c in candidates:
+                if first_lastname in (c.get("author") or "").lower():
+                    accepted.append(c)
+        else:
+            accepted = candidates
+
+        # Derivative-keyword reject: workbook/handbook/summary/etc are
+        # derivative works, not the cited source. Same-author derivatives
+        # still pass the author-match check — this catches them. Allowed
+        # iff the same keyword is in the original title (user asked for it).
+        n_pre_deriv = len(accepted)
+        accepted = _reject_derivatives(accepted, title)
+        n_deriv_rejected = n_pre_deriv - len(accepted)
+
+        attempts_log.append(
+            f"q={query!r} hits={len(candidates)} author-match={n_pre_deriv} derivative-rejected={n_deriv_rejected} kept={len(accepted)}"
+        )
+        print(f"  [zlib-search] {attempts_log[-1]}", flush=True)
+        if accepted:
+            book = accepted[0]
+            break
+
+    if book is None:
+        return BookFailure(
+            "not-found",
+            f"No author-matched results after {len(query_ladder)} queries: {' | '.join(attempts_log)}",
+        )
+
     if not book.get("id"):
         return BookFailure("not-found", "First result has no id")
 
@@ -235,10 +363,11 @@ def fetch(title: str, author: str) -> Union[BookText, BookFailure]:
     )
 
     page_count = dl.get("page_count") or 1
-    if kind == "pdf" and char_count / max(page_count, 1) < IMAGE_ONLY_PDF_CHAR_RATIO:
+    ratio = char_count / max(page_count, 1)
+    if ratio < IMAGE_ONLY_PDF_CHAR_RATIO:
         return BookFailure(
             "image-only-pdf",
-            f"PDF char/page ratio {char_count / max(page_count, 1):.0f} < {IMAGE_ONLY_PDF_CHAR_RATIO}",
+            f"{kind} char/page ratio {ratio:.0f} < {IMAGE_ONLY_PDF_CHAR_RATIO} (chars={char_count}, pages={page_count})",
         )
 
     return BookText(local_path=local_path, char_count=char_count, kind=kind)
