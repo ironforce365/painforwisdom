@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 import time
@@ -58,7 +59,12 @@ TRAFILATURA_MIN_CHARS = 500
 WEB_FETCH_TIMEOUT = 15.0
 NOTION_PACING_S = 0.5
 
-EXTRACTED_BOOKS_DIR = PROJECT_ROOT / "books" / "extracted"
+EXTRACTED_BOOKS_DIR = Path(
+    os.environ.get(
+        "PAINFORWISDOM_BOOKS_EXTRACTED",
+        str(PROJECT_ROOT / "books" / "extracted"),
+    )
+)
 
 SEARCH_SYSTEM = """You are a research librarian helping a runner-coach find freely-readable analog references.
 
@@ -273,13 +279,43 @@ def main(argv: list[str] | None = None) -> int:
 
     rows = _load_audit_jsonl(args.audit_jsonl)
     unreachable = [r for r in rows if r.get("class") not in ("reachable", "local-file")]
+
+    # Z-library is the primary source for books. Also queue Type=Book rows
+    # that are already marked reachable but lack a local copy, so we attempt
+    # to download them too. These rows are flagged "_zlib_only": on zlib miss
+    # we DO NOT fall back to LLM analog and DO NOT downgrade Notion state
+    # (the row stays reachable=yes via its original URL).
+    n_zlib_only_added = 0
+    if not args.skip_books:
+        already_targeted = {r["page_id"] for r in unreachable}
+        for r in rows:
+            if r["page_id"] in already_targeted:
+                continue
+            if (r.get("type") or "").lower() != "book":
+                continue
+            if r.get("class") == "local-file":
+                continue
+            if find_local_book(r.get("title", ""), r.get("author_host", "")) is not None:
+                continue
+            r = dict(r)
+            r["_zlib_only"] = True
+            unreachable.append(r)
+            n_zlib_only_added += 1
+
     if args.skip_books:
         unreachable = [r for r in unreachable if (r.get("type") or "").lower() != "book"]
+
+    # Counts BEFORE --limit truncation, for accurate scope reporting.
+    n_total_queued = len(unreachable)
+    n_unreach_pre_limit = n_total_queued - n_zlib_only_added
+
     if args.limit is not None:
         unreachable = unreachable[: args.limit]
 
     print(f"Total rows in audit: {len(rows)}")
-    print(f"Unreachable to augment: {len(unreachable)}")
+    print(f"Unreachable to augment: {n_unreach_pre_limit}")
+    print(f"Reachable books queued for z-lib (no-downgrade on miss): {n_zlib_only_added}")
+    print(f"Total to process: {len(unreachable)} (queued={n_total_queued}, limit={args.limit})")
     print(f"Cost forecast @ ${COST_PER_ROW_FORECAST}/row: ${len(unreachable) * COST_PER_ROW_FORECAST:.2f}")
     print(f"Cost guardrail: ${args.max_cost_usd:.2f}")
 
@@ -341,6 +377,15 @@ def main(argv: list[str] | None = None) -> int:
                 elif "not-configured" in reason:
                     print(f"  z-library skip (not configured) — falling through to web search")
                     reason = ""
+
+        # Zlib-primary book that didn't hit: leave Notion alone (row was
+        # already reachable via its original URL). No LLM fallback either —
+        # the existing URL is the source of truth.
+        if row.get("_zlib_only") and not alt_url:
+            print(f"  z-lib miss on reachable book — keeping Notion state, no LLM fallback ({reason or 'no zlib hit'})")
+            _telemetry(row, "zlib-only-miss", 0.0)
+            n_fail += 1
+            continue
 
         if not alt_url:
             try:
