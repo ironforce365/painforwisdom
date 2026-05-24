@@ -1,0 +1,52 @@
+services:
+  mem0-postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ${MEM0_PG_USER}
+      POSTGRES_PASSWORD: ${MEM0_PG_PASSWORD}
+      POSTGRES_DB: ${MEM0_PG_DB}
+    volumes:
+      - mem0_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${MEM0_PG_USER}"]
+      interval: 10s
+      retries: 5
+    restart: unless-stopped
+
+  mem0-neo4j:
+    image: neo4j:5.20-community
+    environment:
+      NEO4J_AUTH: ${MEM0_NEO4J_USER}/${MEM0_NEO4J_PASSWORD}
+      NEO4J_PLUGINS: '["apoc"]'
+    volumes:
+      - mem0_neo4j_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:7474 || exit 1"]
+      interval: 15s
+      retries: 5
+    restart: unless-stopped
+
+  mem0-api:
+    image: mem0ai/mem0:latest
+    depends_on:
+      mem0-postgres:
+        condition: service_healthy
+      mem0-neo4j:
+        condition: service_healthy
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      POSTGRES_HOST: mem0-postgres
+      POSTGRES_USER: ${MEM0_PG_USER}
+      POSTGRES_PASSWORD: ${MEM0_PG_PASSWORD}
+      POSTGRES_DB: ${MEM0_PG_DB}
+      NEO4J_URI: bolt://mem0-neo4j:7687
+      NEO4J_USER: ${MEM0_NEO4J_USER}
+      NEO4J_PASSWORD: ${MEM0_NEO4J_PASSWORD}
+    ports:
+      - "8765:8000"
+    restart: unless-stopped
+
+volumes:
+  mem0_pg_data:
+  mem0_neo4j_data:
