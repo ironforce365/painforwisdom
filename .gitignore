@@ -43,3 +43,7 @@ data/.daily_brief_watchdog.last_alert
 # Local draft markdown (homepage candidates, blog post drafts).
 # Final versions live elsewhere; keep the repo root + tracked dirs clean.
 data/temp/
+
+# Coach service
+services/coach/.env
+eval-runs/
