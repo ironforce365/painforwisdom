@@ -47,27 +47,6 @@ services:
       - "8765:8000"
     restart: unless-stopped
 
-  khoj:
-    image: khoj/khoj:latest
-    depends_on:
-      mem0-api:
-        condition: service_started
-    environment:
-      KHOJ_TELEGRAM_TOKEN: ${TELEGRAM_COACH_BOT_TOKEN}
-      KHOJ_ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-      KHOJ_OPENAI_API_KEY: ${OPENAI_API_KEY}
-      KHOJ_DOMAIN: http://localhost:42110
-      KHOJ_ALLOWED_TELEGRAM_IDS: ${KHOJ_ALLOWED_TELEGRAM_IDS}
-    volumes:
-      - ${VAULT_HOST_PATH}:/vault:ro
-      - khoj_data:/root/.khoj
-      - ./khoj_config.yaml:/root/.khoj/khoj.yml:ro
-      - ./coach_prompt.md:/root/.khoj/coach_prompt.md:ro
-    ports:
-      - "42110:42110"
-    restart: unless-stopped
-
 volumes:
   mem0_pg_data:
   mem0_neo4j_data:
-  khoj_data:

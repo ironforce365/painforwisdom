@@ -1,25 +1,25 @@
-# Coach Service (Phase 1)
+# Virtual coach service
 
-Telegram-fronted virtual coach for 1–10 athletes. Khoj + Mem0 + Claude Opus 4.7.
+Stack C implementation. See plan: `docs/superpowers/plans/2026-05-25-virtual-coach-stack-c.md`.
 
-## Operations
+## Quick start (post-implementation)
 
-Start: `docker compose -f services/coach/docker-compose.yml --env-file services/coach/.env up -d`
-Stop:  `docker compose -f services/coach/docker-compose.yml down`
-Logs:  `docker compose -f services/coach/docker-compose.yml logs -f khoj`
+```bash
+cp .env.template .env.coach   # fill in
+docker compose --env-file .env.coach -f docker-compose.yml up -d
+```
 
-## Sidecars (run via cron on host)
+## Services
 
-- Every 5 min: `python -m services.coach.sidecar.log_conversations`
-- Weekly:      `python -m services.coach.sidecar.promote_to_notion`
-- Weekly:      `python -m services.coach.sidecar.quota_monitor`
+- `mem0-postgres`, `mem0-neo4j`, `mem0-api` — long-term memory
+- `coach-agent` — claude-agent-sdk service (HTTP on :8800)
+- `telegram-bot` — bot polling, allowlist, voice→Whisper→agent
 
-## Nightly eval
+## Cron sidecars
 
-Cron: `python -m services.coach.eval.nightly_eval`
-
-Reports: `eval-runs/YYYY-MM-DD/aggregate.md`
-
-## Spec
-
-`docs/superpowers/specs/2026-05-24-virtual-coach-design.md`
+- `sidecar/classify_themes.py` — every 30 min
+- `sidecar/promote_to_notion.py` — hourly
+- `sidecar/quota_monitor.py` — every 15 min
+- `vault_rag/rebuild_cron.py` — nightly 02:00
+- `eval/simulated_athlete/nightly_eval.py` — nightly 03:00
+```
