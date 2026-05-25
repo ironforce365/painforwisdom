@@ -57,11 +57,12 @@ services:
       KHOJ_ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       KHOJ_OPENAI_API_KEY: ${OPENAI_API_KEY}
       KHOJ_DOMAIN: http://localhost:42110
-      KHOJ_ALLOWED_USERS: ${KHOJ_ALLOWED_TELEGRAM_IDS}
+      KHOJ_ALLOWED_TELEGRAM_IDS: ${KHOJ_ALLOWED_TELEGRAM_IDS}
     volumes:
       - ${VAULT_HOST_PATH}:/vault:ro
       - khoj_data:/root/.khoj
       - ./khoj_config.yaml:/root/.khoj/khoj.yml:ro
+      - ./coach_prompt.md:/root/.khoj/coach_prompt.md:ro
     ports:
       - "42110:42110"
     restart: unless-stopped
