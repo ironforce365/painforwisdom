@@ -14,6 +14,15 @@ Run after first deploy and after any task that touches the agent loop.
 - [ ] Send Telegram message from an allowed ID — coach replies
 - [ ] Send Telegram message from a non-allowed ID — no reply, log entry "rejecting user_id=..."
 
+## Onboarding flow
+
+- [ ] Have a friend DM the bot from a non-allowed Telegram account — bot replies "pending"
+- [ ] Admin's Telegram receives a message with the requester's info + Approve/Deny buttons
+- [ ] Tap Approve — admin sees "✅ Approved", requester gets "You're in"
+- [ ] Requester sends a follow-up message — coach replies normally
+- [ ] `access.json` on disk shows the new user_id in `allowed_user_ids`
+- [ ] Restart bot — approved user can still chat (persistence)
+
 ## Voice
 
 - [ ] Send a 5-sec voice message in English — transcript → coach reply

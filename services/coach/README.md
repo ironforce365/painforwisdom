@@ -23,6 +23,15 @@ Telegram → telegram-bot (allowlist + Whisper) → HTTP → coach-agent → Cla
 2. `claude setup-token` on your laptop → copy `CLAUDE_CODE_OAUTH_TOKEN` into `.env.coach`.
 3. **Do NOT** set `ANTHROPIC_API_KEY` in `.env.coach` — it silently shadows OAuth.
 4. Add allowed Telegram numeric user IDs to `access.json`.
+
+### Onboarding new users
+
+You no longer need to edit `access.json` by hand. New users:
+
+1. Add `TELEGRAM_COACH_ALERT_CHAT_ID=<your-numeric-chat-id>` to `.env.coach`. To find it: DM `@userinfobot` on Telegram.
+2. Run the bot.
+3. When someone new DMs the bot, you (admin) get a Telegram message with their info and Approve/Deny buttons. Tapping Approve writes them into `access.json` atomically — the bot picks it up immediately, no restart needed.
+
 5. `docker compose --env-file .env.coach -f docker-compose.yml build`
 6. `docker compose --env-file .env.coach -f docker-compose.yml up -d`
 7. First-time vault index build:
