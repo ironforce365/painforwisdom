@@ -1,6 +1,5 @@
 """Spin up an athlete-agent (Sonnet 4.6) that role-plays a profile and chats with the coach service."""
 from __future__ import annotations
-import os
 from pathlib import Path
 import yaml
 import httpx
