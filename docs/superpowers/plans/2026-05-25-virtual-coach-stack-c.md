@@ -431,13 +431,17 @@ def test_load_vault_documents_emits_nodes_with_wikilink_relationships(fixture_va
 
     # The test entry references comfort-as-default and deliberate-discomfort.
     entry_node = next(n for n in nodes if "running in the rain" in n.get_content().lower())
-    related = entry_node.relationships
-    referenced_names = {
-        r.metadata.get("name") for r in related.values()
-        if isinstance(r, list) is False and hasattr(r, "metadata")
-    }
-    # Bridged wikilinks must surface as relationships (not just metadata strings)
+
+    # Raw wikilinks captured in metadata
     assert any("comfort-as-default" in str(v) for v in entry_node.metadata.get("wikilinks", []))
+
+    # Bridge: wikilinks become typed NEXT relationships pointing at sibling nodes
+    nexts = entry_node.relationships.get(NodeRelationship.NEXT)
+    assert nexts is not None, "wikilink bridge produced no NEXT relationships"
+    if not isinstance(nexts, list):
+        nexts = [nexts]
+    bridged_names = {n.metadata.get("name") for n in nexts}
+    assert "comfort-as-default" in bridged_names
 ```
 
 - [ ] **Step 3: Run test — expect ImportError**
@@ -454,7 +458,6 @@ Expected: `ModuleNotFoundError: No module named 'vault_rag.builder'`
 """Load the Obsidian vault and bridge wikilinks into node relationships."""
 from __future__ import annotations
 from pathlib import Path
-from typing import Iterable
 import re
 
 from llama_index.core.schema import TextNode, NodeRelationship, RelatedNodeInfo

@@ -1,7 +1,6 @@
 """Load the Obsidian vault and bridge wikilinks into node relationships."""
 from __future__ import annotations
 from pathlib import Path
-from typing import Iterable
 import re
 
 from llama_index.core.schema import TextNode, NodeRelationship, RelatedNodeInfo
