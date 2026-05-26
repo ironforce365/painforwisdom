@@ -35,7 +35,7 @@ def _build_app() -> Application:
             file = await msg.voice.get_file()
             tmp = Path(f"/tmp/voice_{user.id}_{msg.message_id}.ogg")
             await file.download_to_drive(tmp)
-            text = transcribe_voice(tmp)
+            text = await asyncio.to_thread(transcribe_voice, tmp)
             tmp.unlink(missing_ok=True)
         else:
             text = msg.text or ""
@@ -54,6 +54,12 @@ def _build_app() -> Application:
 
 
 def main() -> None:
+    # Warm Whisper model before polling so the first voice turn doesn't
+    # block the event loop on a multi-second cold load.
+    from telegram_bot.voice import _model
+    log.info("warming whisper model...")
+    _model()
+    log.info("whisper model ready")
     app = _build_app()
     app.run_polling()
 
