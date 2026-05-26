@@ -47,6 +47,46 @@ services:
       - "8765:8000"
     restart: unless-stopped
 
+  coach-agent:
+    build: .
+    depends_on:
+      mem0-api:
+        condition: service_started
+    environment:
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      MEM0_API_URL: http://mem0-api:8000
+      COACH_INDEX_STORAGE_DIR: /data/vault_rag
+      COACH_USER_MEMORY_DIR: /data/user_memory
+      COACH_INBOX_ROOT: /vault/_inbox
+      COACH_VAULT_PATH: /vault
+      COACH_USAGE_LOG: /data/usage.jsonl
+    # CRITICAL: do NOT set ANTHROPIC_API_KEY here — it would shadow the OAuth token.
+    volumes:
+      - ${VAULT_HOST_PATH}:/vault
+      - coach_data:/data
+      - whisper_cache:/root/.cache
+    command: ["uvicorn", "agent.service:app", "--host", "0.0.0.0", "--port", "8800"]
+    ports:
+      - "8800:8800"
+    restart: unless-stopped
+
+  telegram-bot:
+    build: .
+    depends_on:
+      coach-agent:
+        condition: service_started
+    environment:
+      TELEGRAM_COACH_BOT_TOKEN: ${TELEGRAM_COACH_BOT_TOKEN}
+      COACH_AGENT_URL: http://coach-agent:8800
+      COACH_ACCESS_JSON: /app/access.json
+    volumes:
+      - whisper_cache:/root/.cache
+    command: ["python", "-m", "telegram_bot.bot"]
+    restart: unless-stopped
+
 volumes:
   mem0_pg_data:
   mem0_neo4j_data:
+  coach_data:
+  whisper_cache:
