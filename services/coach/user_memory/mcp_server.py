@@ -14,7 +14,10 @@ class UserMemory:
         self.base_dir.mkdir(parents=True, exist_ok=True)
 
     def _user_root(self, user_id: str) -> Path:
-        if "/" in user_id or ".." in user_id:
+        # Telegram IDs are numeric; bound length to int64 digits to block DoS
+        # from arbitrary directory creation and reject empty/non-numeric IDs
+        # that would otherwise resolve to base_dir itself.
+        if not user_id.isdigit() or not (1 <= len(user_id) <= 19):
             raise ValueError(f"invalid user_id: {user_id!r}")
         d = self.base_dir / user_id
         d.mkdir(parents=True, exist_ok=True)
@@ -23,8 +26,10 @@ class UserMemory:
     def _resolve(self, user_id: str, path: str) -> Path:
         root = self._user_root(user_id)
         candidate = (root / path).resolve()
-        if not str(candidate).startswith(str(root.resolve())):
-            raise ValueError(f"path traversal rejected: {path!r}")
+        try:
+            candidate.relative_to(root.resolve())
+        except ValueError as e:
+            raise ValueError(f"path traversal rejected: {path!r}") from e
         return candidate
 
     def view(self, user_id: str, path: str) -> str:
@@ -66,18 +71,21 @@ def memory_view(user_id: str, path: str) -> str:
 
 @mcp.tool()
 def memory_create(user_id: str, path: str, content: str) -> str:
-    """Write a per-user note. Overwrites if exists."""
+    """Write a per-user note. Overwrites if exists. Path must be relative to
+    the user's scratchpad root; absolute paths and `..` traversal are rejected."""
     _get_store().create(user_id, path, content)
     return "ok"
 
 
 @mcp.tool()
 def memory_list(user_id: str) -> list[str]:
+    """List all note paths for a user, relative to their scratchpad root."""
     return _get_store().list(user_id)
 
 
 @mcp.tool()
 def memory_delete(user_id: str, path: str) -> str:
+    """Delete a per-user note. No-op if the note does not exist."""
     _get_store().delete(user_id, path)
     return "ok"
 
