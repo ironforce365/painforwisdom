@@ -21,6 +21,7 @@ poc/runs.jsonl
 __pycache__/
 *.pyc
 *.pyo
+*.egg-info/
 
 # Daily summarizer runtime artifacts (Phase 2-6 of look-at-my-notion-serialized-donut)
 # books/ = raw + extracted book text from z-library + curated copies
