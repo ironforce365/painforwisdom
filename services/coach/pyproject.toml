@@ -11,7 +11,6 @@ dependencies = [
   "llama-index-embeddings-openai>=0.6.0",
   "llama-index-llms-anthropic>=0.10.0",
   "llama-index-retrievers-bm25>=0.6.0",
-  "llama-index-graph-stores-simple>=0.6.0",
   "sentence-transformers>=3.0.0",
   "mcp>=1.4.0",
   "fastmcp>=2.0.0",

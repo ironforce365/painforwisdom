@@ -3,7 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 import re
 
+from llama_index.core import PropertyGraphIndex, StorageContext, load_index_from_storage
+from llama_index.core.graph_stores.simple_labelled import SimplePropertyGraphStore
+from llama_index.core.indices.property_graph import ImplicitPathExtractor
 from llama_index.core.schema import TextNode, NodeRelationship, RelatedNodeInfo
+from llama_index.embeddings.openai import OpenAIEmbedding
 from llama_index.readers.obsidian import ObsidianReader
 
 WIKILINK_RE = re.compile(r"\[\[([^\]|#]+)(?:\|[^\]]+)?\]\]")
@@ -49,3 +53,27 @@ def load_vault_documents(vault_dir: Path) -> list[TextNode]:
                     related_info,
                 ]
     return nodes
+
+
+def _embed_model():
+    return OpenAIEmbedding(model="text-embedding-3-small")
+
+
+def build_index(vault_dir: Path, storage_dir: Path) -> PropertyGraphIndex:
+    nodes = load_vault_documents(vault_dir)
+    graph_store = SimplePropertyGraphStore()
+    storage_context = StorageContext.from_defaults(property_graph_store=graph_store)
+    index = PropertyGraphIndex(
+        nodes=nodes,
+        storage_context=storage_context,
+        embed_model=_embed_model(),
+        kg_extractors=[ImplicitPathExtractor()],
+        show_progress=False,
+    )
+    storage_context.persist(persist_dir=str(storage_dir))
+    return index
+
+
+def load_index(storage_dir: Path) -> PropertyGraphIndex:
+    storage_context = StorageContext.from_defaults(persist_dir=str(storage_dir))
+    return load_index_from_storage(storage_context, embed_model=_embed_model())
