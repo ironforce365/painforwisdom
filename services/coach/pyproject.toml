@@ -33,3 +33,12 @@ test = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+pythonpath = ["."]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["agent*", "crisis*", "eval*", "mem0_mcp*", "shared*", "sidecar*", "telegram_bot*", "user_memory*", "vault_rag*"]
+exclude = ["tests*"]

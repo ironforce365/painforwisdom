@@ -13,7 +13,11 @@ def _notion_create_page(**kwargs) -> dict:
 
 def _classify_top(text: str) -> list[str]:
     from sidecar.classify_themes import classify
-    return [m.theme for m in classify(text, top_n=3)]
+    try:
+        return [m.theme for m in classify(text, top_n=3)]
+    except FileNotFoundError:
+        # theme embedding cache not built yet — promote without theme hints
+        return []
 
 
 def promote(inbox_root: Path, data_source_id: str) -> list[Path]:
@@ -42,3 +46,25 @@ def promote(inbox_root: Path, data_source_id: str) -> list[Path]:
         f.rename(new)
         promoted.append(new)
     return promoted
+
+
+def main() -> int:
+    """Cron entrypoint: walk COACH_INBOX_ROOT, promote each unread inbox file to Notion."""
+    import logging
+    log = logging.getLogger("coach.promote")
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    inbox = Path(os.environ.get("COACH_INBOX_ROOT", "/vault/_inbox"))
+    data_source_id = os.environ.get("NOTION_COACH_INBOX_DATA_SOURCE_ID")
+    if not data_source_id:
+        log.error("NOTION_COACH_INBOX_DATA_SOURCE_ID not set; aborting")
+        return 1
+    if not inbox.exists():
+        log.info("inbox %s does not exist; nothing to promote", inbox)
+        return 0
+    promoted = promote(inbox_root=inbox, data_source_id=data_source_id)
+    log.info("promoted %d files", len(promoted))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

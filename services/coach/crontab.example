@@ -1,8 +1,8 @@
 # Nightly vault rebuild — 02:00 local
 0 2 * * * cd /home/gonzalo/workspace/painforwisdom/painforwisdom && docker compose -f services/coach/docker-compose.yml exec -T coach-agent python -m vault_rag.rebuild_cron >> /var/log/coach-rebuild.log 2>&1
 
-# Nightly eval — 03:00 local
-0 3 * * * cd /home/gonzalo/workspace/painforwisdom/painforwisdom && docker compose -f services/coach/docker-compose.yml exec -T coach-agent python -m eval.simulated_athlete.nightly_eval >> /var/log/coach-eval.log 2>&1
+# Nightly eval — 03:00 local (separate container with ANTHROPIC_API_KEY)
+0 3 * * * cd /home/gonzalo/workspace/painforwisdom/painforwisdom && docker compose -f services/coach/docker-compose.yml --profile eval run --rm coach-eval python -m eval.simulated_athlete.nightly_eval >> /var/log/coach-eval.log 2>&1
 
 # classify_themes — every 30 min
 # TODO: sidecar.classify_themes has no __main__ entrypoint (only a classify() function used by

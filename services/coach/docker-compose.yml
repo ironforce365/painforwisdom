@@ -85,6 +85,21 @@ services:
     command: ["python", "-m", "telegram_bot.bot"]
     restart: unless-stopped
 
+  coach-eval:
+    build: .
+    profiles: ["eval"]
+    depends_on:
+      coach-agent:
+        condition: service_started
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      COACH_AGENT_URL: http://coach-agent:8800
+      COACH_EVAL_OUT: /eval-runs/nightly.jsonl
+    volumes:
+      - coach_data:/eval-runs
+    # No restart policy — this is a one-shot via `docker compose run --rm coach-eval ...`
+
 volumes:
   mem0_pg_data:
   mem0_neo4j_data:
