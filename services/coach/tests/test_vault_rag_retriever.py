@@ -14,5 +14,7 @@ def test_retriever_returns_topk_with_rerank(fixture_vault_dir: Path, tmp_index_d
     retriever = build_retriever(index, top_k=3)
     nodes = retriever.retrieve("how do I handle comfort in the rain?")
     assert 1 <= len(nodes) <= 3
-    assert any("rain" in n.get_content().lower() or "comfort" in n.get_content().lower()
-               for n in nodes)
+    # Assert the *top* node matches — actually tests that rerank surfaced the
+    # right fixture to position 0, not just that something in top-k matched.
+    top = nodes[0]
+    assert "rain" in top.get_content().lower() or "comfort" in top.get_content().lower()

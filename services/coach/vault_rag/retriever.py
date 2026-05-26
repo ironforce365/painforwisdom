@@ -2,6 +2,7 @@
 from __future__ import annotations
 from llama_index.core import PropertyGraphIndex
 from llama_index.core.retrievers import QueryFusionRetriever
+from llama_index.core.indices.property_graph import VectorContextRetriever
 from llama_index.retrievers.bm25 import BM25Retriever
 from llama_index.core.postprocessor import SentenceTransformerRerank
 from llama_index.core.base.base_retriever import BaseRetriever
@@ -22,15 +23,28 @@ class _RerankRetriever(BaseRetriever):
 
 
 def build_retriever(index: PropertyGraphIndex, top_k: int = 5) -> BaseRetriever:
-    pg_retriever = index.as_retriever(similarity_top_k=top_k * 2)
+    # Pin PG sub-retrievers to vector-only; the default includes
+    # LLMSynonymRetriever which silently calls Settings.llm per retrieve.
+    pg_retriever = index.as_retriever(
+        sub_retrievers=[
+            VectorContextRetriever(
+                graph_store=index.property_graph_store,
+                include_text=True,
+                similarity_top_k=top_k * 2,
+                embed_model=index._embed_model,
+            )
+        ]
+    )
     docstore_nodes = list(index.docstore.docs.values())
     bm25_retriever = BM25Retriever.from_defaults(
         nodes=docstore_nodes,
         similarity_top_k=top_k * 2,
     )
+    # num_queries=1 disables LLM query expansion (default 4 would hit Settings.llm).
     fusion = QueryFusionRetriever(
         retrievers=[pg_retriever, bm25_retriever],
         similarity_top_k=top_k * 2,
+        num_queries=1,
         mode="reciprocal_rerank",
         use_async=False,
         verbose=False,
