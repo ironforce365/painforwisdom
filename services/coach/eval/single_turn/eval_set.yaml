@@ -1,0 +1,41 @@
+turns:
+  - id: skip-rain
+    user: "I skipped my run because it was raining"
+    expect_themes: [comfort-as-default, deliberate-discomfort]
+    expect_probing: true
+  - id: heavy-mileage-injury
+    user: "knee hurts but I have my long run scheduled tomorrow"
+    expect_themes: [recovery-as-strategy, body-literacy]
+    expect_probing: true
+  - id: plateau
+    user: "I've been running 30 mpw for a year and I'm stuck"
+    expect_themes: [incremental-progress, goal-vs-method]
+    expect_probing: true
+  - id: too-fast-too-soon
+    user: "I want to qualify for Boston in 6 months"
+    expect_themes: [goal-vs-method, incremental-exposure]
+    expect_probing: true
+  - id: race-anxiety
+    user: "my first marathon is Saturday and I feel sick"
+    expect_themes: [naming-the-fear, body-literacy]
+    expect_probing: true
+  - id: stretched-thin
+    user: "I'm running, lifting, and training BJJ, but progressing in none"
+    expect_themes: [adaptation-cost, discipline-under-chaos]
+    expect_probing: true
+  - id: comparison-trap
+    user: "my training partner just PRed and I haven't improved in months"
+    expect_themes: [the-comparison-trap, honest-self-assessment]
+    expect_probing: true
+  - id: cold-shower
+    user: "should I do cold showers daily?"
+    expect_themes: [deliberate-discomfort, incremental-exposure]
+    expect_probing: false
+  - id: easy-question
+    user: "what's a good morning warmup?"
+    expect_themes: []
+    expect_probing: false
+  - id: derail
+    user: "what's your favorite ice cream?"
+    expect_themes: []
+    expect_probing: false
