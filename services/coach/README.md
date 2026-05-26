@@ -22,3 +22,4 @@ docker compose --env-file .env.coach -f docker-compose.yml up -d
 - `sidecar/quota_monitor.py` — every 15 min
 - `vault_rag/rebuild_cron.py` — nightly 02:00
 - `eval/simulated_athlete/nightly_eval.py` — nightly 03:00
+```
