@@ -6,7 +6,7 @@ import yaml
 
 _HERE = Path(__file__).parent
 
-with (_HERE / "keywords.yaml").open() as f:
+with (_HERE / "keywords.yaml").open(encoding="utf-8") as f:
     _TRIGGERS: list[str] = [t.lower() for t in yaml.safe_load(f)["triggers"]]
 
 _CANNED_REPLY: str = (_HERE / "canned_reply.md").read_text(encoding="utf-8")
