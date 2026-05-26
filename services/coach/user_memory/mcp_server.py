@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 from fastmcp import FastMCP
 
+from shared.validation import validate_telegram_user_id
+
 
 class UserMemory:
     def __init__(self, base_dir: Path):
@@ -14,11 +16,7 @@ class UserMemory:
         self.base_dir.mkdir(parents=True, exist_ok=True)
 
     def _user_root(self, user_id: str) -> Path:
-        # Telegram IDs are numeric; bound length to int64 digits to block DoS
-        # from arbitrary directory creation and reject empty/non-numeric IDs
-        # that would otherwise resolve to base_dir itself.
-        if not user_id.isdigit() or not (1 <= len(user_id) <= 19):
-            raise ValueError(f"invalid user_id: {user_id!r}")
+        validate_telegram_user_id(user_id)
         d = self.base_dir / user_id
         d.mkdir(parents=True, exist_ok=True)
         return d
