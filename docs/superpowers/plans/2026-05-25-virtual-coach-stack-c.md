@@ -23,9 +23,7 @@
 
 ## Critical gotchas (bake into every task)
 
-0. **All Anthropic calls go through LiteLLM proxy** (added in SC-Task 1.5). The proxy holds the single `CLAUDE_CODE_OAUTH_TOKEN` and forwards it upstream. Downstream services (`coach-agent`, `mem0-api`, eval judge) set `ANTHROPIC_BASE_URL=http://litellm:4000` and use `ANTHROPIC_API_KEY=<LITELLM_MASTER_KEY>` as the gateway auth. This consolidates spend on the Max bucket and eliminates the OAuth-shadowing footgun entirely. See [[litellm-gateway-for-max-oauth]].
-
-1. **`ANTHROPIC_API_KEY` (real Anthropic key) appears ONLY inside the LiteLLM container.** Outside the gateway, `ANTHROPIC_API_KEY` always means "LiteLLM master key" (gateway auth), never a real Anthropic credential. This is what makes the OAuth-shadowing problem from the original architecture disappear.
+1. **`ANTHROPIC_API_KEY` silently shadows OAuth** — coach container MUST `unset ANTHROPIC_API_KEY` before invoking SDK so it uses the OAuth subscription token (`CLAUDE_CODE_OAUTH_TOKEN`). Compose env block must NOT set `ANTHROPIC_API_KEY` for the coach service.
 2. **OAuth single-user ToS** — only Gonzalo is the SDK principal. Telegram users are addressees, not principals. Document in README.
 3. **Agent SDK separate quota bucket from 2026-06-15** — quota monitor (Task 12) tracks `ResultMessage.total_cost_usd` and flags when projected burn exceeds 80% of the bucket cap.
 4. **LlamaIndex Neo4j collides with Mem0's Neo4j** — both stamp `__Entity__`/`__Node__`/`Chunk`/`MENTIONS` labels. Use `SimplePropertyGraphStore` (in-mem, persisted to disk) for the 120-doc vault — fast, no second Neo4j container.
@@ -248,113 +246,6 @@ docker compose --env-file .env.coach -f docker-compose.yml up -d
 ```bash
 git add services/coach/khoj_config.yaml services/coach/docker-compose.yml services/coach/.env.template services/coach/README.md
 git commit -m "coach: drop Khoj layer; supersede plan with Stack C plan"
-```
-
----
-
-## Task 1.5: LiteLLM proxy service — Max-OAuth gateway
-
-All downstream Anthropic-calling services (`coach-agent`, `mem0-api`, eval judge, classify_themes if it ever uses Claude) point at this proxy. The proxy holds the single `CLAUDE_CODE_OAUTH_TOKEN` and forwards it upstream so all spend lands on the Max subscription bucket. Downstream services use `ANTHROPIC_API_KEY=<LITELLM_MASTER_KEY>` for gateway auth — no real Anthropic API key exists outside the proxy.
-
-**Files:**
-- Create: `services/coach/litellm_config.yaml`
-- Modify: `services/coach/docker-compose.yml` (add `litellm` service)
-- Modify: `services/coach/.env.template` (add `LITELLM_MASTER_KEY`)
-
-- [ ] **Step 1: Create `services/coach/litellm_config.yaml`**
-
-```yaml
-model_list:
-  - model_name: claude-opus-4-7
-    litellm_params:
-      model: anthropic/claude-opus-4-7
-  - model_name: claude-sonnet-4-6
-    litellm_params:
-      model: anthropic/claude-sonnet-4-6
-  - model_name: claude-haiku-4-5
-    litellm_params:
-      model: anthropic/claude-haiku-4-5
-
-general_settings:
-  master_key: os.environ/LITELLM_MASTER_KEY
-  forward_client_headers_to_llm_api: true
-
-litellm_settings:
-  set_verbose: false
-  drop_params: true
-```
-
-Notes:
-- No `api_key:` is set on the model blocks — that means LiteLLM falls through to the env (`ANTHROPIC_API_KEY` if set) OR the OAuth header forwarded from clients. We forward an OAuth-style Bearer header via env var injection at the gateway layer; see Step 2 env block.
-- `master_key` authenticates downstream services. Generate with `openssl rand -hex 32` when filling `.env.coach`.
-
-- [ ] **Step 2: Append `litellm` service to `services/coach/docker-compose.yml`**
-
-Insert after `mem0-api`, before any future `coach-agent`:
-
-```yaml
-  litellm:
-    image: ghcr.io/berriai/litellm:main-latest
-    environment:
-      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
-      # OAuth token forwarded upstream as Authorization: Bearer.
-      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN}
-      # LiteLLM's Anthropic adapter reads ANTHROPIC_API_KEY when present; pass the
-      # OAuth token here so the adapter treats it as the bearer credential.
-      ANTHROPIC_API_KEY: ${CLAUDE_CODE_OAUTH_TOKEN}
-    volumes:
-      - ./litellm_config.yaml:/app/config.yaml:ro
-    command: ["--config", "/app/config.yaml", "--port", "4000"]
-    ports:
-      - "4000:4000"
-    healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:4000/health/liveliness"]
-      interval: 15s
-      retries: 5
-    restart: unless-stopped
-```
-
-- [ ] **Step 3: Append `LITELLM_MASTER_KEY=` to `services/coach/.env.template`**
-
-Insert directly under the `CLAUDE_CODE_OAUTH_TOKEN=` block:
-
-```
-# LiteLLM gateway — master key authenticates downstream services to LiteLLM.
-# Downstream services set ANTHROPIC_API_KEY to this value (not a real Anthropic key).
-# Generate with: openssl rand -hex 32
-LITELLM_MASTER_KEY=
-```
-
-- [ ] **Step 4: Rewire `mem0-api` to route through LiteLLM**
-
-In `services/coach/docker-compose.yml`, edit the existing `mem0-api` service `environment:` block. Replace:
-
-```yaml
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-```
-
-with:
-
-```yaml
-      ANTHROPIC_BASE_URL: http://litellm:4000
-      ANTHROPIC_API_KEY: ${LITELLM_MASTER_KEY}
-```
-
-And add `litellm: { condition: service_healthy }` to its `depends_on:` block alongside the existing pg+neo4j entries.
-
-- [ ] **Step 5: Verify compose still parses**
-
-```bash
-docker compose --env-file services/coach/.env.template -f services/coach/docker-compose.yml config >/dev/null
-```
-
-Expected exit 0.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add services/coach/litellm_config.yaml services/coach/docker-compose.yml services/coach/.env.template
-git commit -m "coach: LiteLLM proxy service — Max OAuth gateway for all Anthropic calls"
 ```
 
 ---
@@ -2418,12 +2309,8 @@ ENV PYTHONPATH=/app
     depends_on:
       mem0-api:
         condition: service_started
-      litellm:
-        condition: service_healthy
     environment:
-      # Route all Anthropic calls through LiteLLM (which holds the OAuth token upstream).
-      ANTHROPIC_BASE_URL: http://litellm:4000
-      ANTHROPIC_API_KEY: ${LITELLM_MASTER_KEY}
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       MEM0_API_URL: http://mem0-api:8000
       COACH_INDEX_STORAGE_DIR: /data/vault_rag
@@ -2431,8 +2318,7 @@ ENV PYTHONPATH=/app
       COACH_INBOX_ROOT: /vault/_inbox
       COACH_VAULT_PATH: /vault
       COACH_USAGE_LOG: /data/usage.jsonl
-    # ANTHROPIC_API_KEY here = LITELLM master key, NOT a real Anthropic key.
-    # OAuth lives only in the litellm container.
+    # CRITICAL: do NOT set ANTHROPIC_API_KEY here — it would shadow the OAuth token.
     volumes:
       - ${VAULT_HOST_PATH}:/vault
       - coach_data:/data
@@ -2501,12 +2387,10 @@ Telegram-fronted endurance coach over Gonzalo's Obsidian vault. See spec at
 
 ```
 Telegram → telegram-bot (allowlist + Whisper) → HTTP → coach-agent → ClaudeSDKClient
-                                                          │              │
-                                                          │              └→ LiteLLM (OAuth → Max bucket)
                                                           │
                                                           ├─ MCP: vault_rag (LlamaIndex PropertyGraph)
                                                           ├─ MCP: user_memory (per-user scratchpad)
-                                                          └─ MCP: mem0 (long-term facts) ── LiteLLM ──→ Anthropic
+                                                          └─ MCP: mem0 (long-term facts)
                                                           │
                                                           └─ post-turn → /vault/_inbox/<user>/<ts>.md
                                                                           └─ sidecar → Notion review queue
@@ -2515,18 +2399,16 @@ Telegram → telegram-bot (allowlist + Whisper) → HTTP → coach-agent → Cla
 ## Setup
 
 1. `cp .env.template .env.coach` and fill secrets.
-2. `claude setup-token` on your laptop → copy `CLAUDE_CODE_OAUTH_TOKEN` into `.env.coach` (LiteLLM uses this; no other service does).
-3. Generate a LiteLLM master key: `openssl rand -hex 32` → paste into `LITELLM_MASTER_KEY=`.
-4. **Note:** `ANTHROPIC_API_KEY` does NOT belong in `.env.coach`. Everywhere except the litellm container, `ANTHROPIC_API_KEY` is set per-service to the LiteLLM master key (gateway auth), not a real Anthropic key.
-5. Add allowed Telegram numeric user IDs to `access.json`.
-6. `docker compose --env-file .env.coach -f docker-compose.yml build`
-7. `docker compose --env-file .env.coach -f docker-compose.yml up -d`
-8. Verify LiteLLM healthy: `curl localhost:4000/health/liveliness`.
-9. First-time vault index build:
+2. `claude setup-token` on your laptop → copy `CLAUDE_CODE_OAUTH_TOKEN` into `.env.coach`.
+3. **Do NOT** set `ANTHROPIC_API_KEY` in `.env.coach` — it silently shadows OAuth.
+4. Add allowed Telegram numeric user IDs to `access.json`.
+5. `docker compose --env-file .env.coach -f docker-compose.yml build`
+6. `docker compose --env-file .env.coach -f docker-compose.yml up -d`
+7. First-time vault index build:
    ```bash
    docker compose exec coach-agent python -m vault_rag.rebuild_cron
    ```
-10. Send a Telegram message to verify.
+8. Send a Telegram message to verify.
 
 ## Cron sidecars
 
