@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.env
+.env.coach
+*.local
+uv.lock
+.git/
+.gitignore
+tests/fixtures/audio/*.ogg
