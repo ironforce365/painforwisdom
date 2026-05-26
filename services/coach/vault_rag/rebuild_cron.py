@@ -2,6 +2,7 @@
 from __future__ import annotations
 import logging
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -14,9 +15,18 @@ log = logging.getLogger("vault_rag.rebuild")
 def main() -> int:
     vault = Path(os.environ["COACH_VAULT_PATH"])
     storage = Path(os.environ["COACH_INDEX_STORAGE_DIR"])
-    storage.mkdir(parents=True, exist_ok=True)
-    log.info("rebuilding vault index from %s into %s", vault, storage)
-    build_index(vault, storage)
+    storage.parent.mkdir(parents=True, exist_ok=True)
+    tmp = storage.with_name(storage.name + ".tmp")
+    if tmp.exists():
+        shutil.rmtree(tmp)
+    log.info("rebuilding vault index from %s into %s (via %s)", vault, storage, tmp)
+    build_index(vault, tmp)
+    if storage.exists():
+        old = storage.with_name(storage.name + ".old")
+        if old.exists():
+            shutil.rmtree(old)
+        storage.rename(old)
+    tmp.rename(storage)
     log.info("rebuild complete")
     return 0
 

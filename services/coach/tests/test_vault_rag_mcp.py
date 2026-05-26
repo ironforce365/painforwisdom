@@ -9,6 +9,13 @@ from vault_rag.builder import build_index
 from vault_rag.retriever import build_retriever
 
 
+@pytest.fixture(autouse=True)
+def _reset_retriever():
+    yield
+    from vault_rag import mcp_server
+    mcp_server._retriever = None
+
+
 @pytest.mark.skipif(not os.environ.get("OPENAI_API_KEY"), reason="needs OPENAI_API_KEY")
 def test_search_vault_returns_chunks(fixture_vault_dir: Path, tmp_index_dir: Path):
     idx = build_index(fixture_vault_dir, tmp_index_dir)
