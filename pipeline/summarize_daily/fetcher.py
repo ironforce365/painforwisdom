@@ -78,21 +78,24 @@ def _cache_path(url: str) -> Path:
 
 _PDF_MAGIC = b"%PDF-"
 _EPUB_MAGIC = b"PK\x03\x04"
-# MOBI / AZW PalmDOC header puts "BOOKMOBI" at offset 60 (not byte 0). The 2026-05-26
-# stoic-brief crash traced back to a 2.4MB MOBI being decoded as UTF-8 with replace,
-# cached as garbled text, then piped to `claude -p` (rc=1, empty stderr).
+# MOBI / AZW PalmDOC header puts "BOOKMOBI" at offset 60 in a virgin binary file.
+# Older corrupted caches went through Python `errors="replace"` UTF-8 decode +
+# re-encode, which inserts 3-byte U+FFFD sequences for every invalid byte and
+# shifts later content by 4+ bytes (cache files we measured had BOOKMOBI at
+# offset 64). Sniff with a substring search over the first 128 bytes instead
+# of a fixed offset so both raw files AND already-corrupted caches are caught.
 _MOBI_MAGIC = b"BOOKMOBI"
-_MOBI_MAGIC_OFFSET = 60
-_BINARY_SNIFF_LEN = _MOBI_MAGIC_OFFSET + len(_MOBI_MAGIC)
+_BINARY_SNIFF_LEN = 128
 
 
 def _looks_binary(head: bytes) -> bool:
     """Coarse sniff for PDF/EPUB/MOBI headers. Covers every binary format the
-    z-library bridge drops into `books/`. `head` must be at least
-    `_BINARY_SNIFF_LEN` bytes for MOBI detection to work."""
+    z-library bridge drops into `books/`, plus already-corrupted text caches
+    written by an earlier version of `_fetch_local` that read raw MOBI bytes
+    through `errors="replace"`."""
     if head.startswith(_PDF_MAGIC) or head.startswith(_EPUB_MAGIC):
         return True
-    return head[_MOBI_MAGIC_OFFSET:_MOBI_MAGIC_OFFSET + len(_MOBI_MAGIC)] == _MOBI_MAGIC
+    return _MOBI_MAGIC in head[:_BINARY_SNIFF_LEN]
 
 
 def _extract_pdf(path: Path) -> str:
@@ -155,7 +158,7 @@ def _fetch_local(path: str) -> str:
         return _extract_pdf(p)
     if head.startswith(_EPUB_MAGIC):
         return _extract_with_ebook_convert(p)
-    if head[_MOBI_MAGIC_OFFSET:_MOBI_MAGIC_OFFSET + len(_MOBI_MAGIC)] == _MOBI_MAGIC:
+    if _MOBI_MAGIC in head:
         return _extract_with_ebook_convert(p)
     return p.read_text(errors="replace")
 
