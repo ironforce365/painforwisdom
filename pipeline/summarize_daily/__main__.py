@@ -287,7 +287,12 @@ def main(argv: list[str] | None = None) -> int:
             produced += 1
 
     print(f"\nDone — {produced}/{args.count} brief(s) produced this run.")
-    return final_rc
+    # Partial success exits 0 so systemd `Restart=on-failure` does not replay
+    # already-published briefs. Crash details are already on Telegram per brief.
+    # Only a zero-produced run signals the queue is genuinely stuck.
+    if produced > 0:
+        return 0
+    return final_rc or 1
 
 
 def _summary_50w(cluster_dir: Path, cluster: Cluster) -> str:

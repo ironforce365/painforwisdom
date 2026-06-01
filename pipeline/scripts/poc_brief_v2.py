@@ -282,10 +282,22 @@ def _claude_p_focal(prompt: str, text: str) -> str:
         env=child_env,
     )
     if proc.returncode != 0:
-        raise RuntimeError(f"claude -p failed (rc={proc.returncode}): {proc.stderr[:500]}")
+        # claude -p often exits rc=1 with empty stderr when the input is binary
+        # (UTF-8 replacement chars throughout). Capture stdout + input head so
+        # the operator can spot a corrupt cache instead of staring at "rc=1:".
+        stderr_part = proc.stderr[:500] if proc.stderr else "<empty>"
+        stdout_part = (proc.stdout or "")[:200] if proc.stdout else "<empty>"
+        input_head = text[:200] if text else "<empty>"
+        replacement_count = text.count("�") if text else 0
+        raise RuntimeError(
+            f"claude -p failed (rc={proc.returncode}); "
+            f"stderr={stderr_part!r}; stdout={stdout_part!r}; "
+            f"input_chars={len(text)}; replacement_chars={replacement_count}; "
+            f"input_head={input_head!r}"
+        )
     out = (proc.stdout or "").strip()
     if not out:
-        raise RuntimeError(f"claude -p produced empty output; stderr={proc.stderr[:500]}")
+        raise RuntimeError(f"claude -p produced empty output; stderr={proc.stderr[:500]!r}")
     return out
 
 

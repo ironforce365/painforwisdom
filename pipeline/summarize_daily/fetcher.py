@@ -78,12 +78,24 @@ def _cache_path(url: str) -> Path:
 
 _PDF_MAGIC = b"%PDF-"
 _EPUB_MAGIC = b"PK\x03\x04"
+# MOBI / AZW PalmDOC header puts "BOOKMOBI" at offset 60 in a virgin binary file.
+# Older corrupted caches went through Python `errors="replace"` UTF-8 decode +
+# re-encode, which inserts 3-byte U+FFFD sequences for every invalid byte and
+# shifts later content by 4+ bytes (cache files we measured had BOOKMOBI at
+# offset 64). Sniff with a substring search over the first 128 bytes instead
+# of a fixed offset so both raw files AND already-corrupted caches are caught.
+_MOBI_MAGIC = b"BOOKMOBI"
+_BINARY_SNIFF_LEN = 128
 
 
 def _looks_binary(head: bytes) -> bool:
-    """Coarse sniff for PDF/EPUB headers. We only need to catch the two
-    formats the z-library bridge actually drops into `books/`."""
-    return head.startswith(_PDF_MAGIC) or head.startswith(_EPUB_MAGIC)
+    """Coarse sniff for PDF/EPUB/MOBI headers. Covers every binary format the
+    z-library bridge drops into `books/`, plus already-corrupted text caches
+    written by an earlier version of `_fetch_local` that read raw MOBI bytes
+    through `errors="replace"`."""
+    if head.startswith(_PDF_MAGIC) or head.startswith(_EPUB_MAGIC):
+        return True
+    return _MOBI_MAGIC in head[:_BINARY_SNIFF_LEN]
 
 
 def _extract_pdf(path: Path) -> str:
@@ -103,7 +115,9 @@ def _extract_pdf(path: Path) -> str:
     return out
 
 
-def _extract_epub(path: Path) -> str:
+def _extract_with_ebook_convert(path: Path) -> str:
+    """Run calibre's `ebook-convert` to turn EPUB/MOBI/AZW3 into UTF-8 text.
+    Calibre infers input format from file extension."""
     if _EBOOK_CONVERT is None:
         raise FetchError("ebook-convert not installed (apt-get install calibre)")
     with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as tmp:
@@ -125,6 +139,10 @@ def _extract_epub(path: Path) -> str:
     return text
 
 
+# Back-compat alias for callers that imported the old name.
+_extract_epub = _extract_with_ebook_convert
+
+
 def _fetch_local(path: str) -> str:
     """Read a local file. If it's a PDF or EPUB (z-library bridge drops both
     into `books/`), extract the text — otherwise the raw bytes get cached and
@@ -135,11 +153,13 @@ def _fetch_local(path: str) -> str:
     p = Path(path)
     if not p.exists():
         raise FetchError(f"local-file missing: {path}")
-    head = p.read_bytes()[:8]
+    head = p.read_bytes()[:_BINARY_SNIFF_LEN]
     if head.startswith(_PDF_MAGIC):
         return _extract_pdf(p)
     if head.startswith(_EPUB_MAGIC):
-        return _extract_epub(p)
+        return _extract_with_ebook_convert(p)
+    if _MOBI_MAGIC in head:
+        return _extract_with_ebook_convert(p)
     return p.read_text(errors="replace")
 
 
@@ -193,9 +213,9 @@ def fetch(url: str, *, client: Optional[httpx.Client] = None, use_cache: bool = 
     cached = _cache_path(url)
     if use_cache and cached.exists() and cached.stat().st_size > 0:
         # Older cache entries from before the binary-extraction fix may
-        # contain raw PDF/EPUB bytes. Detect by magic and invalidate so we
+        # contain raw PDF/EPUB/MOBI bytes. Detect by magic and invalidate so we
         # re-fetch through the new text-extraction path.
-        head = cached.read_bytes()[:8]
+        head = cached.read_bytes()[:_BINARY_SNIFF_LEN]
         if _looks_binary(head):
             cached.unlink()
         else:

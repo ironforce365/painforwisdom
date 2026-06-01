@@ -26,6 +26,7 @@ import json
 import os
 import re
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Union
@@ -89,6 +90,27 @@ def _credentials_configured() -> bool:
     return bool(os.environ.get("ZLIBRARY_EMAIL") and os.environ.get("ZLIBRARY_PASSWORD"))
 
 
+# Z-Library EAPI returns 5xx intermittently — measured ~10% rate during sequential
+# batches (2026-05-27 stress test: 1/10 queries hit 500 mid-run). The full error
+# `httpx.HTTPStatusError: Server error '500 Internal Server Error'` lands at the
+# tail of bridge stderr; `_is_transient_error` matches enough patterns to retry
+# only on upstream flakiness, not on 4xx / parse / auth failures.
+_TRANSIENT_ERROR_PATTERNS = (
+    "Server error '5",
+    "500 Internal Server Error",
+    "502 Bad Gateway",
+    "503 Service Unavailable",
+    "504 Gateway Timeout",
+    "ConnectError",
+    "ReadTimeout",
+    "RemoteProtocolError",
+)
+
+
+def _is_transient_error(stderr: str) -> bool:
+    return any(pat in (stderr or "") for pat in _TRANSIENT_ERROR_PATTERNS)
+
+
 def _bridge_call(function: str, args: dict) -> tuple[int, str, str]:
     """Subprocess into the z-library bridge. Returns (rc, stdout, stderr).
 
@@ -120,6 +142,26 @@ def _bridge_call(function: str, args: dict) -> tuple[int, str, str]:
     return completed.returncode, completed.stdout, completed.stderr
 
 
+def _bridge_call_search(args: dict, retries: int = 2, backoff_s: float = 2.0) -> tuple[int, str, str]:
+    """`_bridge_call("search", ...)` with retry on transient 5xx / connection errors.
+
+    Search is idempotent + cheap (no download quota consumed), so retrying is
+    safe. Download is not wrapped here because a retry of a download that
+    actually succeeded server-side could double-spend the daily quota.
+    """
+    last = (0, "", "")
+    for attempt in range(retries + 1):
+        rc, stdout, stderr = _bridge_call("search", args)
+        if rc == 0:
+            return rc, stdout, stderr
+        last = (rc, stdout, stderr)
+        if attempt < retries and _is_transient_error(stderr):
+            time.sleep(backoff_s * (attempt + 1))
+            continue
+        return rc, stdout, stderr
+    return last
+
+
 def _parse_bridge_response(stdout: str) -> dict | None:
     """Bridge wraps results as {"content": [{"type": "text", "text": json.dumps(result)}]}."""
     try:
@@ -131,6 +173,33 @@ def _parse_bridge_response(stdout: str) -> dict | None:
     except (json.JSONDecodeError, IndexError):
         pass
     return None
+
+
+# Z-Library indexes books by clean canonical titles. Notion entries often arrive
+# decorated with chapter / pillar / edition annotations that make the query
+# string longer than any real book title and produce hits=0 (verified 2026-05-27
+# against Z-Library EAPI). Strip these before building the ladder.
+_TITLE_NORMALIZATION_PATTERNS = (
+    # everything after an em-dash or en-dash separator (chapter topic / subtitle)
+    re.compile(r"\s+[—–]\s+.*$"),
+    # "(2nd Ed.)", "(3rd Edition)", "(Revised Edition)", "(Expanded Edition)"
+    re.compile(
+        r"\s*\((?:\d+(?:st|nd|rd|th)\s+)?(?:revised|updated|expanded|new|2nd|3rd|4th|5th|6th|7th|8th|9th|10th)?\s*ed(?:ition)?\.?\)",
+        re.IGNORECASE,
+    ),
+    # "Ch. 2:" or "Chapter 7:" headers
+    re.compile(r"\s*(?:Ch(?:apter)?\.?\s*\d+)\s*:\s*", re.IGNORECASE),
+)
+
+
+def _normalize_title(title: str) -> str:
+    """Strip chapter / edition annotations a Notion curator commonly appends.
+    The Z-Library ladder's job is to find the book; the chapter topic is the
+    caller's mental tag, not part of the canonical title."""
+    out = (title or "").strip()
+    for pat in _TITLE_NORMALIZATION_PATTERNS:
+        out = pat.sub("", out)
+    return " ".join(out.split()).strip()
 
 
 def _build_query_ladder(title: str, author: str) -> list[str]:
@@ -149,7 +218,7 @@ def _build_query_ladder(title: str, author: str) -> list[str]:
     Duplicates and empty rungs are filtered. Always returns at least one query
     if either title or author is non-empty.
     """
-    title = (title or "").strip()
+    title = _normalize_title(title)
     author = (author or "").strip()
 
     # Title minus subtitle (everything before first ':').
@@ -257,12 +326,14 @@ def fetch(title: str, author: str) -> Union[BookText, BookFailure]:
     book = None
     attempts_log: list[str] = []
     for rung_idx, query in enumerate(query_ladder):
-        rc, stdout, stderr = _bridge_call(
-            "search",
+        rc, stdout, stderr = _bridge_call_search(
             {"query": query, "count": 5, "languages": ["english"]},
         )
         if rc != 0:
-            return BookFailure("subprocess-error", stderr[:500])
+            # Capture the tail of stderr where the actual exception lives; the
+            # head is INFO logging that previously truncated the real error away.
+            detail = stderr[-1500:] if stderr else ""
+            return BookFailure("subprocess-error", detail)
         search_result = _parse_bridge_response(stdout)
         if not search_result:
             return BookFailure("subprocess-error", "could not parse search response")
