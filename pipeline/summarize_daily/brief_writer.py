@@ -14,7 +14,12 @@ from typing import Any, Dict, List, Tuple
 from pipeline.runtime import PROJECT_ROOT
 from pipeline.scripts.poc_brief_v2 import run_cluster
 from pipeline.summarize_daily.clusterer import Cluster
-from pipeline.summarize_daily.fetcher import FetchError, fetch as fetch_url
+from pipeline.summarize_daily.fetcher import (
+    _BINARY_SNIFF_LEN,
+    FetchError,
+    _looks_binary,
+    fetch as fetch_url,
+)
 
 
 CACHE_DIR = PROJECT_ROOT / "briefs" / ".cache"
@@ -33,7 +38,17 @@ def _ensure_source_cached(row: Dict[str, Any]) -> str:
     slug = _slug_for_source(row)
     cache_file = CACHE_DIR / f"{slug}.txt"
     if cache_file.exists() and cache_file.stat().st_size > 0:
-        return slug
+        # Older cache entries written before the fetcher's binary-extraction
+        # fix hold raw PDF/EPUB/MOBI bytes (or their U+FFFD-corrupted text
+        # round-trip). Serving those straight to `claude -p` crashes the focal
+        # pre-summary (rc=1) and — once garbage tokens inflate past 200k —
+        # trips the 1M-context billing gate. fetch_url self-heals its own
+        # cache, but this short-circuit bypassed it entirely. Sniff the head
+        # and fall through to a clean re-fetch when the cache is binary.
+        head = cache_file.read_bytes()[:_BINARY_SNIFF_LEN]
+        if not _looks_binary(head):
+            return slug
+        cache_file.unlink()
     url = row.get("alt_source_url") or row.get("source_url") or ""
     text = fetch_url(url)
     cache_file.write_text(text)
