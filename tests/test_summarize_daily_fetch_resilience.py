@@ -161,5 +161,43 @@ class WriteBriefAbortsWhenAllFailTests(unittest.TestCase):
         mock_run.assert_not_called()
 
 
+class EnsureSourceCachedBinaryHealTests(unittest.TestCase):
+    """Pins the 2026-06-01 fix: a per-row cache holding raw binary (or its
+    U+FFFD-corrupted text round-trip) must NOT be served straight to the focal
+    `claude -p` pass. The short-circuit re-validates the cache head and falls
+    through to a clean re-fetch when it sniffs as binary."""
+
+    def setUp(self) -> None:
+        tmp = TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.cache = Path(tmp.name) / "cache"
+        self.cache.mkdir(parents=True)
+        p = patch.object(brief_writer, "CACHE_DIR", self.cache)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def test_clean_cache_is_served_without_refetch(self):
+        row = _row("https://example.com/a")
+        slug = brief_writer._slug_for_source(row)
+        (self.cache / f"{slug}.txt").write_text("clean research text " * 50)
+        with patch.object(brief_writer, "fetch_url") as mock_fetch:
+            got = brief_writer._ensure_source_cached(row)
+        self.assertEqual(got, slug)
+        mock_fetch.assert_not_called()
+
+    def test_binary_cache_is_dropped_and_refetched(self):
+        row = _row("https://example.com/book.mobi")
+        slug = brief_writer._slug_for_source(row)
+        # Simulate a stale cache written before the binary-extraction fix:
+        # a MOBI header round-tripped through errors="replace".
+        corrupt = "Some Book Title" + "\x00" * 20 + "BOOKMOBI" + "�" * 4000
+        (self.cache / f"{slug}.txt").write_text(corrupt)
+        with patch.object(brief_writer, "fetch_url", return_value="EXTRACTED clean text") as mock_fetch:
+            got = brief_writer._ensure_source_cached(row)
+        self.assertEqual(got, slug)
+        mock_fetch.assert_called_once()
+        self.assertEqual((self.cache / f"{slug}.txt").read_text(), "EXTRACTED clean text")
+
+
 if __name__ == "__main__":
     unittest.main()
