@@ -31,6 +31,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Union
 
+from pipeline.runtime import canonical_project_root
+
 
 _ZLIBRARY_REPO_RAW = os.environ.get("ZLIBRARY_REPO_PATH", "").strip()
 ZLIBRARY_REPO: Path | None = Path(_ZLIBRARY_REPO_RAW) if _ZLIBRARY_REPO_RAW else None
@@ -43,7 +45,12 @@ ZLIBRARY_BRIDGE_SCRIPT: Path | None = (ZLIBRARY_LIB_DIR / "python_bridge.py") if
 # Final home for extracted text. The bridge writes to its own cwd-relative
 # `processed_rag_output/`; this module moves results here before returning so
 # the rest of the pipeline only ever sees painforwisdom-local paths.
-PAINFORWISDOM_ROOT = Path(__file__).resolve().parent.parent
+#
+# Rooted at the CANONICAL checkout, not this module's worktree: the extracted
+# path is persisted to Notion's Alt Source URL, so writing it under an ephemeral
+# `.claude/worktrees/<name>/` would die with that worktree (2026-06-02
+# self-compassion `local-file missing` incident).
+PAINFORWISDOM_ROOT = canonical_project_root()
 BOOKS_EXTRACTED_DIR = Path(
     os.environ.get(
         "PAINFORWISDOM_BOOKS_EXTRACTED",

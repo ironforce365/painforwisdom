@@ -48,7 +48,7 @@ from pipeline.banned_sources import is_banned  # noqa: E402
 from pipeline.llm import call_llm  # noqa: E402
 from pipeline.local_books import find_local_book  # noqa: E402
 from pipeline.notion_client import get_client  # noqa: E402
-from pipeline.runtime import append_metric  # noqa: E402
+from pipeline.runtime import append_metric, canonical_project_root  # noqa: E402
 from pipeline.telegram import send as telegram_send  # noqa: E402
 from pipeline.zlibrary_bridge import BookFailure, BookText, fetch as zlib_fetch  # noqa: E402
 
@@ -61,10 +61,13 @@ TRAFILATURA_MIN_CHARS = 500
 WEB_FETCH_TIMEOUT = 15.0
 NOTION_PACING_S = 0.5
 
+# Rooted at the canonical checkout — the file:// path built here is persisted
+# to Notion, so it must survive this run's (possibly worktree) checkout being
+# removed (2026-06-02 self-compassion incident). Matches zlibrary_bridge.
 EXTRACTED_BOOKS_DIR = Path(
     os.environ.get(
         "PAINFORWISDOM_BOOKS_EXTRACTED",
-        str(PROJECT_ROOT / "books" / "extracted"),
+        str(canonical_project_root() / "books" / "extracted"),
     )
 )
 

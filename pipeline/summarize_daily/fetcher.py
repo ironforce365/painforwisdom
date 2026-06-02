@@ -21,7 +21,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from pipeline.runtime import PROJECT_ROOT
+from pipeline.runtime import PROJECT_ROOT, canonical_project_root
 
 
 # Binary book formats need to be text-extracted before they're fed to any LLM
@@ -143,6 +143,19 @@ def _extract_with_ebook_convert(path: Path) -> str:
 _extract_epub = _extract_with_ebook_convert
 
 
+def _reanchor_local(p: Path) -> Optional[Path]:
+    """Recover a `books/extracted/` file whose stored absolute path points at a
+    deleted git worktree. Re-anchors the basename under the canonical checkout's
+    `books/extracted/`. Returns the live path, or None if still absent.
+
+    Heals rows baked before `canonical_project_root` rooting was added — an
+    augment run inside a worktree persisted that worktree's absolute path to
+    Notion, which dies when the worktree is removed (2026-06-02 self-compassion
+    `local-file missing` incident)."""
+    cand = canonical_project_root() / "books" / "extracted" / p.name
+    return cand if cand.exists() else None
+
+
 def _fetch_local(path: str) -> str:
     """Read a local file. If it's a PDF or EPUB (z-library bridge drops both
     into `books/`), extract the text — otherwise the raw bytes get cached and
@@ -151,8 +164,15 @@ def _fetch_local(path: str) -> str:
     if path.startswith("file://"):
         path = urlparse(path).path
     p = Path(path)
+    if not p.is_absolute():
+        # Project-relative refs (the portable form producers now store) resolve
+        # against the canonical checkout, not the cwd of whatever invoked us.
+        p = canonical_project_root() / p
     if not p.exists():
-        raise FetchError(f"local-file missing: {path}")
+        healed = _reanchor_local(p)
+        if healed is None:
+            raise FetchError(f"local-file missing: {path}")
+        p = healed
     head = p.read_bytes()[:_BINARY_SNIFF_LEN]
     if head.startswith(_PDF_MAGIC):
         return _extract_pdf(p)

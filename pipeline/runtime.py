@@ -14,6 +14,32 @@ from typing import Any, Dict, Optional
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+def canonical_project_root(root: Optional[Path] = None) -> Path:
+    """The stable repo root for content shared across checkouts.
+
+    Git worktrees live at `<root>/.claude/worktrees/<name>`. Book extractions
+    and any other artifact whose absolute path gets persisted to Notion must be
+    written + stored rooted at `<root>`, never the ephemeral worktree path —
+    otherwise the path dies with the worktree (the 2026-06-02 self-compassion
+    `local-file missing` incident: an augment run inside `end-of-may-backfill`
+    baked that worktree's absolute path into Notion's Alt Source URL).
+
+    Strips a trailing `.claude/worktrees/<name>` from `root` (defaults to
+    `PROJECT_ROOT`). A `.claude/<other>` path is left untouched.
+    """
+    resolved = (root or PROJECT_ROOT).resolve()
+    parts = resolved.parts
+    try:
+        i = parts.index(".claude")
+    except ValueError:
+        return resolved
+    if i + 1 < len(parts) and parts[i + 1] == "worktrees":
+        return Path(*parts[:i])
+    return resolved
+
+
 AGENTS_DIR = PROJECT_ROOT / ".claude" / "agents"
 PROCESSED_ROOT = PROJECT_ROOT / "processed"
 # VAULT_PATH is overridable via env (sandbox profile points it at a parallel
