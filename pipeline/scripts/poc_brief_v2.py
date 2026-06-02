@@ -355,7 +355,18 @@ def _read_vault(rel_path: str) -> str:
         p = base / cand
         if p.exists():
             return p.read_text()
-    raise FileNotFoundError(f"Vault entry not found: {rel_path} (tried {base})")
+    # The vault entry is supplementary framing for the application brief, not a
+    # source. A stale/renamed anchor slug (kb-curator gave the entry a different
+    # name than the one persisted to Notion's "Vault Entry") must NOT abort an
+    # otherwise-complete brief built on real sources. Degrade to empty; the
+    # caller substitutes a placeholder. (2026-04-13-guilt-spiral-recovery
+    # incident, 2026-06-02.)
+    print(
+        f"[poc-v2]   WARNING vault entry not found: {rel_path} (tried {base}) — "
+        "writing application from deep-dive principles without a vault anchor",
+        flush=True,
+    )
+    return ""
 
 
 def _per_row_summary(source: Dict[str, Any]) -> str:
@@ -621,6 +632,13 @@ def run_cluster(cluster: Dict[str, Any]) -> None:
     # 3. Application
     print("[poc-v2]   application...", flush=True)
     vault = _read_vault(cluster["vault_entry"])
+    if not vault:
+        vault = (
+            f"(No vault entry on file for anchor '{cluster['vault_entry']}'. "
+            "Write the application from the deep-dive's principles as they apply "
+            "to Gonzalo's running and coaching practice, without citing a "
+            "specific prior entry.)"
+        )
     application_inner = _application(deep_dive_md, vault, len(cluster["sources"]))
     application_md = render_application(cluster, application_inner)
     application_path = cluster_dir / "application.md"

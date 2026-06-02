@@ -31,6 +31,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Union
 
+from pipeline.runtime import canonical_project_root
+
 
 _ZLIBRARY_REPO_RAW = os.environ.get("ZLIBRARY_REPO_PATH", "").strip()
 ZLIBRARY_REPO: Path | None = Path(_ZLIBRARY_REPO_RAW) if _ZLIBRARY_REPO_RAW else None
@@ -43,7 +45,12 @@ ZLIBRARY_BRIDGE_SCRIPT: Path | None = (ZLIBRARY_LIB_DIR / "python_bridge.py") if
 # Final home for extracted text. The bridge writes to its own cwd-relative
 # `processed_rag_output/`; this module moves results here before returning so
 # the rest of the pipeline only ever sees painforwisdom-local paths.
-PAINFORWISDOM_ROOT = Path(__file__).resolve().parent.parent
+#
+# Rooted at the CANONICAL checkout, not this module's worktree: the extracted
+# path is persisted to Notion's Alt Source URL, so writing it under an ephemeral
+# `.claude/worktrees/<name>/` would die with that worktree (2026-06-02
+# self-compassion `local-file missing` incident).
+PAINFORWISDOM_ROOT = canonical_project_root()
 BOOKS_EXTRACTED_DIR = Path(
     os.environ.get(
         "PAINFORWISDOM_BOOKS_EXTRACTED",
@@ -57,6 +64,61 @@ BOOKS_EXTRACTED_DIR = Path(
 # PDFs that processed to near-empty text. page_count defaults to 1 for formats
 # without paging, so the ratio collapses to absolute char_count for those.
 IMAGE_ONLY_PDF_CHAR_RATIO = 200
+
+
+# --- Session reuse -----------------------------------------------------------
+# The bridge logs into z-library on EVERY subprocess call. A 60-book batch fired
+# 60-180 logins in ~9 min and tripped the EAPI login rate-limit (HTTP 400),
+# collapsing the daily yield to ~10% (2026-06-02 incident: 6/60 books). We log
+# in once, cache the session cookie (remix_userid + remix_userkey), and inject
+# it into every subprocess so the bridge skips /eapi/user/login. The bridge
+# writes the cache after its one real login; we read it (TTL-gated) and
+# self-heal on a stale key. Verified live: a client built from a cached userkey
+# serves searches with zero extra logins.
+_SESSION_FILE = canonical_project_root() / "briefs" / ".cache" / "zlib-session.json"
+_SESSION_TTL_S = int(os.environ.get("ZLIBRARY_SESSION_TTL_S", str(3 * 24 * 3600)))
+_AUTH_ERROR_PATTERNS = (
+    "user/login",
+    "401",
+    "unauthorized",
+    "not logged in",
+    "loginfailed",
+    "remix_userkey",
+    "eapi login failed",
+)
+
+
+def _session_env() -> dict[str, str]:
+    """Env overrides handing a fresh, cached session to the bridge subprocess.
+    Empty when no cache exists or it has aged past the TTL — which forces the
+    bridge to log in once and rewrite the cache."""
+    try:
+        if not _SESSION_FILE.exists():
+            return {}
+        if time.time() - _SESSION_FILE.stat().st_mtime > _SESSION_TTL_S:
+            return {}
+        data = json.loads(_SESSION_FILE.read_text())
+        uid, key = data.get("remix_userid"), data.get("remix_userkey")
+        if not uid or not key:
+            return {}
+        out = {"ZLIBRARY_REMIX_USERID": str(uid), "ZLIBRARY_REMIX_USERKEY": str(key)}
+        if data.get("domain"):
+            out["ZLIBRARY_EAPI_DOMAIN"] = str(data["domain"])
+        return out
+    except Exception:
+        return {}
+
+
+def _clear_session() -> None:
+    try:
+        _SESSION_FILE.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _is_auth_error(stderr: str) -> bool:
+    low = (stderr or "").lower()
+    return any(p in low for p in _AUTH_ERROR_PATTERNS)
 
 
 FailureReason = Literal[
@@ -111,21 +173,14 @@ def _is_transient_error(stderr: str) -> bool:
     return any(pat in (stderr or "") for pat in _TRANSIENT_ERROR_PATTERNS)
 
 
-def _bridge_call(function: str, args: dict) -> tuple[int, str, str]:
-    """Subprocess into the z-library bridge. Returns (rc, stdout, stderr).
-
-    Invokes the bridge as a script with cwd=lib/ so its sibling imports
-    (`from filename_utils import ...`) resolve. The bridge itself adds the
-    repo root to sys.path internally for `from lib import ...` imports.
-    """
-    if ZLIBRARY_PYTHON is None or ZLIBRARY_BRIDGE_SCRIPT is None or ZLIBRARY_LIB_DIR is None:
-        return 127, "", "ZLIBRARY_REPO_PATH env var not set"
-    if not ZLIBRARY_PYTHON.exists():
-        return 127, "", f"zlibrary-mcp venv missing at {ZLIBRARY_PYTHON}"
-    if not ZLIBRARY_BRIDGE_SCRIPT.exists():
-        return 127, "", f"zlibrary-mcp bridge missing at {ZLIBRARY_BRIDGE_SCRIPT}"
-
+def _run_bridge(function: str, args: dict, session_env: dict) -> tuple[int, str, str]:
+    """Spawn one bridge subprocess. `session_env` (possibly empty) is merged into
+    the child env: when populated, the bridge reuses the cached session and skips
+    /eapi/user/login; `ZLIBRARY_SESSION_FILE` tells the bridge where to persist a
+    freshly-minted session after a real login."""
     env = os.environ.copy()
+    env.update(session_env)
+    env["ZLIBRARY_SESSION_FILE"] = str(_SESSION_FILE)
     # Downloads of 50-200 MB books take well over 180s on consumer bandwidth.
     timeout_s = int(os.environ.get("ZLIBRARY_TIMEOUT_S", "900"))
     try:
@@ -140,6 +195,33 @@ def _bridge_call(function: str, args: dict) -> tuple[int, str, str]:
     except subprocess.TimeoutExpired:
         return 124, "", f"bridge call '{function}' exceeded {timeout_s}s timeout"
     return completed.returncode, completed.stdout, completed.stderr
+
+
+def _bridge_call(function: str, args: dict) -> tuple[int, str, str]:
+    """Subprocess into the z-library bridge. Returns (rc, stdout, stderr).
+
+    Invokes the bridge as a script with cwd=lib/ so its sibling imports
+    (`from filename_utils import ...`) resolve. The bridge itself adds the
+    repo root to sys.path internally for `from lib import ...` imports.
+
+    Injects a cached session (when fresh) so the bridge skips its per-call
+    login. On a stale-session auth error, drops the cache and retries once with
+    a forced fresh login — auth is rejected before any download transfer, so a
+    download retry cannot double-spend the daily quota.
+    """
+    if ZLIBRARY_PYTHON is None or ZLIBRARY_BRIDGE_SCRIPT is None or ZLIBRARY_LIB_DIR is None:
+        return 127, "", "ZLIBRARY_REPO_PATH env var not set"
+    if not ZLIBRARY_PYTHON.exists():
+        return 127, "", f"zlibrary-mcp venv missing at {ZLIBRARY_PYTHON}"
+    if not ZLIBRARY_BRIDGE_SCRIPT.exists():
+        return 127, "", f"zlibrary-mcp bridge missing at {ZLIBRARY_BRIDGE_SCRIPT}"
+
+    session = _session_env()
+    rc, stdout, stderr = _run_bridge(function, args, session)
+    if rc != 0 and session and _is_auth_error(stderr):
+        _clear_session()
+        rc, stdout, stderr = _run_bridge(function, args, {})
+    return rc, stdout, stderr
 
 
 def _bridge_call_search(args: dict, retries: int = 2, backoff_s: float = 2.0) -> tuple[int, str, str]:
