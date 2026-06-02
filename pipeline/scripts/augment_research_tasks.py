@@ -171,6 +171,27 @@ def _search_for_analog(row: Dict[str, Any], model: str) -> AnalogProposal:
     return proposal
 
 
+def _book_identity(row: Dict[str, Any]) -> tuple[str, str]:
+    """Coarse (book-title, first-author-lastname) key for deduping chapter /
+    edition rows of the SAME book within a run.
+
+    Many research rows are distinct chapters of one book ("Do Hard Things — Ch.
+    2", "Do Hard Things — Ch. 11"); each previously triggered a full re-search +
+    re-download of the identical book, multiplying z-library quota + login load
+    (2026-06-02: 60 rows ≈ 38 unique books). The whole-book extraction already
+    serves every chapter row, so the first fetch is reused for the rest."""
+    title = (row.get("title") or "").lower()
+    # Drop parentheticals (row annotations + editions): "(Values vs Goals)", "(2nd Ed.)".
+    title = re.sub(r"\s*\([^)]*\)", " ", title)
+    # Drop chapter/section/subtitle tails: " — Ch. 2: ...", " -- Pillar 4", ": subtitle".
+    title = re.split(r"\s+[—–-]{1,2}\s+|:", title, maxsplit=1)[0]
+    title = re.sub(r"[^a-z0-9]+", " ", title).strip()
+    author = (row.get("author_host") or "").lower()
+    first = re.split(r"[,&;]| and ", author, maxsplit=1)[0].strip()
+    lastname = first.split()[-1] if first else ""
+    return (title, lastname)
+
+
 def _check_curated_local(row: Dict[str, Any]) -> tuple[Optional[str], str]:
     """Probe local book inventory (books/<slug>/ and books/raw/) for a hit.
     Returns (alt_source_url, reason) on hit, (None, "") on miss. Delegates
@@ -341,10 +362,15 @@ def main(argv: list[str] | None = None) -> int:
     n_success = 0
     n_fail = 0
     n_zlib_hit = 0
+    n_dedup_reuse = 0
     n_halt = 0
     n_books_attempted = 0
     n_nonbook_attempted = 0
     book_failures: list[Dict[str, Any]] = []  # for end-of-run telegram summary
+    # Per-run book-level dedup cache: book identity -> alt_source_url. Chapter
+    # rows of a book already fetched this run reuse its extraction instead of
+    # re-downloading (saves z-lib quota + login load).
+    book_cache: Dict[tuple, str] = {}
     # Once z-library reports daily quota exhaustion, skip remaining z-library
     # attempts for this run. Per user preference (2026-05-21): on Book failure
     # we do NOT fall through to web-search analog — we mark Reachable=no and
@@ -368,11 +394,20 @@ def main(argv: list[str] | None = None) -> int:
 
         if type_ == "book":
             n_books_attempted += 1
+            ident = _book_identity(row)
             # First: check books/<slug>/ for a manually curated copy. Skips
             # z-library entirely on hit — saves quota + bandwidth.
             alt_url, reason = _check_curated_local(row)
             if alt_url:
+                book_cache.setdefault(ident, alt_url)
                 print(f"  curated-local hit -> {alt_url}")
+            elif book_cache.get(ident):
+                # Same book already fetched earlier this run (another chapter):
+                # reuse its extraction, no re-search/re-download.
+                alt_url = book_cache[ident]
+                reason = "dedup-reuse: same book already fetched earlier this run"
+                n_dedup_reuse += 1
+                print(f"  dedup hit (same book this run) -> {alt_url}")
             elif zlib_quota_exhausted:
                 print(f"  z-library skip (quota exhausted earlier in this run)")
                 reason = "z-library: quota-exceeded (earlier in run)"
@@ -381,6 +416,7 @@ def main(argv: list[str] | None = None) -> int:
                 alt_url, reason = _try_zlibrary(row)
                 if alt_url:
                     n_zlib_hit += 1
+                    book_cache[ident] = alt_url
                     print(f"  z-library hit -> {alt_url}")
                 elif "quota-exceeded" in reason:
                     print(f"  z-library quota exceeded — disabling z-lib for rest of run: {reason}")
@@ -484,6 +520,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Processed:        {n_success + n_fail}")
     print(f"  augmented:      {n_success}")
     print(f"  z-library hit:  {n_zlib_hit}")
+    print(f"  dedup-reuse:    {n_dedup_reuse} (same-book chapters)")
     print(f"  marked Reachable=no: {n_fail}")
     print(f"  halted/skipped: {n_halt}")
     print(f"LLM spend:        ${spent:.2f}")
@@ -495,6 +532,7 @@ def main(argv: list[str] | None = None) -> int:
         book_failures=book_failures,
         n_books_attempted=n_books_attempted,
         n_zlib_hit=n_zlib_hit,
+        n_dedup_reuse=n_dedup_reuse,
         n_success=n_success,
         n_halt=n_halt,
         zlib_quota_exhausted=zlib_quota_exhausted,
@@ -507,6 +545,7 @@ def _write_failures_and_notify(
     book_failures: list[Dict[str, Any]],
     n_books_attempted: int,
     n_zlib_hit: int,
+    n_dedup_reuse: int = 0,
     n_success: int,
     n_halt: int,
     zlib_quota_exhausted: bool,
@@ -521,12 +560,14 @@ def _write_failures_and_notify(
 
     # Build Telegram summary
     quota_note = " ⚠️ z-library quota hit mid-run" if zlib_quota_exhausted else ""
-    nonbook_aug = max(0, n_success - n_zlib_hit)  # approx — z-lib hits are book-only augments
+    nonbook_aug = max(0, n_success - n_zlib_hit - n_dedup_reuse)  # papers/podcasts via web-search analog
     lines = [
         f"🟡 augment-research run finished {today}{quota_note}",
         f"   z-library hits: {n_zlib_hit} / {n_books_attempted} books attempted",
-        f"   non-book augmentations: {nonbook_aug} (papers/podcasts via web-search analog)",
     ]
+    if n_dedup_reuse:
+        lines.append(f"   dedup-reuse: {n_dedup_reuse} chapters served from an already-fetched book")
+    lines.append(f"   non-book augmentations: {nonbook_aug} (papers/podcasts via web-search analog)")
     if book_failures:
         lines.append(f"   failed books: {len(book_failures)} — see reports/augment-failures-{today}.jsonl")
         # Surface first few titles so user has actionable preview
