@@ -112,11 +112,19 @@ async def _chat_with_agent(user_id: str, text: str) -> Tuple[str, list[str]]:
     from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
     from claude_agent_sdk.types import McpStdioServerConfig
 
-    session_id = _sessions.get_or_create_session_id(user_id)
+    # Resume an existing CLI session only if we have a real id from a prior turn.
+    # Passing a fabricated id makes `claude --resume <id>` fail ("No conversation
+    # found"); first turn must run with resume=None so the SDK creates the session.
+    session_id = _sessions.get(user_id)
     coach_prompt = Path(__file__).parent.parent / "coach_prompt.md"
     options = ClaudeAgentOptions(
         system_prompt=coach_prompt.read_text(encoding="utf-8"),
         resume=session_id,
+        # Headless service: auto-approve the coach's own MCP tools (server-level
+        # patterns cover every tool each server exposes). Without this the SDK's
+        # permission gate denies the tool calls and the agent can't reach the
+        # vault / memory. Built-in tools stay un-allowlisted → denied.
+        allowed_tools=["mcp__vault_rag", "mcp__user_memory", "mcp__mem0"],
         mcp_servers={
             "vault_rag": McpStdioServerConfig(
                 command="python", args=["-m", "vault_rag.mcp_server"], env=dict(os.environ),
@@ -129,9 +137,24 @@ async def _chat_with_agent(user_id: str, text: str) -> Tuple[str, list[str]]:
             ),
         },
     )
+
+    # Capture the SDK-assigned session_id (present on Assistant/Result messages)
+    # as messages stream past, so the next turn for this user can resume it.
+    captured: dict[str, str] = {}
+
+    async def _sniff_session(msgs: AsyncIterator) -> AsyncIterator:
+        async for m in msgs:
+            sid = getattr(m, "session_id", None)
+            if sid:
+                captured["sid"] = sid
+            yield m
+
     async with ClaudeSDKClient(options=options) as client:
         await client.query(f"<user_id>{user_id}</user_id>\n\n{text}")
-        return await _extract_reply_and_sources(client.receive_response())
+        result = await _extract_reply_and_sources(_sniff_session(client.receive_response()))
+    if captured.get("sid"):
+        _sessions.set(user_id, captured["sid"])
+    return result
 
 
 @app.post("/turn", response_model=Reply)

@@ -34,7 +34,10 @@ def _search_vault(query: str) -> list[dict]:
         {
             "text": n.get_content(),
             "source": n.metadata.get("slug") or n.metadata.get("file_path", "unknown"),
-            "score": getattr(n, "score", None),
+            # The reranker sets score as a numpy float32, which FastMCP can't
+            # serialize to structured output (→ "no structured output returned").
+            # Cast to a plain float.
+            "score": float(n.score) if getattr(n, "score", None) is not None else None,
         }
         for n in nodes
     ]

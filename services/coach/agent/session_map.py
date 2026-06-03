@@ -21,6 +21,19 @@ class SessionMap:
                 self._map[user_id] = sid
             return sid
 
+    def get(self, user_id: str) -> str | None:
+        """Return the SDK session id for a user, or None if no turn yet.
+
+        Unlike get_or_create_session_id, this does NOT fabricate an id: a session
+        id is only valid once the CLI has actually created it, so we resume with
+        None on the first turn and store the real id the SDK reports back."""
+        with self._lock:
+            return self._map.get(user_id)
+
+    def set(self, user_id: str, session_id: str) -> None:
+        with self._lock:
+            self._map[user_id] = session_id
+
     def reset(self, user_id: str) -> None:
         with self._lock:
             self._map.pop(user_id, None)
