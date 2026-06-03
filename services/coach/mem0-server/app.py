@@ -24,6 +24,11 @@ from pydantic import BaseModel
 
 def _build_memory() -> Memory:
     config = {
+        # Pin the extraction LLM. mem0 2.x defaults to a newer OpenAI model that
+        # rejects the `max_tokens` param mem0 still sends (400). gpt-4o-mini
+        # accepts it, is cheap, and is plenty for fact extraction.
+        "llm": {"provider": "openai", "config": {"model": "gpt-4o-mini"}},
+        "embedder": {"provider": "openai", "config": {"model": "text-embedding-3-small"}},
         "vector_store": {
             "provider": "pgvector",
             "config": {
@@ -77,6 +82,7 @@ def add_memories(req: AddRequest) -> dict:
 
 @app.post("/search")
 def search_memories(req: SearchRequest) -> dict:
-    user_id = req.filters.get("user_id")
-    out = memory.search(query=req.query, user_id=user_id, limit=req.top_k)
+    # mem0 2.x: entity scoping must go through `filters` (top-level user_id is
+    # rejected); result count is `top_k`.
+    out = memory.search(query=req.query, top_k=req.top_k, filters=req.filters or None)
     return _as_results(out)

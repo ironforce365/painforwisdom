@@ -1,5 +1,7 @@
-# Mirror the pin floors mem0's own server uses for the pgvector path.
-mem0ai>=0.1.48
+# Pinned to the verified version. mem0 2.x changed the search() contract
+# (filters-based scoping) and the default LLM model — re-verify the round-trip
+# before bumping this.
+mem0ai==2.0.4
 fastapi==0.115.8
 uvicorn==0.34.0
 pydantic[email]==2.10.4
