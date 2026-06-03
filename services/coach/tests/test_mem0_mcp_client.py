@@ -22,9 +22,13 @@ def test_add_memory_posts_to_correct_endpoint():
 
 @respx.mock
 def test_search_returns_results():
-    respx.post("http://mem0-api:8000/memories/search").mock(
+    # mem0 OSS server: POST /search, scope via filters.user_id, count via top_k.
+    route = respx.post("http://mem0-api:8000/search").mock(
         return_value=Response(200, json={"results": [{"memory": "loves cold showers"}]})
     )
     client = Mem0Client(base_url="http://mem0-api:8000")
-    results = client.search(user_id="42", query="cold")
+    results = client.search(user_id="42", query="cold", limit=3)
     assert results == [{"memory": "loves cold showers"}]
+    body = route.calls.last.request.content
+    assert b'"top_k":3' in body
+    assert b'"user_id":"42"' in body  # nested inside filters

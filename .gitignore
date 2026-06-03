@@ -47,4 +47,5 @@ data/temp/
 
 # Coach service
 services/coach/.env
+services/coach/.env.coach
 eval-runs/
