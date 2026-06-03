@@ -244,6 +244,31 @@ def _bridge_call_search(args: dict, retries: int = 2, backoff_s: float = 2.0) ->
     return last
 
 
+def _bridge_call_download(args: dict, retries: int = 1, backoff_s: float = 3.0) -> tuple[int, str, str]:
+    """`_bridge_call("download_book", ...)` with a SINGLE retry on transient
+    5xx / connection errors only.
+
+    A flaky upstream 5xx mid-batch otherwise permanently loses a book for the run
+    (2026-06-02: The Happiness Trap failed transiently, succeeded on a manual
+    re-run). Retried far more conservatively than search — downloads can consume
+    daily quota, so: transient patterns ONLY (never not-found / quota-exceeded /
+    extract-failed), one attempt. A failed attempt does not appear to count
+    against the daily quota (observed downloads_today tracked successes only), so
+    the residual double-spend risk is the narrow case of a server-side success
+    the client missed with a read timeout."""
+    last = (0, "", "")
+    for attempt in range(retries + 1):
+        rc, stdout, stderr = _bridge_call("download_book", args)
+        if rc == 0:
+            return rc, stdout, stderr
+        last = (rc, stdout, stderr)
+        if attempt < retries and _is_transient_error(stderr):
+            time.sleep(backoff_s * (attempt + 1))
+            continue
+        return rc, stdout, stderr
+    return last
+
+
 def _parse_bridge_response(stdout: str) -> dict | None:
     """Bridge wraps results as {"content": [{"type": "text", "text": json.dumps(result)}]}."""
     try:
@@ -460,8 +485,7 @@ def fetch(title: str, author: str) -> Union[BookText, BookFailure]:
     # 2. Download — bridge needs full book_details dict + output_dir.
     output_dir = Path(os.environ.get("ZLIBRARY_DOWNLOAD_DIR", "books/raw")).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-    rc, stdout, stderr = _bridge_call(
-        "download_book",
+    rc, stdout, stderr = _bridge_call_download(
         {
             "book_details": book,
             "output_dir": str(output_dir),
