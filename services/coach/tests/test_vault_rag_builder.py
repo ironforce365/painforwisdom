@@ -16,10 +16,11 @@ def test_load_vault_documents_emits_nodes_with_wikilink_relationships(fixture_va
     # Raw wikilinks captured in metadata
     assert any("comfort-as-default" in str(v) for v in entry_node.metadata.get("wikilinks", []))
 
-    # Bridge: wikilinks become typed NEXT relationships pointing at sibling nodes
-    nexts = entry_node.relationships.get(NodeRelationship.NEXT)
-    assert nexts is not None, "wikilink bridge produced no NEXT relationships"
-    if not isinstance(nexts, list):
-        nexts = [nexts]
-    bridged_names = {n.metadata.get("name") for n in nexts}
+    # Bridge: wikilinks become CHILD relationships (list-typed) pointing at
+    # sibling nodes. CHILD — not NEXT — because NEXT must be a single
+    # RelatedNodeInfo and ImplicitPathExtractor reads node.next_node.
+    children = entry_node.relationships.get(NodeRelationship.CHILD)
+    assert children is not None, "wikilink bridge produced no CHILD relationships"
+    assert isinstance(children, list), "CHILD must be a list of RelatedNodeInfo"
+    bridged_names = {n.metadata.get("name") for n in children}
     assert "comfort-as-default" in bridged_names

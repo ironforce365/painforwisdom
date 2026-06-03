@@ -6,6 +6,7 @@ from llama_index.core.indices.property_graph import VectorContextRetriever
 from llama_index.retrievers.bm25 import BM25Retriever
 from llama_index.core.postprocessor import SentenceTransformerRerank
 from llama_index.core.base.base_retriever import BaseRetriever
+from llama_index.core.llms import MockLLM
 
 
 class _RerankRetriever(BaseRetriever):
@@ -40,9 +41,13 @@ def build_retriever(index: PropertyGraphIndex, top_k: int = 5) -> BaseRetriever:
         nodes=docstore_nodes,
         similarity_top_k=top_k * 2,
     )
-    # num_queries=1 disables LLM query expansion (default 4 would hit Settings.llm).
+    # num_queries=1 disables LLM query expansion, but QueryFusionRetriever still
+    # resolves Settings.llm at construction. Pass a MockLLM so it never touches a
+    # real LLM (retrieval is embeddings + BM25 + rerank only; Claude-via-OAuth is
+    # the agent's reasoning LLM, kept entirely separate).
     fusion = QueryFusionRetriever(
         retrievers=[pg_retriever, bm25_retriever],
+        llm=MockLLM(),
         similarity_top_k=top_k * 2,
         num_queries=1,
         mode="reciprocal_rerank",
