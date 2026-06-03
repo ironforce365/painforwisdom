@@ -20,3 +20,11 @@ def test_promote_creates_one_notion_task_per_file(tmp_path, monkeypatch):
     assert len(promoted) == 1
     assert len(calls) == 1
     assert "comfort-as-default" in str(calls[0])
+
+    # Notion API shape: parent keyed by data_source_id, title value is an object
+    # wrapping the rich-text array (NOT a bare list — that 400s at runtime).
+    call = calls[0]
+    assert call["parent"] == {"data_source_id": "ds_1"}
+    title = call["properties"]["title"]
+    assert isinstance(title, dict) and isinstance(title["title"], list)
+    assert title["title"][0]["text"]["content"].startswith("Coach inbox:")

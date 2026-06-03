@@ -30,7 +30,9 @@ def promote(inbox_root: Path, data_source_id: str) -> list[Path]:
         _notion_create_page(
             parent={"data_source_id": data_source_id},
             properties={
-                "title": [{"text": {"content": f"Coach inbox: {f.stem}"}}],
+                # Key "title" is the universal title-property id (works regardless of the
+                # column's display name). Value must be an object wrapping the rich-text array.
+                "title": {"title": [{"text": {"content": f"Coach inbox: {f.stem}"}}]},
             },
             children=[
                 {"object": "block", "type": "paragraph", "paragraph": {
