@@ -16,7 +16,7 @@ from telegram.ext import (
 )
 
 from telegram_bot.allowlist import Allowlist
-from telegram_bot.coach_client import CoachClient
+from telegram_bot.coach_client import CoachClient, coach_error_reply
 from telegram_bot.voice import transcribe_voice
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -81,9 +81,12 @@ def _build_app() -> Application:
         try:
             result = await asyncio.to_thread(coach.turn, str(user.id), text)
             await msg.reply_text(result["reply"])
-        except Exception:
+        except Exception as exc:
+            # A read timeout means the agent is slow but alive; only connect /
+            # protocol failures are a real outage. coach_error_reply picks the
+            # honest message so a slow-but-working turn no longer reads as down.
             log.exception("coach call failed")
-            await msg.reply_text("Coach is down. Try again in a minute.")
+            await msg.reply_text(coach_error_reply(exc))
 
     async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
