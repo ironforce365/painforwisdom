@@ -127,3 +127,30 @@ def test_module_singleton_record(monkeypatch):
     snap = recorder.snapshot()
     assert snap["count"] == 1
     assert snap["outcomes"]["ok"] == 1
+
+
+def test_record_emits_warning_on_failed_turn(monkeypatch, caplog):
+    # A failed turn surfaces immediately (per-event) so it isn't silently buried.
+    import telegram_bot.metrics as metrics_mod
+
+    monkeypatch.setattr(metrics_mod, "recorder", TurnMetrics())
+    with caplog.at_level(logging.WARNING):
+        metrics_mod.record(2.0, "down")
+    assert any(
+        r.levelno == logging.WARNING and "coach turn failed" in r.getMessage()
+        for r in caplog.records
+    )
+
+
+def test_record_emits_periodic_snapshot(monkeypatch, caplog):
+    # Every SNAPSHOT_EVERY turns a health rollup is logged + alert checked, so
+    # the cumulative metrics are observable without spamming every record.
+    import telegram_bot.metrics as metrics_mod
+
+    monkeypatch.setattr(metrics_mod, "recorder", TurnMetrics())
+    with caplog.at_level(logging.INFO):
+        for _ in range(metrics_mod.SNAPSHOT_EVERY - 1):
+            metrics_mod.record(1.0, "ok")
+        assert not any("coach turn metrics" in r.getMessage() for r in caplog.records)
+        metrics_mod.record(1.0, "ok")  # crosses the SNAPSHOT_EVERY boundary
+    assert any("coach turn metrics" in r.getMessage() for r in caplog.records)

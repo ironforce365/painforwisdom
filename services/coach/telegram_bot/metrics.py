@@ -103,7 +103,33 @@ class TurnMetrics:
 # Module-level singleton so callers don't manage instances.
 recorder = TurnMetrics()
 
+# How often (in turns) to emit a health snapshot + run the p95 alert check. The
+# accumulator is cumulative, so we emit per-event warnings on failure (below)
+# and a periodic rollup rather than alerting on every record after the first
+# failure (which would spam, since counts never reset).
+SNAPSHOT_EVERY = 20
+
 
 def record(latency_seconds: float, outcome: Outcome) -> None:
-    """Record a turn into the shared recorder singleton."""
+    """Record a turn into the shared recorder singleton and surface health.
+
+    Emission policy (so the metrics are actually observable, not silently
+    accumulated): a failed turn (timeout/down) logs a WARNING immediately for
+    this single event; every ``SNAPSHOT_EVERY`` turns we log an INFO rollup of
+    the latency distribution and run :meth:`TurnMetrics.check_alert` so a p95
+    regression is flagged before turns start crossing the wire deadline.
+    """
     recorder.record(latency_seconds, outcome)
+
+    if outcome in ("timeout", "down"):
+        log.warning(
+            "coach turn failed: outcome=%s latency=%.1fs", outcome, latency_seconds
+        )
+
+    snap = recorder.snapshot()
+    if snap["count"] % SNAPSHOT_EVERY == 0:
+        log.info(
+            "coach turn metrics: count=%d p50=%s p95=%s p99=%s outcomes=%s",
+            snap["count"], snap["p50"], snap["p95"], snap["p99"], snap["outcomes"],
+        )
+        recorder.check_alert()
