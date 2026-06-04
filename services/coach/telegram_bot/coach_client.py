@@ -1,6 +1,12 @@
 """HTTP client → coach agent service."""
 from __future__ import annotations
+import json
+import time
+from typing import Iterator
+
 import httpx
+
+from telegram_bot import metrics
 
 # A full coaching turn (vault RAG + memory search + multi-step agent loop) runs
 # ~56s on a healthy system. The previous 60s flat timeout left only ~4s of
@@ -33,6 +39,55 @@ class CoachClient:
         self._client = httpx.Client(base_url=base_url, timeout=self.timeout)
 
     def turn(self, user_id: str, text: str) -> dict:
-        r = self._client.post("/turn", json={"user_id": user_id, "text": text})
-        r.raise_for_status()
-        return r.json()
+        # Time the turn for p95 monitoring. Classify the exit: "ok" on success,
+        # "timeout" for httpx read/write/pool timeouts (agent alive but slow),
+        # "down" for anything else (unreachable/broken), then re-raise so caller
+        # behaviour is unchanged.
+        start = time.monotonic()
+        try:
+            r = self._client.post("/turn", json={"user_id": user_id, "text": text})
+            r.raise_for_status()
+            result = r.json()
+        except (httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout):
+            metrics.record(time.monotonic() - start, "timeout")
+            raise
+        except Exception:
+            metrics.record(time.monotonic() - start, "down")
+            raise
+        metrics.record(time.monotonic() - start, "ok")
+        return result
+
+    def stream_turn(self, user_id: str, text: str) -> Iterator[str]:
+        """Stream a coaching turn from /turn/stream, yielding each assistant text
+        delta as it arrives. Parses the NDJSON protocol — one JSON object per
+        line, zero or more `{"delta": ...}` followed by a terminal
+        `{"done": true, "crisis": ...}` — and stops at the done line.
+
+        No single 56s request is held open from the bot's side beyond the read
+        deadline because deltas flush incrementally; iteration ends at `done`.
+
+        Instrumented for p95 monitoring the same way as turn(): the clock spans
+        the whole stream, recording "ok" once the stream completes, "timeout" on
+        httpx read/write/pool timeouts, "down" on anything else, then re-raising.
+        """
+        start = time.monotonic()
+        try:
+            with self._client.stream(
+                "POST", "/turn/stream", json={"user_id": user_id, "text": text}
+            ) as r:
+                r.raise_for_status()
+                for line in r.iter_lines():
+                    if not line.strip():
+                        continue
+                    obj = json.loads(line)
+                    if obj.get("done"):
+                        break
+                    if "delta" in obj:
+                        yield obj["delta"]
+        except (httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout):
+            metrics.record(time.monotonic() - start, "timeout")
+            raise
+        except Exception:
+            metrics.record(time.monotonic() - start, "down")
+            raise
+        metrics.record(time.monotonic() - start, "ok")
