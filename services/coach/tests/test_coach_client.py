@@ -8,7 +8,11 @@ agent was healthy and still working.
 from __future__ import annotations
 
 import httpx
+import pytest
+import respx
+from httpx import Response
 
+from telegram_bot import metrics
 from telegram_bot.coach_client import (
     DOWN_REPLY,
     TIMEOUT_REPLY,
@@ -45,3 +49,51 @@ def test_connect_failures_read_as_down():
 
 def test_unknown_error_reads_as_down():
     assert coach_error_reply(RuntimeError("boom")) == DOWN_REPLY
+
+
+@pytest.fixture
+def fresh_recorder(monkeypatch):
+    """Reset the metrics singleton so each turn() test sees its own samples."""
+    monkeypatch.setattr(metrics.recorder, "_latencies", [])
+    monkeypatch.setattr(
+        metrics.recorder, "_outcomes", {"ok": 0, "timeout": 0, "down": 0}
+    )
+    return metrics.recorder
+
+
+@respx.mock
+def test_turn_records_ok_on_success(fresh_recorder):
+    respx.post("http://coach-agent:8800/turn").mock(
+        return_value=Response(200, json={"reply": "hi"})
+    )
+    cc = CoachClient("http://coach-agent:8800")
+    result = cc.turn(user_id="42", text="hello")
+    assert result == {"reply": "hi"}  # return value unchanged
+    snap = fresh_recorder.snapshot()
+    assert snap["count"] == 1
+    assert snap["outcomes"]["ok"] == 1
+
+
+@respx.mock
+def test_turn_records_timeout_and_reraises(fresh_recorder):
+    respx.post("http://coach-agent:8800/turn").mock(
+        side_effect=httpx.ReadTimeout("timed out")
+    )
+    cc = CoachClient("http://coach-agent:8800")
+    with pytest.raises(httpx.ReadTimeout):
+        cc.turn(user_id="42", text="hello")
+    snap = fresh_recorder.snapshot()
+    assert snap["outcomes"]["timeout"] == 1
+    assert snap["outcomes"]["ok"] == 0
+
+
+@respx.mock
+def test_turn_records_down_on_other_error_and_reraises(fresh_recorder):
+    respx.post("http://coach-agent:8800/turn").mock(
+        side_effect=httpx.ConnectError("refused")
+    )
+    cc = CoachClient("http://coach-agent:8800")
+    with pytest.raises(httpx.ConnectError):
+        cc.turn(user_id="42", text="hello")
+    snap = fresh_recorder.snapshot()
+    assert snap["outcomes"]["down"] == 1

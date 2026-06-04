@@ -1,6 +1,10 @@
 """HTTP client → coach agent service."""
 from __future__ import annotations
+import time
+
 import httpx
+
+from telegram_bot import metrics
 
 # A full coaching turn (vault RAG + memory search + multi-step agent loop) runs
 # ~56s on a healthy system. The previous 60s flat timeout left only ~4s of
@@ -33,6 +37,20 @@ class CoachClient:
         self._client = httpx.Client(base_url=base_url, timeout=self.timeout)
 
     def turn(self, user_id: str, text: str) -> dict:
-        r = self._client.post("/turn", json={"user_id": user_id, "text": text})
-        r.raise_for_status()
-        return r.json()
+        # Time the turn for p95 monitoring. Classify the exit: "ok" on success,
+        # "timeout" for httpx read/write/pool timeouts (agent alive but slow),
+        # "down" for anything else (unreachable/broken), then re-raise so caller
+        # behaviour is unchanged.
+        start = time.monotonic()
+        try:
+            r = self._client.post("/turn", json={"user_id": user_id, "text": text})
+            r.raise_for_status()
+            result = r.json()
+        except (httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout):
+            metrics.record(time.monotonic() - start, "timeout")
+            raise
+        except Exception:
+            metrics.record(time.monotonic() - start, "down")
+            raise
+        metrics.record(time.monotonic() - start, "ok")
+        return result
