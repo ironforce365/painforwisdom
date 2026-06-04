@@ -1,5 +1,8 @@
 """HTTP client → coach agent service."""
 from __future__ import annotations
+import json
+from typing import Iterator
+
 import httpx
 
 # A full coaching turn (vault RAG + memory search + multi-step agent loop) runs
@@ -36,3 +39,25 @@ class CoachClient:
         r = self._client.post("/turn", json={"user_id": user_id, "text": text})
         r.raise_for_status()
         return r.json()
+
+    def stream_turn(self, user_id: str, text: str) -> Iterator[str]:
+        """Stream a coaching turn from /turn/stream, yielding each assistant text
+        delta as it arrives. Parses the NDJSON protocol — one JSON object per
+        line, zero or more `{"delta": ...}` followed by a terminal
+        `{"done": true, "crisis": ...}` — and stops at the done line.
+
+        No single 56s request is held open from the bot's side beyond the read
+        deadline because deltas flush incrementally; iteration ends at `done`.
+        """
+        with self._client.stream(
+            "POST", "/turn/stream", json={"user_id": user_id, "text": text}
+        ) as r:
+            r.raise_for_status()
+            for line in r.iter_lines():
+                if not line.strip():
+                    continue
+                obj = json.loads(line)
+                if obj.get("done"):
+                    return
+                if "delta" in obj:
+                    yield obj["delta"]

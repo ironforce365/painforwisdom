@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import time
 from pathlib import Path
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -25,6 +26,70 @@ log = logging.getLogger("coach.telegram")
 # In-memory pending approval requests, keyed by requester user_id. Lost on
 # bot restart (acceptable: requester just re-DMs and admin gets a new ping).
 _pending: dict[int, dict] = {}
+
+# Telegram caps edit_message_text frequency; editing on every tiny delta would
+# trip 429s on a long reply. Throttle: edit at most once per interval OR once a
+# meaningful amount of new text has accumulated, whichever comes first. The
+# final edit (after the stream ends) always flushes the complete text.
+_EDIT_MIN_INTERVAL_S = 1.0
+_EDIT_MIN_CHARS = 40
+_PLACEHOLDER_TEXT = "…"
+
+
+async def _stream_reply(coach, user, msg, ctx, text: str) -> None:
+    """Stream a coaching turn into Telegram: send a placeholder message, then
+    edit it progressively as deltas arrive (throttled), and flush the full text
+    on completion. On failure, fall back to coach_error_reply.
+
+    The blocking stream_turn() iterator is drained one chunk at a time off the
+    event loop via asyncio.to_thread so the bot stays responsive and no single
+    request blocks the loop for the full ~56s turn.
+    """
+    placeholder = await msg.reply_text(_PLACEHOLDER_TEXT)
+    chat_id = placeholder.chat_id
+    message_id = placeholder.message_id
+
+    acc = ""
+    last_edit_at = 0.0
+    last_sent = ""
+    sentinel = object()
+
+    async def _edit(body: str) -> None:
+        nonlocal last_edit_at, last_sent
+        if not body or body == last_sent:
+            return
+        await ctx.bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=body)
+        last_edit_at = time.monotonic()
+        last_sent = body
+
+    try:
+        it = await asyncio.to_thread(coach.stream_turn, str(user.id), text)
+        while True:
+            chunk = await asyncio.to_thread(next, it, sentinel)
+            if chunk is sentinel:
+                break
+            acc += chunk
+            now = time.monotonic()
+            if (now - last_edit_at) >= _EDIT_MIN_INTERVAL_S or (
+                len(acc) - len(last_sent)
+            ) >= _EDIT_MIN_CHARS:
+                await _edit(acc)
+        # Final flush: guarantee the complete reply is shown.
+        await _edit(acc)
+        if not acc.strip():
+            # Stream produced nothing — leave the user with something honest.
+            await _edit("(no response)")
+    except Exception as exc:
+        # A read timeout means the agent is slow but alive; only connect /
+        # protocol failures are a real outage. coach_error_reply picks the
+        # honest message so a slow-but-working turn no longer reads as down.
+        log.exception("coach stream failed")
+        try:
+            await ctx.bot.edit_message_text(
+                chat_id=chat_id, message_id=message_id, text=coach_error_reply(exc)
+            )
+        except Exception:
+            await msg.reply_text(coach_error_reply(exc))
 
 
 def _build_app() -> Application:
@@ -78,15 +143,7 @@ def _build_app() -> Application:
             text = msg.text or ""
         if not text.strip():
             return
-        try:
-            result = await asyncio.to_thread(coach.turn, str(user.id), text)
-            await msg.reply_text(result["reply"])
-        except Exception as exc:
-            # A read timeout means the agent is slow but alive; only connect /
-            # protocol failures are a real outage. coach_error_reply picks the
-            # honest message so a slow-but-working turn no longer reads as down.
-            log.exception("coach call failed")
-            await msg.reply_text(coach_error_reply(exc))
+        await _stream_reply(coach, user, msg, ctx, text)
 
     async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
