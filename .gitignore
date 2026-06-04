@@ -21,6 +21,7 @@ poc/runs.jsonl
 __pycache__/
 *.pyc
 *.pyo
+*.egg-info/
 
 # Daily summarizer runtime artifacts (Phase 2-6 of look-at-my-notion-serialized-donut)
 # books/ = raw + extracted book text from z-library + curated copies
@@ -43,3 +44,8 @@ data/.daily_brief_watchdog.last_alert
 # Local draft markdown (homepage candidates, blog post drafts).
 # Final versions live elsewhere; keep the repo root + tracked dirs clean.
 data/temp/
+
+# Coach service
+services/coach/.env
+services/coach/.env.coach
+eval-runs/

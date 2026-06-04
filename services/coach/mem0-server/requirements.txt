@@ -1,0 +1,9 @@
+# Pinned to the verified version. mem0 2.x changed the search() contract
+# (filters-based scoping) and the default LLM model — re-verify the round-trip
+# before bumping this.
+mem0ai==2.0.4
+fastapi==0.115.8
+uvicorn==0.34.0
+pydantic[email]==2.10.4
+psycopg[binary]>=3.2.8
+psycopg-pool>=3.2.6,<4.0.0

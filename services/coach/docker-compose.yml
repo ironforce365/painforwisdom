@@ -1,0 +1,94 @@
+services:
+  mem0-postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ${MEM0_PG_USER}
+      POSTGRES_PASSWORD: ${MEM0_PG_PASSWORD}
+      POSTGRES_DB: ${MEM0_PG_DB}
+    volumes:
+      - mem0_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${MEM0_PG_USER}"]
+      interval: 10s
+      retries: 5
+    restart: unless-stopped
+
+  # Vector-only Mem0 via a minimal in-house FastAPI shim over the mem0ai lib
+  # (see mem0-server/app.py). The official mem0/mem0-api-server image is
+  # published arm64-only — unrunnable on this amd64 host — and carries JWT/app-DB
+  # baggage the coach doesn't need. Graph memory is a documented follow-up.
+  mem0-api:
+    build: ./mem0-server
+    depends_on:
+      mem0-postgres:
+        condition: service_healthy
+    environment:
+      # mem0's default LLM + embedder are OpenAI — no ANTHROPIC_API_KEY needed.
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      POSTGRES_HOST: mem0-postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: ${MEM0_PG_USER}
+      POSTGRES_PASSWORD: ${MEM0_PG_PASSWORD}
+      POSTGRES_DB: ${MEM0_PG_DB}
+      POSTGRES_COLLECTION_NAME: coach_memories
+    restart: unless-stopped
+
+  coach-agent:
+    build: .
+    depends_on:
+      mem0-api:
+        condition: service_started
+    environment:
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      MEM0_API_URL: http://mem0-api:8000
+      COACH_INDEX_STORAGE_DIR: /data/vault_rag
+      COACH_USER_MEMORY_DIR: /data/user_memory
+      COACH_INBOX_ROOT: /vault/_inbox
+      COACH_VAULT_PATH: /vault
+      COACH_USAGE_LOG: /data/usage.jsonl
+    # CRITICAL: do NOT set ANTHROPIC_API_KEY here — it would shadow the OAuth token.
+    volumes:
+      - ${VAULT_HOST_PATH}:/vault
+      - coach_data:/data
+      - whisper_cache:/root/.cache
+    command: ["uvicorn", "agent.service:app", "--host", "0.0.0.0", "--port", "8800"]
+    ports:
+      - "8800:8800"
+    restart: unless-stopped
+
+  telegram-bot:
+    build: .
+    depends_on:
+      coach-agent:
+        condition: service_started
+    environment:
+      TELEGRAM_COACH_BOT_TOKEN: ${TELEGRAM_COACH_BOT_TOKEN}
+      # Admin chat for the new-user approval flow (Approve/Deny inline buttons).
+      TELEGRAM_COACH_ALERT_CHAT_ID: ${TELEGRAM_COACH_ALERT_CHAT_ID}
+      COACH_AGENT_URL: http://coach-agent:8800
+      COACH_ACCESS_JSON: /app/access.json
+    volumes:
+      - whisper_cache:/root/.cache
+    command: ["python", "-m", "telegram_bot.bot"]
+    restart: unless-stopped
+
+  coach-eval:
+    build: .
+    profiles: ["eval"]
+    depends_on:
+      coach-agent:
+        condition: service_started
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      COACH_AGENT_URL: http://coach-agent:8800
+      COACH_EVAL_OUT: /eval-runs/nightly.jsonl
+    volumes:
+      - coach_data:/eval-runs
+    # No restart policy — this is a one-shot via `docker compose run --rm coach-eval ...`
+
+volumes:
+  mem0_pg_data:
+  coach_data:
+  whisper_cache:

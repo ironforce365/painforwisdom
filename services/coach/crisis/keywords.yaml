@@ -1,0 +1,16 @@
+# Curated crisis triggers. Case-insensitive substring match against the user message
+# after lowercasing. Conservative set — false positives are acceptable, false negatives are not.
+triggers:
+  - kill myself
+  - end my life
+  - end it all
+  - suicide
+  - want to die
+  - hurt myself
+  - cutting myself
+  - no reason to live
+  - nothing matters anymore
+  - me quiero matar
+  - quitarme la vida
+  - no quiero seguir viviendo
+  - hacerme daño
