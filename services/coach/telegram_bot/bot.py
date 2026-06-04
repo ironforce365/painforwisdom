@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.constants import ChatAction
 from telegram.ext import (
     Application, CallbackQueryHandler, ContextTypes, MessageHandler, filters,
 )
@@ -35,6 +36,19 @@ _EDIT_MIN_INTERVAL_S = 1.0
 _EDIT_MIN_CHARS = 40
 _PLACEHOLDER_TEXT = "…"
 
+# A coaching turn takes ~56s; the Telegram typing indicator expires after ~5s,
+# so we re-send it on a short interval. It covers the gap before the first
+# streamed delta (the agent does vault RAG + memory lookups before any token),
+# then gives way to the progressively-edited reply message.
+_TYPING_INTERVAL_SECONDS = 4.0
+
+
+async def _keep_typing(bot, chat_id, interval: float = _TYPING_INTERVAL_SECONDS) -> None:
+    """Continuously send the TYPING chat action until cancelled."""
+    while True:
+        await bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+        await asyncio.sleep(interval)
+
 
 async def _stream_reply(coach, user, msg, ctx, text: str) -> None:
     """Stream a coaching turn into Telegram: send a placeholder message, then
@@ -44,7 +58,21 @@ async def _stream_reply(coach, user, msg, ctx, text: str) -> None:
     The blocking stream_turn() iterator is drained one chunk at a time off the
     event loop via asyncio.to_thread so the bot stays responsive and no single
     request blocks the loop for the full ~56s turn.
+
+    A typing indicator is kept alive until the first delta arrives, covering the
+    pre-token gap so the wait never reads as dead silence.
     """
+    typing = asyncio.create_task(_keep_typing(ctx.bot, msg.chat_id))
+
+    async def _stop_typing() -> None:
+        if typing.done():
+            return
+        typing.cancel()
+        try:
+            await typing
+        except asyncio.CancelledError:
+            pass
+
     placeholder = await msg.reply_text(_PLACEHOLDER_TEXT)
     chat_id = placeholder.chat_id
     message_id = placeholder.message_id
@@ -68,6 +96,7 @@ async def _stream_reply(coach, user, msg, ctx, text: str) -> None:
             chunk = await asyncio.to_thread(next, it, sentinel)
             if chunk is sentinel:
                 break
+            await _stop_typing()  # first real text → indicator gives way to the reply
             acc += chunk
             now = time.monotonic()
             if (now - last_edit_at) >= _EDIT_MIN_INTERVAL_S or (
@@ -90,6 +119,8 @@ async def _stream_reply(coach, user, msg, ctx, text: str) -> None:
             )
         except Exception:
             await msg.reply_text(coach_error_reply(exc))
+    finally:
+        await _stop_typing()
 
 
 def _build_app() -> Application:

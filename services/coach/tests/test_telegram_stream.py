@@ -62,6 +62,7 @@ def _make_ctx():
     ctx.bot = SimpleNamespace(
         edit_message_text=AsyncMock(),
         send_message=AsyncMock(),
+        send_chat_action=AsyncMock(),
     )
     return ctx
 
