@@ -123,7 +123,9 @@ Telegram audio-drop msg ──(you reply, voice memo)──▶ reply_to_message_
 
 ### 4.4 Audio generation, made memory-aware
 
-The audio (m4a) is **not retrievable text**, so each audio writes a **`coverage.md`** when generated — its covered-concepts + questions asked + protocols proposed. *That* is what future audios read, never the m4a.
+The audio (m4a) is **not retrievable text**, so each audio writes a **`coverage.md`**. Critically, `coverage.md` is derived from the audio's **inputs** (the `deep-dive.md`, `application.md`, and the rendered focus prompt) — *not* from the finished m4a. It is written at **trigger-time** (NotebookLM renders async; we don't wait), and *that* is what future audios read, never the m4a.
+
+**Question/Protocol IDs (load-bearing).** When an audio is generated, its closing question and proposed protocols are extracted and registered with **stable IDs** (e.g. `Q-2026-06-03-a`, `P-2026-06-03-a`) into both `coverage.md` and `open-loops.md`. A `Response` references those IDs (`answers: [Q-2026-06-03-a]`, `reports: [{id: P-2026-06-03-a, status: tried, result: …}]`), which is how the loop closes deterministically rather than by fuzzy text-matching. Today's open question/adjustments are free-text in `application.md`; this step parses them into typed, ID'd loop entries.
 
 **Source set** (was: `deep-dive.md` + `application.md` + `audio-prompts.md` + 1 entry):
 - `+ memory-brief.md` — the recall output (§4.5): "Already covered, don't re-explain: {…}. Open loops being advanced: {…}. Protocols tried + results: {…}."
@@ -152,6 +154,8 @@ No fixed daily cron drives the loop. Two beats fire audios:
 
 A response always pulls its react-audio ahead of queued new-content audios (causal order). The loop only moves when there's a real beat.
 
+**Concrete wiring (MVP):** the bash poller (`telegram_io.sh`, extended) on detecting a voice reply writes the downloaded memo + parent `message_id` to a drop dir and invokes a Python entrypoint (e.g. `python -m pipeline.summarize_daily --react <drop>`); fresh-content audios trigger from the existing pipeline's completion of a new entry. No long-running daemon beyond the poller that already exists.
+
 ## 5. Two audio types
 
 | | Deep-dive audio (existing, upgraded) | React audio (new) |
@@ -171,7 +175,7 @@ The existing research machinery (entry → research → cluster → `deep-dive.m
 **PoC steps (manual glue, no automation):**
 1. Pick one existing audio that has open Qs/Ps.
 2. Record (or write) a response to it.
-3. Hand-build `memory-brief.md` + add the response + the prior `coverage.md` as NotebookLM sources.
+3. Hand-build `memory-brief.md` + add the response + the prior `coverage.md` as NotebookLM sources. **Note:** `coverage.md` is a new artifact, so for the chosen parent audio it is hand-derived from that audio's existing `deep-dive.md`/`application.md` (its concepts, closing question, proposed protocols — given temporary IDs).
 4. Generate the next audio with the upgraded focus prompt (CONTINUITY + REACT blocks).
 5. Listen on a run. Pass criteria: feels continuous, reacts to the response, does **not** re-explain covered concepts.
 
