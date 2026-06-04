@@ -1,6 +1,8 @@
 """HTTP client → coach agent service."""
 from __future__ import annotations
+import json
 import time
+from typing import Iterator
 
 import httpx
 
@@ -54,3 +56,38 @@ class CoachClient:
             raise
         metrics.record(time.monotonic() - start, "ok")
         return result
+
+    def stream_turn(self, user_id: str, text: str) -> Iterator[str]:
+        """Stream a coaching turn from /turn/stream, yielding each assistant text
+        delta as it arrives. Parses the NDJSON protocol — one JSON object per
+        line, zero or more `{"delta": ...}` followed by a terminal
+        `{"done": true, "crisis": ...}` — and stops at the done line.
+
+        No single 56s request is held open from the bot's side beyond the read
+        deadline because deltas flush incrementally; iteration ends at `done`.
+
+        Instrumented for p95 monitoring the same way as turn(): the clock spans
+        the whole stream, recording "ok" once the stream completes, "timeout" on
+        httpx read/write/pool timeouts, "down" on anything else, then re-raising.
+        """
+        start = time.monotonic()
+        try:
+            with self._client.stream(
+                "POST", "/turn/stream", json={"user_id": user_id, "text": text}
+            ) as r:
+                r.raise_for_status()
+                for line in r.iter_lines():
+                    if not line.strip():
+                        continue
+                    obj = json.loads(line)
+                    if obj.get("done"):
+                        break
+                    if "delta" in obj:
+                        yield obj["delta"]
+        except (httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout):
+            metrics.record(time.monotonic() - start, "timeout")
+            raise
+        except Exception:
+            metrics.record(time.monotonic() - start, "down")
+            raise
+        metrics.record(time.monotonic() - start, "ok")
