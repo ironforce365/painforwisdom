@@ -18,6 +18,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from agent.hooks import write_inbox_entry
+from agent.retrieval import retrieve_for_turn
 from agent.session_map import SessionMap
 from crisis.filter import check_message
 
@@ -131,6 +132,35 @@ async def _extract_reply_and_sources(messages: AsyncIterator) -> Tuple[str, list
     return "".join(reply_chunks), sources
 
 
+def _compose_turn_prompt(user_id: str, text: str) -> Tuple[str, list[str]]:
+    """Build the agent query for a turn, injecting deterministically pre-retrieved
+    vault context ahead of the user's message.
+
+    Returns (query, pre_retrieved_slugs). The slugs seed the inbox source list so
+    a turn is recorded as grounded even when the model never calls search_vault.
+    The context block is placed before the user's text so the model reads its
+    grounding first; it is omitted entirely when retrieval found nothing.
+    """
+    context_block, slugs = retrieve_for_turn(text)
+    parts = [f"<user_id>{user_id}</user_id>"]
+    if context_block:
+        parts.append(context_block)
+    parts.append(text)
+    return "\n\n".join(parts), slugs
+
+
+def _merge_sources(*groups: list[str]) -> list[str]:
+    """Union source slugs across groups, preserving first-seen order."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for group in groups:
+        for slug in group:
+            if slug not in seen:
+                seen.add(slug)
+                out.append(slug)
+    return out
+
+
 def _build_agent_options(user_id: str):
     """Construct ClaudeAgentOptions for a turn (resume + MCP servers + allowlist).
 
@@ -187,15 +217,18 @@ async def _chat_with_agent(user_id: str, text: str) -> Tuple[str, list[str]]:
 
     options = _build_agent_options(user_id)
     captured: dict[str, str] = {}
+    query, pre_slugs = _compose_turn_prompt(user_id, text)
 
     async with ClaudeSDKClient(options=options) as client:
-        await client.query(f"<user_id>{user_id}</user_id>\n\n{text}")
-        result = await _extract_reply_and_sources(
+        await client.query(query)
+        reply, tool_slugs = await _extract_reply_and_sources(
             _sniff_session(client.receive_response(), captured)
         )
     if captured.get("sid"):
         _sessions.set(user_id, captured["sid"])
-    return result
+    # Inbox records the deterministic pre-retrieval plus any slugs the model
+    # pulled itself via search_vault, deduped.
+    return reply, _merge_sources(pre_slugs, tool_slugs)
 
 
 async def _stream_agent(user_id: str, text: str) -> AsyncIterator[str]:
@@ -213,9 +246,14 @@ async def _stream_agent(user_id: str, text: str) -> AsyncIterator[str]:
     options = _build_agent_options(user_id)
     captured: dict[str, str] = {}
     sources: list[str] = _stream_sources.get()
+    query, pre_slugs = _compose_turn_prompt(user_id, text)
+    # Seed the inbox source sink with the deterministic pre-retrieval so the turn
+    # is recorded as grounded even if the model adds no search_vault calls; the
+    # endpoint dedupes before writing.
+    sources.extend(pre_slugs)
 
     async with ClaudeSDKClient(options=options) as client:
-        await client.query(f"<user_id>{user_id}</user_id>\n\n{text}")
+        await client.query(query)
         async for chunk in _walk_messages(
             _sniff_session(client.receive_response(), captured), sources
         ):
@@ -278,7 +316,7 @@ async def turn_stream(t: Turn) -> StreamingResponse:
             user_id=t.user_id,
             user_text=t.text,
             assistant_text="".join(chunks),
-            retrieved_sources=sources,
+            retrieved_sources=_merge_sources(sources),
         )
         yield json.dumps({"done": True, "crisis": False}) + "\n"
 
