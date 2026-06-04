@@ -8,15 +8,17 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import time
 from pathlib import Path
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.constants import ChatAction
 from telegram.ext import (
     Application, CallbackQueryHandler, ContextTypes, MessageHandler, filters,
 )
 
 from telegram_bot.allowlist import Allowlist
-from telegram_bot.coach_client import CoachClient
+from telegram_bot.coach_client import CoachClient, coach_error_reply
 from telegram_bot.voice import transcribe_voice
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -25,6 +27,100 @@ log = logging.getLogger("coach.telegram")
 # In-memory pending approval requests, keyed by requester user_id. Lost on
 # bot restart (acceptable: requester just re-DMs and admin gets a new ping).
 _pending: dict[int, dict] = {}
+
+# Telegram caps edit_message_text frequency; editing on every tiny delta would
+# trip 429s on a long reply. Throttle: edit at most once per interval OR once a
+# meaningful amount of new text has accumulated, whichever comes first. The
+# final edit (after the stream ends) always flushes the complete text.
+_EDIT_MIN_INTERVAL_S = 1.0
+_EDIT_MIN_CHARS = 40
+_PLACEHOLDER_TEXT = "…"
+
+# A coaching turn takes ~56s; the Telegram typing indicator expires after ~5s,
+# so we re-send it on a short interval. It covers the gap before the first
+# streamed delta (the agent does vault RAG + memory lookups before any token),
+# then gives way to the progressively-edited reply message.
+_TYPING_INTERVAL_SECONDS = 4.0
+
+
+async def _keep_typing(bot, chat_id, interval: float = _TYPING_INTERVAL_SECONDS) -> None:
+    """Continuously send the TYPING chat action until cancelled."""
+    while True:
+        await bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+        await asyncio.sleep(interval)
+
+
+async def _stream_reply(coach, user, msg, ctx, text: str) -> None:
+    """Stream a coaching turn into Telegram: send a placeholder message, then
+    edit it progressively as deltas arrive (throttled), and flush the full text
+    on completion. On failure, fall back to coach_error_reply.
+
+    The blocking stream_turn() iterator is drained one chunk at a time off the
+    event loop via asyncio.to_thread so the bot stays responsive and no single
+    request blocks the loop for the full ~56s turn.
+
+    A typing indicator is kept alive until the first delta arrives, covering the
+    pre-token gap so the wait never reads as dead silence.
+    """
+    typing = asyncio.create_task(_keep_typing(ctx.bot, msg.chat_id))
+
+    async def _stop_typing() -> None:
+        if typing.done():
+            return
+        typing.cancel()
+        try:
+            await typing
+        except asyncio.CancelledError:
+            pass
+
+    placeholder = await msg.reply_text(_PLACEHOLDER_TEXT)
+    chat_id = placeholder.chat_id
+    message_id = placeholder.message_id
+
+    acc = ""
+    last_edit_at = 0.0
+    last_sent = ""
+    sentinel = object()
+
+    async def _edit(body: str) -> None:
+        nonlocal last_edit_at, last_sent
+        if not body or body == last_sent:
+            return
+        await ctx.bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=body)
+        last_edit_at = time.monotonic()
+        last_sent = body
+
+    try:
+        it = await asyncio.to_thread(coach.stream_turn, str(user.id), text)
+        while True:
+            chunk = await asyncio.to_thread(next, it, sentinel)
+            if chunk is sentinel:
+                break
+            await _stop_typing()  # first real text → indicator gives way to the reply
+            acc += chunk
+            now = time.monotonic()
+            if (now - last_edit_at) >= _EDIT_MIN_INTERVAL_S or (
+                len(acc) - len(last_sent)
+            ) >= _EDIT_MIN_CHARS:
+                await _edit(acc)
+        # Final flush: guarantee the complete reply is shown.
+        await _edit(acc)
+        if not acc.strip():
+            # Stream produced nothing — leave the user with something honest.
+            await _edit("(no response)")
+    except Exception as exc:
+        # A read timeout means the agent is slow but alive; only connect /
+        # protocol failures are a real outage. coach_error_reply picks the
+        # honest message so a slow-but-working turn no longer reads as down.
+        log.exception("coach stream failed")
+        try:
+            await ctx.bot.edit_message_text(
+                chat_id=chat_id, message_id=message_id, text=coach_error_reply(exc)
+            )
+        except Exception:
+            await msg.reply_text(coach_error_reply(exc))
+    finally:
+        await _stop_typing()
 
 
 def _build_app() -> Application:
@@ -78,12 +174,7 @@ def _build_app() -> Application:
             text = msg.text or ""
         if not text.strip():
             return
-        try:
-            result = await asyncio.to_thread(coach.turn, str(user.id), text)
-            await msg.reply_text(result["reply"])
-        except Exception:
-            log.exception("coach call failed")
-            await msg.reply_text("Coach is down. Try again in a minute.")
+        await _stream_reply(coach, user, msg, ctx, text)
 
     async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
