@@ -48,7 +48,7 @@ def test_run_all_uses_real_fixtures_with_injected_judge():
             out.append(Verdict(c.id, dt, grounded=grounded, contradicts=False, rationale=""))
         return out
 
-    reports = run_all(temperature=6, judge_fn=judge_fn)
+    reports = run_all(temperature=6, judge_fn=judge_fn, rewrite_fn=lambda c, s: "Is that right?")
     ids = {r["id"] for r in reports}
     assert "f000_punishing_yourself" in ids
     # f000: c1 cited->assert (matches), c2 uncited->demote (matches) => agreement 1.0

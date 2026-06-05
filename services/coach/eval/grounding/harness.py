@@ -52,8 +52,11 @@ def score_fixture(fx: dict, *, temperature: int, judge_fn=judge_claims, rewrite_
     }
 
 
-def run_all(*, temperature: int, judge_fn=judge_claims) -> list[dict]:
-    return [score_fixture(fx, temperature=temperature, judge_fn=judge_fn) for fx in load_fixtures()]
+def run_all(*, temperature: int, judge_fn=judge_claims, rewrite_fn=demote_to_question) -> list[dict]:
+    return [
+        score_fixture(fx, temperature=temperature, judge_fn=judge_fn, rewrite_fn=rewrite_fn)
+        for fx in load_fixtures()
+    ]
 
 
 def _main() -> None:
