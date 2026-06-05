@@ -70,6 +70,11 @@ services:
       COACH_ACCESS_JSON: /app/access.json
     volumes:
       - whisper_cache:/root/.cache
+      # Persist the runtime allowlist on the host. The approval flow mutates
+      # access.json at runtime; baked into the image it would reset to the
+      # committed (empty) list on every rebuild, silently revoking approved
+      # users. The host file is the source of truth and survives rebuilds.
+      - ${COACH_ACCESS_HOST_PATH}:/app/access.json
     command: ["python", "-m", "telegram_bot.bot"]
     restart: unless-stopped
 
