@@ -1,0 +1,10 @@
+{
+  "id": "f001_grounded_facts",
+  "note": "All facts are cited and entailed by the sources -> all should assert. Hard floor, temperature-independent.",
+  "sources": [
+    {"id": "S1", "tier": 1, "kind": "debrief", "text": "Ran 5km Monday morning. Skipped the planned tempo session on Wednesday."},
+    {"id": "S2", "tier": 1, "kind": "thread", "text": "I told you the heat made the Monday run brutal."}
+  ],
+  "draft": "[[claim id=c1 type=fact cite=S1]] You ran 5km on Monday.\n[[claim id=c2 type=fact cite=S1]] You skipped Wednesday's tempo session.\n[[claim id=c3 type=fact cite=S2]] You found Monday's run brutal in the heat.",
+  "expect": {"assert": ["c1", "c2", "c3"], "demote": [], "state_as_read": []}
+}

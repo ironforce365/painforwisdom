@@ -1,0 +1,9 @@
+{
+  "id": "f002_confident_read",
+  "note": "Interpretations exercise the temperature band. Authored for temperature=6: conf>=6 -> state_as_read, conf<6 -> demote. Confidences are placed far from the boundary (9 and 2) so the expectation holds for any temp in 3..8.",
+  "sources": [
+    {"id": "S1", "tier": 1, "kind": "debrief", "text": "Skipped two runs. Said the week felt off and I kept rescheduling."}
+  ],
+  "draft": "[[claim id=c1 type=fact cite=S1]] You skipped two runs this week.\n[[claim id=c2 type=interpretation conf=9]] The rescheduling reads to me like avoidance.\n[[claim id=c3 type=interpretation conf=2]] Maybe you're heading toward burnout.",
+  "expect": {"assert": ["c1"], "state_as_read": ["c2"], "demote": ["c3"]}
+}
