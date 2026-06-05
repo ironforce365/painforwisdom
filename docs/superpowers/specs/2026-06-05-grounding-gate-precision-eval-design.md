@@ -1,7 +1,7 @@
 # Grounding Gate & Precision Eval — Design (Stream 0)
 
 - **Date:** 2026-06-05
-- **Status:** Draft for review
+- **Status:** Approved 2026-06-05 — in implementation (overnight autonomous build, Stream 0)
 - **Supersedes (in part):** `2026-06-03-audio-practice-feedback-loop-design.md` — see §13.
 
 ---
@@ -75,11 +75,16 @@ A claim is grounded only against the **current user's** source set. Sources are 
 
 **Rule — provenance-or-nothing:** a Tier-2 item grounds an assertion **only if it carries provenance back to a Tier-1 source.** A bare coach-conclusion may be *recalled as context* but may **not** *ground a fact-claim*. mem0 today loses per-fact provenance, so it is a **retrieval hint, not a citation source**, until Stream 3 makes memory provenance-bearing.
 
-**Promotion — Tier 2 → Tier 1:** a derived item is **promoted to primary truth when the user explicitly validates it.**
+**Promotion — Tier 2 → Tier 1:** a derived item is **promoted to primary truth when the user validates it.** Validation is *graded* by strength of signal:
 
-- *In-conversation:* requires an **explicit yes to a plainly-stated claim**. A leading-question "mhm" is too weak — the coach should state the claim plainly and get unambiguous assent (e.g. "want me to treat this as established?" → explicit yes).
-- *In-debrief (gold signal):* you reference the coach's prior claim as **your own truth, unprompted**, in a new recording. Strongest, because you independently owned it.
-- Promoted items **record their provenance** (which thread/debrief, when, your words) and are **reversible** — a later contradiction demotes/retracts them.
+- **Strong — explicit yes** to a plainly-stated claim. The coach states the claim plainly and gets unambiguous assent (e.g. "want me to treat this as established?" → explicit yes).
+- **Strong — validation by use:** the user *uses the claim as a grounding source themselves* — references it as settled fact when reasoning forward.
+- **Strong — unprompted debrief echo (gold):** the user references the coach's prior claim as **their own truth, unprompted**, in a new recording. Strongest, because independently owned.
+- **Soft — elaboration:** the user *builds a thought on top of* the claim without explicitly affirming it. A soft signal; it raises confidence but may not promote on its own.
+
+**Absorption-rate config** (1–10) — a second knob, analogous to temperature, governing **how fast the coach absorbs new knowledge as grounding**. High absorption → soft signals (elaboration, use) promote directly. Low absorption → soft signals only raise confidence, and the coach **seeks an explicit yes** before promoting ("I've been treating X as true — is that right?"). Per-user; default emerges from calibration.
+
+Promoted items **record their provenance** (which thread/debrief, when, the user's words, the signal type) and are **reversible** — a later contradiction demotes/retracts them.
 
 **Conceptual claims not in the vault** (coach's general knowledge) are treated as **interpretations** (§2.3 temp band) unless cited to a real Tier-1 source — the coach can hallucinate a study as easily as a feeling.
 
@@ -108,7 +113,8 @@ An assertion with no citation is treated as ungrounded by default (fail-safe). E
 - Integer **1–10**. Higher = stricter = more validation.
 - Governs **interpretations only** (the hard floor ignores it).
 - `1` ≈ lightest (coach asserts most of its reads); `10` ≈ validates nearly every interpretation.
-- Per-user config; default chosen during calibration (§6).
+- Per-user config; **default emerges from calibration** (§6), not hardcoded.
+- Sibling knob: the **absorption-rate** config (§2.2) — temperature governs how much the coach *questions* its interpretations; absorption governs how readily it *promotes* validated claims into grounding. Both per-user, both calibration-seeded.
 
 ---
 
@@ -154,12 +160,12 @@ Each is independently testable.
 
 - **`grounding_judge`** — input: a claim unit + the user's source set → verdict `{grounded | ungrounded | not-an-assertion}` + re-derived type + rationale. LLM-as-judge, structured output. Runs on the **Max subscription via Claude CLI headless** (§9).
 - **`claim_segmenter`** — parses a coach draft into claim units (§2.4). Citation-first ⇒ parse, don't discover.
-- **`grounding_gate`** — orchestrates the lifecycle (§3): route by type, apply hard floor / temp band, demote + log, reassemble the message. Built and tested standalone here; wired into the coach send-path in Stream 2.
+- **`grounding_gate`** — orchestrates the lifecycle (§3): route by type, apply hard floor / temp band, demote + log, reassemble the message. Built and tested standalone, then wired into the coach send-path behind `COACH_GROUNDING_GATE` (default OFF — §9).
 - **`demotion_rewriter`** — rewrites a blocked assertion into a question that preserves the coach's read without asserting it. *"You were punishing yourself" → "Were you punishing yourself about the missed runs, or just noticing the heaviness?"*
 - **`regression_corpus`** — file-based store (jsonl + human-readable markdown). Per record: `id, ts, claim_id, signal{catch|correction|validation}, claim_text, type, cited_sources, source_set_snapshot, demoted_question?, user_correction?, judge_rationale, thread_id, user_id`. Two negative inflows (catches, corrections) + one positive (validations → drives promotion in Stream 3).
 - **`precision_eval`** (offline harness) — CLI that runs the judge over a corpus → report: groundedness rate, confabulation rate, flagging compliance, judge-vs-truth agreement. Subscription-backed.
 - **`fixture_library`** — synthetic, self-labeling debriefs (§6).
-- **`temperature_config`** — the §2.5 knob.
+- **`temperature_config`** — the §2.5 knob (governs interpretation validation) + the **absorption-rate** knob (§2.2, governs promotion of validated claims). Both per-user, calibration-seeded.
 
 ---
 
@@ -213,17 +219,22 @@ Then: `claim_segmenter` parses citations and confidence; `grounding_gate` demote
 
 **Principle (per `feedback_litellm_gateway`):** ride the Max subscription wherever possible; confine API keys to components that genuinely can't.
 
-- **Judge + offline harness → Claude Code headless (`claude -p`, Max OAuth). No Anthropic API key.** *(Confirm headless structured-output mechanics in the plan.)*
-- **Anthropic API key → confined to the coach runtime** (Gonzalo's current setup; revisiting that is a Stream 2 question, not here).
+- **Judge + harness → Claude Code headless (`claude -p --output-format json`, Max OAuth). No Anthropic API key.** *Verified 2026-06-05:* returns JSON with `.result` = model text, ~2.7s. Use `--model claude-sonnet-4-6` and **batch all of a turn's claims into one call** (each headless call reloads ~25–35k cache-creation tokens).
 - **OpenAI key → confined to mem0 embeddings.**
-- **Module location:** new `services/coach/evals/` (judge, gate, rewriter, harness, fixtures) + a regression-corpus directory. Python; reuses the coach's environment.
+
+**Build on the existing `eval/` package — do not duplicate.** `services/coach/eval/` already has `judge.py` (`score_turn`, holistic rubric incl. a `grounding` 1–5 dimension), `single_turn/`, and `simulated_athlete/`. The Stream-0 per-claim gate is a **new, complementary layer** in the same package.
+
+- **Shared LLM caller:** factor a `eval/llm.py` (or similar) that calls the CLI headless backend behind the same monkeypatchable seam the existing `_call_judge_llm` uses (so tests stub it, zero real calls). **Migrate the existing `score_turn` judge onto this subscription backend too** — it's an eval, so it should ride the subscription per the principle above (Gonzalo approved refactoring `eval/` freely).
+- **New modules:** `grounding_judge`, `claim_segmenter`, `grounding_gate`, `demotion_rewriter`, `regression_corpus`, fixtures, and the offline harness — all under `eval/`.
+- **Live-coach integration (in scope, behind a flag):** wire `draft → gate → send` into the coach send-path **behind a config flag `COACH_GROUNDING_GATE` (default OFF)**, so the deployed bot's behavior is unchanged unless enabled. **No deploy/restart** of the running coach is performed here — code lands on the branch; deployment stays a manual, supervised step (consistent with the bot-side-not-deployed posture).
+- **Test env:** `PYTHONPATH=services/coach python3 -m pytest services/coach/tests/...` runs on the host (LLM seam patched).
 
 ---
 
 ## 10. Cross-stream constraints this contract imposes
 
 - **Stream 1 (debrief):** every debrief line must carry provenance back to the transcript, so a `fact` citing the debrief is transitively Tier-1.
-- **Stream 2 (coach):** output must be **citation-bearing** with `type`/`confidence`/`claim_id` per claim (§2.4); send-path becomes **draft → gate → send** (no raw token streaming to the user); coach detects **validation/correction signals** and triggers promotion/demotion.
+- **Stream 2 (coach):** output must be **citation-bearing** with `type`/`confidence`/`claim_id` per claim (§2.4); send-path becomes **draft → gate → send** (no raw token streaming to the user) — *this plumbing lands in Stream 0 behind the `COACH_GROUNDING_GATE` flag (§9)*; the **proactive reach-out, thread creation, and validation/correction-signal detection** remain Stream 2.
 - **Stream 3 (memory):** memory must be **provenance-bearing and tier-aware**; must store **promotion/demotion** with recorded provenance; this is *why* curated memory beats mem0's provenance-losing extraction.
 - **Stream 4 (web app):** surfaces citations, the regression corpus, and source tiers; a natural place to review/confirm promotions.
 
@@ -242,7 +253,9 @@ Then: `claim_segmenter` parses citations and confidence; `grounding_gate` demote
 
 ## 12. Boundaries — explicitly NOT in this stream
 
-Efficacy/longitudinal measurement; the debrief artifact; the proactive trigger, thread management, and validation-signal *detection*; the memory store and promotion *storage*; the web app; any change to how the coach is hosted or authed at runtime.
+Efficacy/longitudinal measurement; the debrief artifact (Stream 1); the proactive reach-out trigger, thread management, and validation-signal *detection* (Stream 2); the memory store and promotion *storage* (Stream 3); the web app (Stream 4); **deploying/restarting the running coach** (code lands behind a default-OFF flag; deployment is a separate supervised step).
+
+The `draft → gate → send` plumbing *is* in scope here (behind `COACH_GROUNDING_GATE`, default OFF) — that was an explicit scope decision on 2026-06-05.
 
 ---
 
@@ -257,8 +270,8 @@ Efficacy/longitudinal measurement; the debrief artifact; the proactive trigger, 
 
 ---
 
-## 14. Open questions for review
+## 14. Resolved decisions (2026-06-05)
 
-1. **Promotion strictness** — is "explicit yes to a plainly-stated claim" (in-conversation) + "unprompted debrief echo" (gold) the right bar, or stricter/looser?
-2. **Claim-ID linkage scheme** — how a new debrief is matched back to a prior `claim_id` (exact reference vs semantic match). Originates here; mechanism lands in Stream 2/3.
-3. **Default temperature** — pick a starting value now, or leave it to emerge from calibration?
+1. **Promotion strictness** → *graded* signals, not a single bar (§2.2): explicit yes, validation-by-use, and unprompted debrief echo are **strong**; elaboration-on-top is **soft**. A second **absorption-rate** knob decides whether soft signals promote directly or trigger an explicit-yes confirmation.
+2. **Claim-ID linkage** → **semantic match** (close-enough threshold), not exact reference — the user won't have context of the linkage to cite an ID. Mechanism lands in Stream 2/3.
+3. **Default temperature** → **leave it to emerge from calibration** (§6); no hardcoded seed. Same for the absorption-rate default.
