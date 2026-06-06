@@ -1,5 +1,10 @@
 # Judge baseline — vault calibration set (before human labels)
 
+> **SUPERSEDED by `CALIBRATION_RESULT.md`.** This was the pre-label baseline + the
+> guess that the gap was temperature. Gonzalo's labels disproved that guess:
+> agreement is flat across temp 4–6 (temperature is not the lever), and ~20% of cases
+> are contradiction-bucket misses no source-only gate can catch. Kept for history.
+
 **Run:** 2026-06-05 · `python -m eval.grounding.score_calibration --temperature 6`
 **Judge:** `claude -p --model claude-sonnet-4-6` (subscription)
 

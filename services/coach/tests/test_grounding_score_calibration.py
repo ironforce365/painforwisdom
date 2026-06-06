@@ -1,5 +1,22 @@
-from eval.grounding.score_calibration import judge_action, parse_md_verdicts, score
+import json
+
+from eval.grounding.score_calibration import (
+    judge_action,
+    load_labels_json,
+    parse_md_verdicts,
+    score,
+)
 from eval.grounding.types import Action, ClaimType, Verdict
+
+
+def test_load_labels_json_extracts_valid_verdicts(tmp_path):
+    p = tmp_path / "labels.json"
+    p.write_text(json.dumps({"labels": {
+        "1": {"verdict": "demote", "agree": False},
+        "2": {"verdict": "assert", "agree": True},
+        "3": {"verdict": "bogus"},
+    }}), encoding="utf-8")
+    assert load_labels_json(p) == {1: "demote", 2: "assert"}
 
 
 def test_parse_md_verdicts_picks_filled_rows():

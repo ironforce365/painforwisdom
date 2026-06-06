@@ -42,6 +42,21 @@ def parse_md_verdicts(md_text: str) -> dict[int, str]:
     return out
 
 
+def load_labels_json(path: Path) -> dict[int, str]:
+    """Pull {case_number: verdict} from the normalized labels sidecar.
+
+    The sidecar preserves Gonzalo's prose + correction text per case; here we
+    take only the normalized verdict, ignoring any not in the controlled vocab.
+    """
+    data = json.loads(path.read_text(encoding="utf-8"))
+    out: dict[int, str] = {}
+    for k, v in data.get("labels", {}).items():
+        verdict = (v.get("verdict") or "").lower()
+        if verdict in _VALID:
+            out[int(k)] = verdict
+    return out
+
+
 def judge_action(case: dict, *, temperature: int, judge_fn=judge_claims) -> Action:
     ctype = ClaimType(case["type"])
     cites = ["S1"] if ctype in (ClaimType.FACT, ClaimType.CONCEPTUAL) else []
@@ -76,21 +91,31 @@ def _main() -> None:
     ap = argparse.ArgumentParser(description="Score the grounding judge against calibration labels.")
     ap.add_argument("--cases", default="services/coach/eval/grounding/CALIBRATION_VAULT.jsonl")
     ap.add_argument("--md", default="services/coach/eval/grounding/CALIBRATION_VAULT.md")
+    ap.add_argument("--labels", default="services/coach/eval/grounding/CALIBRATION_VAULT.labels.json",
+                    help="normalized verdict sidecar; preferred over parsing --md prose")
     ap.add_argument("--temperature", type=int, default=6)
     args = ap.parse_args()
 
     cases = load_cases(Path(args.cases))
+    labels_path = Path(args.labels)
     md_path = Path(args.md)
-    verdicts = parse_md_verdicts(md_path.read_text(encoding="utf-8")) if md_path.exists() else {}
+    if labels_path.exists():
+        verdicts = load_labels_json(labels_path)
+        src = labels_path.name
+    elif md_path.exists():
+        verdicts = parse_md_verdicts(md_path.read_text(encoding="utf-8"))
+        src = md_path.name
+    else:
+        verdicts, src = {}, "(none)"
 
     report = score(cases, verdicts, temperature=args.temperature)
     for r in report["rows"]:
         flag = "" if r["human"] is None else ("  ✓" if r["match"] else f"  ✗ (you: {r['human']})")
         print(f"#{r['n']:>2} judge={r['judge']:<13}{flag}  | {r['claim'][:80]}")
     if report["labeled"]:
-        print(f"\nAGREEMENT: {report['agree']}/{report['labeled']} = {report['agreement']:.2f} (temp {args.temperature})")
+        print(f"\nlabels: {src} · AGREEMENT: {report['agree']}/{report['labeled']} = {report['agreement']:.2f} (temp {args.temperature})")
     else:
-        print(f"\n(no labels yet — judge baseline only; fill the 'Your verdict' column in {md_path.name})")
+        print(f"\n(no labels yet — judge baseline only; fill verdicts in {src})")
 
 
 if __name__ == "__main__":
