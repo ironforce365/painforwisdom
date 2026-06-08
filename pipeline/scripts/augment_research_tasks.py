@@ -378,14 +378,10 @@ def main(argv: list[str] | None = None) -> int:
     n_nonbook_attempted = 0
     book_failures: list[Dict[str, Any]] = []  # genuinely attempted z-lib downloads that failed
     quota_skipped: list[Dict[str, Any]] = []  # books NEVER attempted — quota was already gone
-    dedup_reuse_entries: list[Dict[str, str]] = []  # {"chapter": ..., "book": ...}
     # Per-run book-level dedup cache: book identity -> alt_source_url. Chapter
     # rows of a book already fetched this run reuse its extraction instead of
     # re-downloading (saves z-lib quota + login load).
     book_cache: Dict[tuple, str] = {}
-    # Parallel map (same keys as book_cache) of book identity -> first-seen
-    # display title, so dedup-reuse can name WHICH book a chapter came from.
-    book_cache_titles: Dict[tuple, str] = {}
     # Once z-library reports daily quota exhaustion, skip remaining z-library
     # attempts for this run. Per user preference (2026-05-21): on Book failure
     # we do NOT fall through to web-search analog — we mark Reachable=no and
@@ -417,7 +413,6 @@ def main(argv: list[str] | None = None) -> int:
             if alt_url:
                 n_curated_local += 1
                 book_cache.setdefault(ident, alt_url)
-                book_cache_titles.setdefault(ident, row.get("title", ""))
                 print(f"  curated-local hit -> {alt_url}")
             elif book_cache.get(ident):
                 # Same book already fetched earlier this run (another chapter):
@@ -425,10 +420,6 @@ def main(argv: list[str] | None = None) -> int:
                 alt_url = book_cache[ident]
                 reason = "dedup-reuse: same book already fetched earlier this run"
                 n_dedup_reuse += 1
-                dedup_reuse_entries.append({
-                    "chapter": str(row.get("title") or ""),
-                    "book": str(book_cache_titles.get(ident) or row.get("title") or ""),
-                })
                 print(f"  dedup hit (same book this run) -> {alt_url}")
             elif zlib_quota_exhausted:
                 # Daily quota already gone earlier this run — this book was
@@ -444,7 +435,6 @@ def main(argv: list[str] | None = None) -> int:
                 if alt_url:
                     n_zlib_hit += 1
                     book_cache[ident] = alt_url
-                    book_cache_titles.setdefault(ident, row.get("title", ""))
                     print(f"  z-library hit -> {alt_url}")
                 elif "quota-exceeded" in reason:
                     # This book is the one that tripped the quota — it WAS
@@ -569,9 +559,7 @@ def main(argv: list[str] | None = None) -> int:
     _write_failures_and_notify(
         book_failures=book_failures,
         quota_skipped=quota_skipped,
-        dedup_reuse_entries=dedup_reuse_entries,
         n_zlib_hit=n_zlib_hit,
-        n_zlib_attempted=n_zlib_attempted,
         n_curated_local=n_curated_local,
         n_dedup_reuse=n_dedup_reuse,
         n_success=n_success,
@@ -604,9 +592,7 @@ def _write_failures_and_notify(
     *,
     book_failures: list[Dict[str, Any]],
     quota_skipped: list[Dict[str, Any]],
-    dedup_reuse_entries: list[Dict[str, str]],
     n_zlib_hit: int,
-    n_zlib_attempted: int,
     n_curated_local: int = 0,
     n_dedup_reuse: int = 0,
     n_success: int,
@@ -630,62 +616,36 @@ def _write_failures_and_notify(
     # web-search analogs = successes that weren't z-lib, curated-local, or dedup.
     nonbook_aug = max(0, n_success - n_zlib_hit - n_curated_local - n_dedup_reuse)
 
-    # Header status: a genuinely attempted+failed book is the only thing that
-    # warrants a warning. Hitting the daily quota is NOT a failure — it means we
-    # pulled everything today's allowance permitted, so it stays ✅.
+    # Operational digest: NUMBERS ONLY. Per-title lists gave Gonzalo nothing to
+    # act on (2026-06-08 feedback) — the message answers "where are we": how
+    # many landed, how many are pending, how many need manual work. Full titles
+    # stay in augment-failures-{today}.jsonl for anyone who wants the detail.
+    # A genuine attempted+failed book is the only thing warranting 🟡; hitting
+    # the daily quota is success (we pulled everything today allowed) → ✅.
     status = "🟡" if book_failures else "✅"
     lines = [f"{status} augment-research run finished {today}"]
 
-    # --- z-library downloads ---
-    if n_zlib_attempted:
-        lines.append(f"   z-library: {n_zlib_hit}/{n_zlib_attempted} download attempts succeeded")
+    sourced = f"   sourced: {n_zlib_hit} downloaded"
+    if n_curated_local:
+        sourced += f" + {n_curated_local} from library"
+    if n_dedup_reuse:
+        sourced += f" + {n_dedup_reuse} chapters reused"
+    if nonbook_aug:
+        sourced += f" + {nonbook_aug} web-search"
+    lines.append(sourced)
+
     if zlib_quota_exhausted:
-        lines.append("   ✅ daily z-library quota reached — downloaded everything today's quota allowed")
+        lines.append("   ✅ daily z-library quota reached (pulled everything today allowed)")
         quota_line = _format_zlib_quota_line()
         if quota_line:
             lines.append(quota_line)
 
-    # --- other success channels ---
-    if n_curated_local:
-        lines.append(f"   curated-local: {n_curated_local} books from local library")
-    if n_dedup_reuse:
-        lines.append(f"   dedup-reuse: {n_dedup_reuse} chapters reused from a book already fetched this run:")
-        for e in dedup_reuse_entries[:5]:
-            chapter = (e.get("chapter") or "?")[:55]
-            book = e.get("book") or ""
-            if book and book != e.get("chapter"):
-                lines.append(f"     • {chapter} ← {book[:45]}")
-            else:
-                lines.append(f"     • {chapter}")
-        if len(dedup_reuse_entries) > 5:
-            lines.append(f"     • … and {len(dedup_reuse_entries) - 5} more")
-    if nonbook_aug:
-        lines.append(f"   web-search analogs: {nonbook_aug} (papers/podcasts)")
-
-    # --- deferred by quota: NOT failures, auto-retried next run ---
     if quota_skipped:
-        lines.append(
-            f"   deferred to next run (quota): {len(quota_skipped)} books not attempted — auto-retried tomorrow"
-        )
-        for fail in quota_skipped[:5]:
-            t = (fail.get("title") or "?")[:70]
-            lines.append(f"     • {t}")
-        if len(quota_skipped) > 5:
-            lines.append(f"     • … and {len(quota_skipped) - 5} more")
-
-    # --- genuine failures: attempted, need manual sourcing ---
+        lines.append(f"   pending (auto-retry tomorrow): {len(quota_skipped)}")
     if book_failures:
         lines.append(
-            f"   failed (attempted, need manual sourcing): {len(book_failures)} — see reports/augment-failures-{today}.jsonl"
+            f"   need manual sourcing: {len(book_failures)} — see reports/augment-failures-{today}.jsonl"
         )
-        for fail in book_failures[:5]:
-            t = (fail.get("title") or "?")[:70]
-            lines.append(f"     • {t}")
-        if len(book_failures) > 5:
-            lines.append(f"     • … and {len(book_failures) - 5} more")
-    elif not quota_skipped:
-        lines.append("   failed books: 0 ✅")
-
     if n_halt:
         lines.append(f"   halted (budget): {n_halt} rows unprocessed")
 
