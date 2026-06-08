@@ -64,6 +64,29 @@ def _tokenize(s: str) -> set[str]:
     }
 
 
+def canonical_book_title(title: str) -> str:
+    """Collapse a research-row title to its bare book title.
+
+    Many rows annotate the parent book with a chapter / edition / subtitle
+    ("The Talent Code — Ch. 2: The Deep Practice Cell", "Running Rewired
+    (2nd Ed.)"). For local-inventory matching we only care about the book,
+    so strip those tails. Mirrors augment_research_tasks._book_identity's
+    title normalization (single source of truth for "which book is this").
+    """
+    t = (title or "").lower()
+    # Drop parentheticals (row annotations + editions): "(Values vs Goals)", "(2nd Ed.)".
+    t = re.sub(r"\s*\([^)]*\)", " ", t)
+    # Drop chapter/section/subtitle tails: " — Ch. 2: ...", " -- Pillar 4", ": subtitle".
+    t = re.split(r"\s+[—–-]{1,2}\s+|:", t, maxsplit=1)[0]
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def _canonical_slug(title: str) -> str:
+    """Slug of the canonical book title — the key used to name (and recognize)
+    `books/extracted/` files independent of chapter/edition annotations."""
+    return re.sub(r"[^a-z0-9]+", "-", canonical_book_title(title)).strip("-")[:60]
+
+
 def _title_slug_candidates(title: str) -> list[str]:
     """Mirror of augment_research_tasks._title_slug_candidates — broadest first."""
     candidates: list[str] = []
@@ -164,10 +187,13 @@ def find_local_book(
 ) -> Optional[LocalBook]:
     """Best match for (title, author) in local inventory, or None.
 
-    Priority: curated `books/<slug>/` folders (slug-exact), then `books/raw/`
-    (token-overlap with author check).
+    Priority: curated `books/<slug>/` folders (slug-exact), then
+    `books/extracted/` (canonical-slug exact), then `books/raw/` (token-overlap
+    with author check). The request title is canonicalized first so chapter /
+    edition / subtitle rows ("The Talent Code — Ch. 2: ...") match the parent
+    book that was downloaded once (2026-06-08 daily quota-burn incident).
     """
-    req_title = _tokenize(title)
+    req_title = _tokenize(canonical_book_title(title))
     req_author = _tokenize(author)
 
     # 1. Curated folder exact slug.
@@ -187,7 +213,22 @@ def find_local_book(
             disp_title = title
         return LocalBook(path=chosen, display_title=disp_title, display_author=disp_author)
 
-    # 2. books/raw/ fuzzy match.
+    # 2. books/extracted/ — tidy .txt extractions written at download time.
+    #    No author in the filename, so require canonical-slug EQUALITY (bare
+    #    book titles identical) to avoid serving a different book ("Peak" must
+    #    not match "Peak Performance").
+    req_slug = _canonical_slug(title)
+    extracted = books_root / "extracted"
+    if req_slug and extracted.is_dir():
+        for f in _iter_book_files(extracted):
+            if _canonical_slug(f.stem.replace("-", " ")) == req_slug:
+                return LocalBook(
+                    path=f,
+                    display_title=canonical_book_title(title),
+                    display_author=author,
+                )
+
+    # 3. books/raw/ fuzzy match.
     raw = books_root / "raw"
     if not raw.is_dir():
         return None

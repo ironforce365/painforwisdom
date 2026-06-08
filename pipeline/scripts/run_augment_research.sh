@@ -11,7 +11,12 @@
 
 set -euo pipefail
 
-PROJECT_ROOT="/home/gonzalo/workspace/painforwisdom/painforwisdom"
+# Self-locating: root at THIS script's own checkout (dev, or the tag-pinned
+# painforwisdom-live), so the systemd unit picks the environment purely by
+# which copy of the script it invokes. A hardcoded dev path here silently
+# defeated the dev/live split — the live unit would cd back into dev and run
+# stale code (2026-06-08).
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PYTHON="/home/gonzalo/miniconda3/envs/painforwisdom-poc/bin/python"
 # Cost cap disabled: user runs on Anthropic Ultra/Max subscription, no $ gating.
 # Script requires the flag, so pass a number larger than any plausible run.
