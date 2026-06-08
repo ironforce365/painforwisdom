@@ -46,7 +46,7 @@ load_dotenv(PROJECT_ROOT / ".env")
 
 from pipeline.banned_sources import is_banned  # noqa: E402
 from pipeline.llm import call_llm  # noqa: E402
-from pipeline.local_books import find_local_book  # noqa: E402
+from pipeline.local_books import canonical_book_title, find_local_book  # noqa: E402
 from pipeline.notion_client import get_client  # noqa: E402
 from pipeline.runtime import append_metric, canonical_project_root  # noqa: E402
 from pipeline.telegram import send as telegram_send  # noqa: E402
@@ -184,13 +184,14 @@ def _book_identity(row: Dict[str, Any]) -> tuple[str, str]:
     2", "Do Hard Things — Ch. 11"); each previously triggered a full re-search +
     re-download of the identical book, multiplying z-library quota + login load
     (2026-06-02: 60 rows ≈ 38 unique books). The whole-book extraction already
-    serves every chapter row, so the first fetch is reused for the rest."""
-    title = (row.get("title") or "").lower()
-    # Drop parentheticals (row annotations + editions): "(Values vs Goals)", "(2nd Ed.)".
-    title = re.sub(r"\s*\([^)]*\)", " ", title)
-    # Drop chapter/section/subtitle tails: " — Ch. 2: ...", " -- Pillar 4", ": subtitle".
-    title = re.split(r"\s+[—–-]{1,2}\s+|:", title, maxsplit=1)[0]
-    title = re.sub(r"[^a-z0-9]+", " ", title).strip()
+    serves every chapter row, so the first fetch is reused for the rest.
+
+    Title normalization is shared with `local_books.canonical_book_title` so
+    "this is the same book" means the same thing in the per-run dedup cache and
+    in next-run local-inventory recognition (single source of truth)."""
+    # Collapse remaining punctuation to spaces for a stable key (apostrophes,
+    # slashes): canonical_book_title keeps them, the dedup key does not.
+    title = re.sub(r"[^a-z0-9]+", " ", canonical_book_title(row.get("title") or "")).strip()
     author = (row.get("author_host") or "").lower()
     first = re.split(r"[,&;]| and ", author, maxsplit=1)[0].strip()
     lastname = first.split()[-1] if first else ""
@@ -213,15 +214,17 @@ def _check_curated_local(row: Dict[str, Any]) -> tuple[Optional[str], str]:
 def _try_zlibrary(row: Dict[str, Any]) -> tuple[Optional[str], str]:
     """Returns (alt_source_url, reason). alt_source_url is None on failure.
 
-    Bridge already lands files inside `books/extracted/`. Rename to a tidy
-    title-slugged filename for downstream readability; the bridge's own name
-    encodes author+id which is noisier."""
+    Bridge already lands files inside `books/extracted/`. Rename to the
+    CANONICAL book-title slug (chapter/edition annotations stripped) so every
+    chapter row of a book maps to one file and next-run `find_local_book`
+    recognizes it — otherwise the book is re-downloaded daily (2026-06-08
+    quota-burn incident)."""
     title = row.get("title", "")
     author = row.get("author_host", "")
     result = zlib_fetch(title=title, author=author)
     if isinstance(result, BookText):
         EXTRACTED_BOOKS_DIR.mkdir(parents=True, exist_ok=True)
-        safe_slug = re.sub(r"[^a-z0-9]+", "-", title.lower())[:60].strip("-")
+        safe_slug = re.sub(r"[^a-z0-9]+", "-", canonical_book_title(title))[:60].strip("-")
         dest = EXTRACTED_BOOKS_DIR / f"{safe_slug}{result.local_path.suffix}"
         if result.local_path.resolve() != dest.resolve():
             if dest.exists():
