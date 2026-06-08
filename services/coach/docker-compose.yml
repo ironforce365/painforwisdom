@@ -47,6 +47,10 @@ services:
       COACH_INBOX_ROOT: /vault/_inbox
       COACH_VAULT_PATH: /vault
       COACH_USAGE_LOG: /data/usage.jsonl
+      # Debug canary: append a "kb sources" footer to each reply naming the vault
+      # slugs that grounded the turn ("(none)" = generic-answer alarm). Default-on
+      # for now; flip via COACH_DEBUG in .env.coach.
+      COACH_DEBUG: ${COACH_DEBUG:-true}
     # CRITICAL: do NOT set ANTHROPIC_API_KEY here — it would shadow the OAuth token.
     volumes:
       - ${VAULT_HOST_PATH}:/vault

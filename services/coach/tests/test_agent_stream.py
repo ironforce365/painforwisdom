@@ -19,6 +19,9 @@ def _parse_ndjson(body: str) -> list[dict]:
 @pytest.fixture
 def client(monkeypatch, tmp_path):
     monkeypatch.setenv("COACH_INBOX_ROOT", str(tmp_path))
+    # These tests pin the core NDJSON contract; the COACH_DEBUG canary footer
+    # (default-on, exercised in test_debug_mode.py) would add an extra delta.
+    monkeypatch.setenv("COACH_DEBUG", "false")
     return TestClient(svc.app)
 
 

@@ -161,6 +161,31 @@ def _merge_sources(*groups: list[str]) -> list[str]:
     return out
 
 
+# Debug canary. When COACH_DEBUG is enabled the coach reply carries a footer
+# naming the vault slugs that grounded the turn — proof it is leaning on the
+# knowledge base rather than generic model knowledge. An empty slug list renders
+# "(none)", which is the alarm: a grounded turn that retrieved nothing.
+_DEBUG_TRUTHY = {"1", "true", "yes", "on"}
+
+
+def _debug_enabled() -> bool:
+    """Whether the COACH_DEBUG canary footer is on. Default-on for now: an unset
+    var counts as enabled (read per-call so tests/ops can toggle live)."""
+    return os.environ.get("COACH_DEBUG", "true").strip().lower() in _DEBUG_TRUTHY
+
+
+def _debug_sources_footer(sources: list[str]) -> str:
+    """Footer listing the grounding slugs, or '' when the canary is off.
+
+    Presentation-only: appended to what the client sees, never written to the
+    inbox. '(none)' is intentional — it surfaces a turn that grounded on nothing.
+    """
+    if not _debug_enabled():
+        return ""
+    body = ", ".join(sources) if sources else "(none)"
+    return f"\n\n— kb sources: {body}"
+
+
 def _build_agent_options(user_id: str):
     """Construct ClaudeAgentOptions for a turn (resume + MCP servers + allowlist).
 
@@ -277,7 +302,8 @@ async def turn(t: Turn) -> Reply:
         assistant_text=reply_text,
         retrieved_sources=sources,
     )
-    return Reply(reply=reply_text, crisis=False)
+    # Inbox keeps the clean reply; the client gets the debug canary appended.
+    return Reply(reply=reply_text + _debug_sources_footer(sources), crisis=False)
 
 
 @app.post("/turn/stream")
@@ -311,13 +337,19 @@ async def turn_stream(t: Turn) -> StreamingResponse:
                 yield json.dumps({"delta": delta}) + "\n"
         finally:
             _stream_sources.reset(token)
+        merged = _merge_sources(sources)
         write_inbox_entry(
             inbox_root=inbox_root,
             user_id=t.user_id,
             user_text=t.text,
             assistant_text="".join(chunks),
-            retrieved_sources=_merge_sources(sources),
+            retrieved_sources=merged,
         )
+        # Canary rides as a final delta (kept out of the persisted reply above)
+        # so the user sees which vault slugs grounded the turn before done.
+        footer = _debug_sources_footer(merged)
+        if footer:
+            yield json.dumps({"delta": footer}) + "\n"
         yield json.dumps({"done": True, "crisis": False}) + "\n"
 
     return StreamingResponse(_gen(), media_type="application/x-ndjson")
