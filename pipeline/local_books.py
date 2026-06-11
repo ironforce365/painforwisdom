@@ -64,7 +64,7 @@ def _tokenize(s: str) -> set[str]:
     }
 
 
-def canonical_book_title(title: str) -> str:
+def canonical_book_title(title: str, *, lower: bool = True) -> str:
     """Collapse a research-row title to its bare book title.
 
     Many rows annotate the parent book with a chapter / edition / subtitle
@@ -72,8 +72,13 @@ def canonical_book_title(title: str) -> str:
     (2nd Ed.)"). For local-inventory matching we only care about the book,
     so strip those tails. Mirrors augment_research_tasks._book_identity's
     title normalization (single source of truth for "which book is this").
+
+    `lower=False` preserves the original case — the z-library query ladder
+    reuses this cleaner but wants natural-looking search terms, not lowercase.
     """
-    t = (title or "").lower()
+    t = title or ""
+    if lower:
+        t = t.lower()
     # Drop parentheticals (row annotations + editions): "(Values vs Goals)", "(2nd Ed.)".
     t = re.sub(r"\s*\([^)]*\)", " ", t)
     # Drop chapter/section/subtitle tails: " — Ch. 2: ...", " -- Pillar 4", ": subtitle".

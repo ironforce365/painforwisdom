@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Literal, Union
 
 from pipeline.runtime import canonical_project_root
+from pipeline.local_books import canonical_book_title
 
 
 _ZLIBRARY_REPO_RAW = os.environ.get("ZLIBRARY_REPO_PATH", "").strip()
@@ -285,28 +286,9 @@ def _parse_bridge_response(stdout: str) -> dict | None:
 # Z-Library indexes books by clean canonical titles. Notion entries often arrive
 # decorated with chapter / pillar / edition annotations that make the query
 # string longer than any real book title and produce hits=0 (verified 2026-05-27
-# against Z-Library EAPI). Strip these before building the ladder.
-_TITLE_NORMALIZATION_PATTERNS = (
-    # everything after an em-dash or en-dash separator (chapter topic / subtitle)
-    re.compile(r"\s+[—–]\s+.*$"),
-    # "(2nd Ed.)", "(3rd Edition)", "(Revised Edition)", "(Expanded Edition)"
-    re.compile(
-        r"\s*\((?:\d+(?:st|nd|rd|th)\s+)?(?:revised|updated|expanded|new|2nd|3rd|4th|5th|6th|7th|8th|9th|10th)?\s*ed(?:ition)?\.?\)",
-        re.IGNORECASE,
-    ),
-    # "Ch. 2:" or "Chapter 7:" headers
-    re.compile(r"\s*(?:Ch(?:apter)?\.?\s*\d+)\s*:\s*", re.IGNORECASE),
-)
-
-
-def _normalize_title(title: str) -> str:
-    """Strip chapter / edition annotations a Notion curator commonly appends.
-    The Z-Library ladder's job is to find the book; the chapter topic is the
-    caller's mental tag, not part of the canonical title."""
-    out = (title or "").strip()
-    for pat in _TITLE_NORMALIZATION_PATTERNS:
-        out = pat.sub("", out)
-    return " ".join(out.split()).strip()
+# against Z-Library EAPI). `canonical_book_title()` strips these before the
+# ladder is built (it replaced the old regex-pattern normalizer on 2026-06-10,
+# which missed regular/double hyphens, "Book N Section M", and bare editions).
 
 
 def _build_query_ladder(title: str, author: str) -> list[str]:
@@ -325,11 +307,13 @@ def _build_query_ladder(title: str, author: str) -> list[str]:
     Duplicates and empty rungs are filtered. Always returns at least one query
     if either title or author is non-empty.
     """
-    title = _normalize_title(title)
+    # Clean the title to its bare book core (case-preserving), reusing the same
+    # cleaner as local-inventory matching. This drops chapter/edition/section/
+    # subtitle noise that previously survived into the query and returned 0 hits
+    # ("Lore of Running 4th Edition - Chapter 2: Oxygen Transport", "Marcus
+    # Aurelius -- Meditations Book 5 Section 20", 2026-06-10).
+    title_core = canonical_book_title(title, lower=False)
     author = (author or "").strip()
-
-    # Title minus subtitle (everything before first ':').
-    title_core = title.split(":", 1)[0].strip()
 
     # First author's last whitespace-separated token. Handles:
     #   "Ryan, Deci"            -> "Ryan"      (comma = first author then list)
@@ -340,7 +324,7 @@ def _build_query_ladder(title: str, author: str) -> list[str]:
     first_lastname = first_author.split()[-1] if first_author else ""
 
     rungs = [
-        f"{title} {author}".strip(),
+        f"{title_core} {author}".strip(),
         f"{title_core} {first_lastname}".strip(),
         title_core,
     ]

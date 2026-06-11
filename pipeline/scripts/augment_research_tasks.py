@@ -376,9 +376,14 @@ def main(argv: list[str] | None = None) -> int:
     n_halt = 0
     n_books_attempted = 0
     n_nonbook_attempted = 0
-    book_failures: list[Dict[str, Any]] = []  # genuinely attempted z-lib downloads that failed
-    quota_skipped: list[Dict[str, Any]] = []  # books NEVER attempted — quota was already gone
-    transient_skipped: list[Dict[str, Any]] = []  # tooling crash (subprocess/extract) — auto-retries
+    book_failures: list[Dict[str, Any]] = []  # genuinely unreachable + z-lib can't find → manual
+    quota_skipped: list[Dict[str, Any]] = []  # unreachable books NEVER attempted — quota was gone
+    transient_skipped: list[Dict[str, Any]] = []  # unreachable + tooling crash — auto-retries
+    zlib_only_misses: list[Dict[str, Any]] = []  # REACHABLE books (own URL) whose optional z-lib copy missed — NO downgrade
+    # Total book rows in the audit = the denominator for the digest's coverage
+    # line ("X / N books have a full-text copy"). Counts every Type=Book row,
+    # sourced or not, so the operator sees the standing backlog, not just deltas.
+    n_books_total = sum(1 for r in rows if (r.get("type") or "").lower() == "book")
     # Per-run book-level dedup cache: book identity -> alt_source_url. Chapter
     # rows of a book already fetched this run reuse its extraction instead of
     # re-downloading (saves z-lib quota + login load).
@@ -460,13 +465,28 @@ def main(argv: list[str] | None = None) -> int:
                         skipped_transient = True
 
             if book_skip_to_unreachable:
-                _notion_update(
-                    client,
-                    page_id=row["page_id"],
-                    reachable="no",
-                    reachability_reason=reason or "z-library: failure",
+                is_zlib_only = bool(row.get("_zlib_only"))
+                bucket, do_downgrade = _classify_book_miss(
+                    is_zlib_only=is_zlib_only,
+                    skipped_by_quota=skipped_by_quota,
+                    is_transient=skipped_transient,
                 )
-                _telemetry(row, "book-unreachable", 0.0)
+                if do_downgrade:
+                    # Genuinely unreachable (paywalled / no URL): mark Reachable=no.
+                    _notion_update(
+                        client,
+                        page_id=row["page_id"],
+                        reachable="no",
+                        reachability_reason=reason or "z-library: failure",
+                    )
+                else:
+                    # Reachable book — only its OPTIONAL offline z-lib copy missed.
+                    # Keep Reachable=yes (the row's own URL still serves daily
+                    # briefs). 2026-06-10: this path used to downgrade reachable
+                    # books AND file them as "need manual sourcing" — both wrong;
+                    # a z-lib miss silently dropped readable sources from briefs.
+                    print(f"  z-lib miss on reachable book — keeping Reachable=yes (offline copy pending)")
+                _telemetry(row, "zlib-only-miss" if is_zlib_only else "book-unreachable", 0.0)
                 record = {
                     "page_id": row.get("page_id", ""),
                     "title": row.get("title", ""),
@@ -474,30 +494,17 @@ def main(argv: list[str] | None = None) -> int:
                     "source_url": row.get("source_url", ""),
                     "reason": reason,
                 }
-                # Deferred-by-quota and tooling-crash books are NOT failures:
-                # they were never tried / only tripped the limit / crashed in the
-                # bridge, and all auto-retry next run. Only genuine misses
-                # (not-found etc.) land in book_failures = "need manual sourcing".
-                if skipped_by_quota:
-                    quota_skipped.append(record)
-                elif skipped_transient:
-                    transient_skipped.append(record)
-                else:
-                    book_failures.append(record)
+                {
+                    "quota": quota_skipped,
+                    "transient": transient_skipped,
+                    "zlib_only_miss": zlib_only_misses,
+                    "manual": book_failures,
+                }[bucket].append(record)
                 n_fail += 1
                 continue
 
         if not type_ == "book":
             n_nonbook_attempted += 1
-
-        # Zlib-primary book that didn't hit: leave Notion alone (row was
-        # already reachable via its original URL). No LLM fallback either —
-        # the existing URL is the source of truth.
-        if row.get("_zlib_only") and not alt_url:
-            print(f"  z-lib miss on reachable book — keeping Notion state, no LLM fallback ({reason or 'no zlib hit'})")
-            _telemetry(row, "zlib-only-miss", 0.0)
-            n_fail += 1
-            continue
 
         if not alt_url:
             try:
@@ -564,7 +571,9 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  dedup-reuse:    {n_dedup_reuse} (same-book chapters)")
     print(f"  deferred (quota): {len(quota_skipped)}")
     print(f"  deferred (transient): {len(transient_skipped)}")
-    print(f"  failed (attempted): {len(book_failures)}")
+    print(f"  reachable-no-localcopy (no downgrade): {len(zlib_only_misses)}")
+    print(f"  failed (manual sourcing): {len(book_failures)}")
+    print(f"  book rows total: {n_books_total}")
     print(f"  marked Reachable=no: {n_fail}")
     print(f"  halted/skipped: {n_halt}")
     print(f"LLM spend:        ${spent:.2f}")
@@ -576,6 +585,8 @@ def main(argv: list[str] | None = None) -> int:
         book_failures=book_failures,
         quota_skipped=quota_skipped,
         transient_skipped=transient_skipped,
+        zlib_only_misses=zlib_only_misses,
+        n_books_total=n_books_total,
         n_zlib_hit=n_zlib_hit,
         n_curated_local=n_curated_local,
         n_dedup_reuse=n_dedup_reuse,
@@ -620,11 +631,36 @@ def _is_transient_zlib_failure(reason: str) -> bool:
     return any(kind in (reason or "") for kind in _TRANSIENT_ZLIB_REASONS)
 
 
+def _classify_book_miss(
+    *, is_zlib_only: bool, skipped_by_quota: bool, is_transient: bool
+) -> tuple[str, bool]:
+    """Decide a failed book's digest bucket and whether to downgrade Notion.
+
+    Returns (bucket, downgrade). bucket ∈
+    {zlib_only_miss, quota, transient, manual}.
+
+    A `_zlib_only` book is REACHABLE via its own URL — z-library is only an
+    optional offline copy. A miss there must NEVER downgrade it (that excludes
+    a readable source from daily briefs) and is never "manual sourcing". For
+    genuinely-unreachable books, quota/transient auto-retry; a real not-found
+    is the only thing a human must act on.
+    """
+    if is_zlib_only:
+        return ("zlib_only_miss", False)
+    if skipped_by_quota:
+        return ("quota", True)
+    if is_transient:
+        return ("transient", True)
+    return ("manual", True)
+
+
 def _write_failures_and_notify(
     *,
     book_failures: list[Dict[str, Any]],
     quota_skipped: list[Dict[str, Any]],
     transient_skipped: list[Dict[str, Any]] | None = None,
+    zlib_only_misses: list[Dict[str, Any]] | None = None,
+    n_books_total: int,
     n_zlib_hit: int,
     n_curated_local: int = 0,
     n_dedup_reuse: int = 0,
@@ -633,14 +669,18 @@ def _write_failures_and_notify(
     zlib_quota_exhausted: bool,
 ) -> None:
     transient_skipped = transient_skipped or []
+    zlib_only_misses = zlib_only_misses or []
     today = time.strftime("%Y-%m-%d")
     failures_path = AUGMENT_FAILURES_DIR / f"augment-failures-{today}.jsonl"
-    # Persist every still-unsourced book, tagged by category, so the JSONL is the
-    # full record behind the digest's counts.
+    # Persist every book still without a local copy, tagged by category, so the
+    # JSONL is the full record behind the digest's counts. zlib-only-miss rows
+    # are reachable (have their own URL) — included so the file is the complete
+    # "what still lacks an offline copy" list, not just hard failures.
     all_records = (
         [{**r, "category": "failed"} for r in book_failures]
         + [{**r, "category": "deferred-quota"} for r in quota_skipped]
         + [{**r, "category": "deferred-transient"} for r in transient_skipped]
+        + [{**r, "category": "reachable-no-localcopy"} for r in zlib_only_misses]
     )
     if all_records:
         AUGMENT_FAILURES_DIR.mkdir(parents=True, exist_ok=True)
@@ -651,23 +691,24 @@ def _write_failures_and_notify(
     # web-search analogs = successes that weren't z-lib, curated-local, or dedup.
     nonbook_aug = max(0, n_success - n_zlib_hit - n_curated_local - n_dedup_reuse)
 
-    # Operational digest: NUMBERS ONLY (2026-06-08 feedback). The message answers
-    # "where are we": how many landed, and — ALWAYS, not just on a quota day —
-    # how many books still have no source, split into the ones the pipeline will
-    # retry on its own (quota/budget/tooling-crash) vs the ones that need a human
-    # (z-lib genuinely can't find them). 2026-06-10 feedback: the old digest hid
-    # the standing backlog whenever quota didn't run out, and lumped tooling
-    # crashes into "manual sourcing". Full titles stay in the JSONL.
+    # Operational digest: NUMBERS with a real DENOMINATOR (2026-06-10 feedback:
+    # "tell me how many books from the backlog are still pending"). The coverage
+    # line answers "where are we" against the whole book backlog — how many of
+    # the N book rows now have a local full-text copy vs how many are still
+    # missing — split into auto-retry (quota/budget/tooling-crash + reachable
+    # books whose optional offline copy missed) vs the few that genuinely need a
+    # human (paywalled / no URL / z-lib can't find). Full titles stay in the JSONL.
     #
-    # 🟡 only when a book genuinely needs a human; quota/transient are not red.
-    auto_retry = len(quota_skipped) + len(transient_skipped)
+    # 🟡 only when a book genuinely needs a human; everything else is not red.
+    auto_retry = len(quota_skipped) + len(transient_skipped) + len(zlib_only_misses)
     manual = len(book_failures)
-    total_missing = auto_retry + manual
+    missing = auto_retry + manual
+    with_local = max(0, n_books_total - missing)
 
     status = "🟡" if book_failures else "✅"
     lines = [f"{status} augment-research — {today}"]
 
-    sourced = f"   downloaded: {n_zlib_hit} from z-library"
+    sourced = f"   downloaded today: {n_zlib_hit} from z-library"
     if n_curated_local:
         sourced += f" + {n_curated_local} from library"
     if n_dedup_reuse:
@@ -682,10 +723,10 @@ def _write_failures_and_notify(
         if quota_line:
             lines.append(quota_line)
 
-    lines.append(f"   books still without a source: {total_missing}")
-    if total_missing:
-        lines.append(f"      • {auto_retry} auto-retry  (quota/budget — pipeline retries)")
-        lines.append(f"      • {manual} need manual  (z-library can't find them — you source)")
+    lines.append(f"   📚 full-text copies: {with_local} / {n_books_total} books  ({missing} still missing)")
+    if missing:
+        lines.append(f"      • {auto_retry} retry automatically (readable now; offline copy pending)")
+        lines.append(f"      • {manual} need you to source (paywalled / no URL / not on z-lib)")
     if all_records:
         lines.append(f"   detail → reports/augment-failures-{today}.jsonl")
     if n_halt:
