@@ -11,8 +11,9 @@ import agent.service as svc
 
 def test_compose_turn_prompt_injects_context_and_returns_slugs(monkeypatch):
     monkeypatch.setattr(
-        svc, "retrieve_for_turn",
-        lambda text: ("<vault_context>\nGROUNDING\n</vault_context>", ["phase-1-v3"]),
+        svc, "retrieve_for_turn_rich",
+        lambda text: ("<vault_context>\nGROUNDING\n</vault_context>", ["phase-1-v3"],
+                      {"phase-1-v3": "GROUNDING"}),
     )
     query, slugs = svc._compose_turn_prompt("42", "how do I stay consistent")
     assert "<user_id>42</user_id>" in query
@@ -24,7 +25,7 @@ def test_compose_turn_prompt_injects_context_and_returns_slugs(monkeypatch):
 
 
 def test_compose_turn_prompt_omits_block_when_no_context(monkeypatch):
-    monkeypatch.setattr(svc, "retrieve_for_turn", lambda text: ("", []))
+    monkeypatch.setattr(svc, "retrieve_for_turn_rich", lambda text: ("", [], {}))
     query, slugs = svc._compose_turn_prompt("42", "hi")
     assert "<vault_context>" not in query
     assert "<user_id>42</user_id>" in query
