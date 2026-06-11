@@ -20,10 +20,13 @@ Plan: `docs/superpowers/plans/2026-06-05-grounding-gate-precision-eval.md`
 | `decide.py` | **Pure** routing: hard floor (facts) + temperature band (interpretations). |
 | `rewriter.py` | Demote a blocked assertion → an open question. |
 | `corpus.py` | Regression corpus (jsonl + md): catches, corrections, validations. |
-| `gate.py` | Orchestrates segment → judge → decide → rewrite → log → reassemble. |
+| `gate.py` | Orchestrates segment → judge → decide → rewrite → log → reassemble; opens pending validations. |
 | `harness.py` | Offline precision harness over `cases/*.json`. |
-| `integration.py` | `maybe_gate(...)` adapter for the coach send-path (flag-gated). |
+| `integration.py` | `maybe_gate(...)` + `detect_validation_signals(...)` adapters for the coach send-path (flag-gated). |
 | `cases/` | Synthetic self-labeling fixtures (planted allow/deny lists). |
+| `validations.py` | Pending-validation store (Stream 2): the coach's open questions/reads per thread. |
+| `validation_detector.py` | Semantic match of a user reply against open validations → confirmed / corrected / unaddressed. |
+| `validation_harness.py` | Detector calibration over `validation_cases/cases.json` — live 12/12, see `VALIDATION_DETECTOR_CALIBRATION.md`. |
 
 ## The claim contract
 
@@ -35,9 +38,19 @@ The coach emits each claim tagged (adopted in Stream 2):
 ```
 
 `type` ∈ {fact, interpretation, conceptual}; `cite` required for fact/conceptual;
-`conf` 1–10 required for interpretation. Untagged lines pass through. **Until the
-coach prompt emits these tags (Stream 2), the gate is a safe no-op** (no claims →
-reply unchanged).
+`conf` 1–10 required for interpretation. Untagged lines pass through.
+
+**Stream 2 (built, flag-gated):** with `COACH_GROUNDING_GATE=1` the coach's
+system prompt appends `coach_prompt_claims.md` (the tagging contract — `cite=S1`
+= the supplied vault context), retrieval plumbs real chunk text into the judge's
+S1 source, the gate opens a pending validation for every demoted question and
+stated read, and each INCOMING turn is matched against the thread's open items
+(`detect_validation_signals`): confirmations log a `validation` signal,
+corrections a `correction` signal (kept in the user's own words), both close the
+item. Flag OFF → all of it is a no-op and the prompt is byte-identical to
+before. Detector calibration: 12/12 live
+(`VALIDATION_DETECTOR_CALIBRATION.md`). Design:
+`docs/superpowers/specs/2026-06-10-stream2-validation-loop-design.md`.
 
 ## Run the harness (real subscription judge)
 
