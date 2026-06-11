@@ -39,10 +39,25 @@ git push origin release/0.1.x
 # then protect the branch (require PR review) via the GitHub API / settings
 ```
 
-## Ship a new version (full flow — phase 2)
+## Ship a new version
 
-`cut-release.sh`, `ship-it.sh` and the `/coach-ship-it` skill (tag → deploy →
-health-wait → Telegram notify, mirroring `/heycrypto-ship-it`) are the next
-phase. Until then: bump `pyproject.toml`, PR to `main`, forward to
-`release/X.Y.x`, `git tag vX.Y.Z` on the release tip, push, then run
-`deploy-live.sh vX.Y.Z`.
+Land the change normally, then ship:
+
+1. Bump `services/coach/pyproject.toml` `version`, PR to `main`, and forward the
+   bump onto `release/X.Y.x` (the tag's V gate enforces they match).
+2. `services/coach/scripts/ship-it.sh vX.Y.Z` — or the `/coach-ship-it` skill,
+   which prompts for the tag, cuts the release branch if missing, confirms, then
+   runs the script.
+
+`ship-it.sh` tags the tip of `release/X.Y.x` (gates: G1 semver, lockfile, G2
+GitHub-remote, G3 release-branch-exists, G4 tag-reachable-from-release, V
+version==tag, T tag-not-present), pushes the tag, runs `deploy-live.sh`, and
+sends a Telegram COMPLETE/FAILED alert via `notify_telegram.sh` (reads
+`TELEGRAM_COACH_BOT_TOKEN` + `TELEGRAM_COACH_ALERT_CHAT_ID`; silent no-op if unset).
+
+Cut a new minor line with `scripts/cut-release.sh X.Y` (idempotent; prints the
+GitHub branch-protection command to run once).
+
+Test the gates without shipping: `COACH_SHIPIT_DRY_RUN=1 ship-it.sh vX.Y.Z`
+(exits after G1/G2 + lock); `COACH_NOTIFY_DRY_RUN=1` makes the notifier print
+instead of calling Telegram.
