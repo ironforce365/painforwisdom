@@ -378,6 +378,7 @@ def main(argv: list[str] | None = None) -> int:
     n_nonbook_attempted = 0
     book_failures: list[Dict[str, Any]] = []  # genuinely attempted z-lib downloads that failed
     quota_skipped: list[Dict[str, Any]] = []  # books NEVER attempted — quota was already gone
+    transient_skipped: list[Dict[str, Any]] = []  # tooling crash (subprocess/extract) — auto-retries
     # Per-run book-level dedup cache: book identity -> alt_source_url. Chapter
     # rows of a book already fetched this run reuse its extraction instead of
     # re-downloading (saves z-lib quota + login load).
@@ -403,6 +404,7 @@ def main(argv: list[str] | None = None) -> int:
         reason = ""
         book_skip_to_unreachable = False
         skipped_by_quota = False  # never attempted (quota gone) vs. attempted+failed
+        skipped_transient = False  # tooling crash (subprocess/extract) — pipeline retries
 
         if type_ == "book":
             n_books_attempted += 1
@@ -445,11 +447,17 @@ def main(argv: list[str] | None = None) -> int:
                     book_skip_to_unreachable = True
                     skipped_by_quota = True
                 else:
-                    # not-found, not-configured, image-only-pdf, subprocess-error,
-                    # extract-failed — all map to "book unreachable, notify
-                    # Gonzalo". No web-search analog fallback.
+                    # not-found / not-configured / image-only-pdf → genuinely
+                    # need a human (manual sourcing). subprocess-error /
+                    # extract-failed are tooling crashes — the book may well
+                    # download next run, so they go to the auto-retry bucket,
+                    # NOT the manual one (2026-06-10: Peak crashed mid-download
+                    # but was being shown as "need manual sourcing"). No
+                    # web-search analog fallback either way.
                     print(f"  z-library failed: {reason}")
                     book_skip_to_unreachable = True
+                    if _is_transient_zlib_failure(reason):
+                        skipped_transient = True
 
             if book_skip_to_unreachable:
                 _notion_update(
@@ -466,9 +474,16 @@ def main(argv: list[str] | None = None) -> int:
                     "source_url": row.get("source_url", ""),
                     "reason": reason,
                 }
-                # Deferred-by-quota books are NOT failures: they were never
-                # tried (or only tripped the limit) and auto-retry next run.
-                (quota_skipped if skipped_by_quota else book_failures).append(record)
+                # Deferred-by-quota and tooling-crash books are NOT failures:
+                # they were never tried / only tripped the limit / crashed in the
+                # bridge, and all auto-retry next run. Only genuine misses
+                # (not-found etc.) land in book_failures = "need manual sourcing".
+                if skipped_by_quota:
+                    quota_skipped.append(record)
+                elif skipped_transient:
+                    transient_skipped.append(record)
+                else:
+                    book_failures.append(record)
                 n_fail += 1
                 continue
 
@@ -548,6 +563,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  curated-local:  {n_curated_local}")
     print(f"  dedup-reuse:    {n_dedup_reuse} (same-book chapters)")
     print(f"  deferred (quota): {len(quota_skipped)}")
+    print(f"  deferred (transient): {len(transient_skipped)}")
     print(f"  failed (attempted): {len(book_failures)}")
     print(f"  marked Reachable=no: {n_fail}")
     print(f"  halted/skipped: {n_halt}")
@@ -559,6 +575,7 @@ def main(argv: list[str] | None = None) -> int:
     _write_failures_and_notify(
         book_failures=book_failures,
         quota_skipped=quota_skipped,
+        transient_skipped=transient_skipped,
         n_zlib_hit=n_zlib_hit,
         n_curated_local=n_curated_local,
         n_dedup_reuse=n_dedup_reuse,
@@ -588,10 +605,26 @@ def _format_zlib_quota_line() -> Optional[str]:
     return f"   account quota today: {used}/{daily} used ({remaining} left, resets daily)"
 
 
+_TRANSIENT_ZLIB_REASONS = ("subprocess-error", "extract-failed")
+
+
+def _is_transient_zlib_failure(reason: str) -> bool:
+    """A z-library failure the pipeline can fix by itself on the next run.
+
+    subprocess-error (bridge crashed) and extract-failed (download landed but
+    text extraction failed) are tooling hiccups — the book may well download
+    cleanly next run. They must NOT be reported as "need manual sourcing"
+    (which means a human has to go find the book). not-found / not-configured /
+    image-only-pdf are the genuine manual cases. (2026-06-10: Peak crashed with
+    subprocess-error but was being surfaced as manual-sourcing.)"""
+    return any(kind in (reason or "") for kind in _TRANSIENT_ZLIB_REASONS)
+
+
 def _write_failures_and_notify(
     *,
     book_failures: list[Dict[str, Any]],
     quota_skipped: list[Dict[str, Any]],
+    transient_skipped: list[Dict[str, Any]] | None = None,
     n_zlib_hit: int,
     n_curated_local: int = 0,
     n_dedup_reuse: int = 0,
@@ -599,13 +632,15 @@ def _write_failures_and_notify(
     n_halt: int,
     zlib_quota_exhausted: bool,
 ) -> None:
+    transient_skipped = transient_skipped or []
     today = time.strftime("%Y-%m-%d")
     failures_path = AUGMENT_FAILURES_DIR / f"augment-failures-{today}.jsonl"
-    # Persist BOTH attempted-failures and quota-deferred books, tagged by
-    # category, so the JSONL is the full record behind the digest.
+    # Persist every still-unsourced book, tagged by category, so the JSONL is the
+    # full record behind the digest's counts.
     all_records = (
         [{**r, "category": "failed"} for r in book_failures]
         + [{**r, "category": "deferred-quota"} for r in quota_skipped]
+        + [{**r, "category": "deferred-transient"} for r in transient_skipped]
     )
     if all_records:
         AUGMENT_FAILURES_DIR.mkdir(parents=True, exist_ok=True)
@@ -616,16 +651,23 @@ def _write_failures_and_notify(
     # web-search analogs = successes that weren't z-lib, curated-local, or dedup.
     nonbook_aug = max(0, n_success - n_zlib_hit - n_curated_local - n_dedup_reuse)
 
-    # Operational digest: NUMBERS ONLY. Per-title lists gave Gonzalo nothing to
-    # act on (2026-06-08 feedback) — the message answers "where are we": how
-    # many landed, how many are pending, how many need manual work. Full titles
-    # stay in augment-failures-{today}.jsonl for anyone who wants the detail.
-    # A genuine attempted+failed book is the only thing warranting 🟡; hitting
-    # the daily quota is success (we pulled everything today allowed) → ✅.
-    status = "🟡" if book_failures else "✅"
-    lines = [f"{status} augment-research run finished {today}"]
+    # Operational digest: NUMBERS ONLY (2026-06-08 feedback). The message answers
+    # "where are we": how many landed, and — ALWAYS, not just on a quota day —
+    # how many books still have no source, split into the ones the pipeline will
+    # retry on its own (quota/budget/tooling-crash) vs the ones that need a human
+    # (z-lib genuinely can't find them). 2026-06-10 feedback: the old digest hid
+    # the standing backlog whenever quota didn't run out, and lumped tooling
+    # crashes into "manual sourcing". Full titles stay in the JSONL.
+    #
+    # 🟡 only when a book genuinely needs a human; quota/transient are not red.
+    auto_retry = len(quota_skipped) + len(transient_skipped)
+    manual = len(book_failures)
+    total_missing = auto_retry + manual
 
-    sourced = f"   sourced: {n_zlib_hit} downloaded"
+    status = "🟡" if book_failures else "✅"
+    lines = [f"{status} augment-research — {today}"]
+
+    sourced = f"   downloaded: {n_zlib_hit} from z-library"
     if n_curated_local:
         sourced += f" + {n_curated_local} from library"
     if n_dedup_reuse:
@@ -640,12 +682,12 @@ def _write_failures_and_notify(
         if quota_line:
             lines.append(quota_line)
 
-    if quota_skipped:
-        lines.append(f"   pending (auto-retry tomorrow): {len(quota_skipped)}")
-    if book_failures:
-        lines.append(
-            f"   need manual sourcing: {len(book_failures)} — see reports/augment-failures-{today}.jsonl"
-        )
+    lines.append(f"   books still without a source: {total_missing}")
+    if total_missing:
+        lines.append(f"      • {auto_retry} auto-retry  (quota/budget — pipeline retries)")
+        lines.append(f"      • {manual} need manual  (z-library can't find them — you source)")
+    if all_records:
+        lines.append(f"   detail → reports/augment-failures-{today}.jsonl")
     if n_halt:
         lines.append(f"   halted (budget): {n_halt} rows unprocessed")
 
