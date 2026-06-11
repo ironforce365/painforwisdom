@@ -7,15 +7,10 @@ _RUBRIC = (Path(__file__).parent / "rubric.md").read_text(encoding="utf-8")
 
 
 def _call_judge_llm(system: str, user: str) -> str:
-    import anthropic
-    client = anthropic.Anthropic()
-    resp = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=600,
-        system=system,
-        messages=[{"role": "user", "content": user}],
-    )
-    return resp.content[0].text
+    # Subscription-backed (no API key), per memory: subscription_cli_judge.
+    from eval.llm import call_llm
+
+    return call_llm(system=system, user=user, model="claude-sonnet-4-6")
 
 
 def score_turn(*, user_text: str, coach_reply: str, retrieved: list[dict]) -> dict:

@@ -51,6 +51,10 @@ services:
       # slugs that grounded the turn ("(none)" = generic-answer alarm). Default-on
       # for now; flip via COACH_DEBUG in .env.coach.
       COACH_DEBUG: ${COACH_DEBUG:-true}
+      # Grounding gate (Stream 0): per-claim grounding check on the send-path.
+      # Default OFF — inert until Stream 2 emits [[claim ...]] tags; flip via
+      # COACH_GROUNDING_GATE in .env.coach.
+      COACH_GROUNDING_GATE: ${COACH_GROUNDING_GATE:-false}
     # CRITICAL: do NOT set ANTHROPIC_API_KEY here — it would shadow the OAuth token.
     volumes:
       - ${VAULT_HOST_PATH}:/vault

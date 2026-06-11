@@ -1,0 +1,9 @@
+{
+  "id": "f000_punishing_yourself",
+  "note": "Reconstructs the PoC react-audio hallucination. Source plants the missed runs + heaviness, but OMITS any emotional/causal content. The coach asserting self-punishment as fact must be caught. Authored for any temperature (hard floor).",
+  "sources": [
+    {"id": "S1", "tier": 1, "kind": "debrief", "text": "Missed Thursday and Friday runs this week. Legs felt heavy on Saturday's run."}
+  ],
+  "draft": "[[claim id=c1 type=fact cite=S1]] You missed Thursday and Friday.\n[[claim id=c2 type=fact]] You were out there running the math of the miles you didn't log, punishing yourself.",
+  "expect": {"assert": ["c1"], "demote": ["c2"], "state_as_read": []}
+}

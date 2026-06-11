@@ -22,6 +22,30 @@ from agent.retrieval import retrieve_for_turn
 from agent.session_map import SessionMap
 from crisis.filter import check_message
 
+# Grounding gate (Stream 0), default OFF via COACH_GROUNDING_GATE. Import-guarded
+# so a problem in the eval package can never break the coach's import or a live
+# turn. Inert on today's untagged coach output (the [[claim ...]] contract lands
+# in Stream 2); with the flag OFF it is a no-op regardless.
+try:
+    from eval.grounding.integration import gate_enabled, maybe_gate
+    from eval.grounding.types import Source as _GroundingSource
+
+    def _slugs_to_sources(slugs: list[str]) -> list["_GroundingSource"]:
+        # Slug-only sources carry no text yet; Stream 2 must plumb the retrieved
+        # chunk TEXT through for the judge to verify entailment.
+        return [_GroundingSource(id=s, tier=1, kind="vault_entry", text="") for s in slugs]
+except Exception:  # noqa: BLE001 - never let eval-package issues break the service
+
+    def gate_enabled() -> bool:
+        return False
+
+    def maybe_gate(reply: str, **_kw) -> str:
+        return reply
+
+    def _slugs_to_sources(slugs: list[str]) -> list:
+        return []
+
+
 # Namespaced MCP tool name. The claude-agent-sdk MCP tool naming convention is
 # `mcp__<server_key>__<tool>` where `<server_key>` is the key in the
 # `mcp_servers` dict passed to ClaudeAgentOptions (NOT the FastMCP constructor
@@ -294,6 +318,14 @@ async def turn(t: Turn) -> Reply:
         return Reply(reply=hit.canned_reply, crisis=True)
 
     reply_text, sources = await _chat_with_agent(t.user_id, t.text)
+    # Gate before persisting: when ON the gated text IS the reply (demotions
+    # change content), so inbox and client must both see it. Footer stays last.
+    reply_text = maybe_gate(
+        reply_text,
+        sources=_slugs_to_sources(sources),
+        user_id=t.user_id,
+        thread_id=_sessions.get(t.user_id) or t.user_id,
+    )
     inbox_root = Path(os.environ.get("COACH_INBOX_ROOT", "/vault/_inbox"))
     write_inbox_entry(
         inbox_root=inbox_root,
@@ -331,18 +363,32 @@ async def turn_stream(t: Turn) -> StreamingResponse:
         sources: list[str] = []
         token = _stream_sources.set(sources)
         chunks: list[str] = []
+        # When the gate is ON we cannot un-send streamed tokens, so we buffer
+        # the whole draft, gate it, then emit it as a single delta (draft ->
+        # gate -> send). When OFF, behaviour is identical: live token streaming.
+        gated = gate_enabled()
         try:
             async for delta in _stream_agent(t.user_id, t.text):
                 chunks.append(delta)
-                yield json.dumps({"delta": delta}) + "\n"
+                if not gated:
+                    yield json.dumps({"delta": delta}) + "\n"
         finally:
             _stream_sources.reset(token)
         merged = _merge_sources(sources)
+        final_text = "".join(chunks)
+        if gated:
+            final_text = maybe_gate(
+                final_text,
+                sources=_slugs_to_sources(merged),
+                user_id=t.user_id,
+                thread_id=_sessions.get(t.user_id) or t.user_id,
+            )
+            yield json.dumps({"delta": final_text}) + "\n"
         write_inbox_entry(
             inbox_root=inbox_root,
             user_id=t.user_id,
             user_text=t.text,
-            assistant_text="".join(chunks),
+            assistant_text=final_text,
             retrieved_sources=merged,
         )
         # Canary rides as a final delta (kept out of the persisted reply above)
