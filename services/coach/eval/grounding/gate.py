@@ -1,0 +1,71 @@
+"""Gate orchestration: segment -> judge -> decide -> rewrite -> log -> reassemble.
+
+judge_fn / rewrite_fn are injectable so tests run offline. Defaults use the real
+subscription-backed judge and rewriter.
+"""
+from __future__ import annotations
+
+from typing import Callable, Optional
+
+from .corpus import RegressionCorpus
+from .decide import decide
+from .judge import judge_claims
+from .rewriter import demote_to_question
+from .segmenter import segment
+from .types import Action, Decision, GateResult, Source
+
+
+def run_gate(
+    draft: str,
+    sources: list[Source],
+    *,
+    temperature: int,
+    judge_fn: Callable = judge_claims,
+    rewrite_fn: Callable = demote_to_question,
+    corpus: Optional[RegressionCorpus] = None,
+    thread_id: str = "",
+    user_id: str = "",
+) -> GateResult:
+    claims, passthrough = segment(draft)
+    verdicts = {v.claim_id: v for v in judge_fn(claims, sources)}
+    out_lines: list[str] = []
+    decisions: list[Decision] = []
+    logged: list[str] = []
+
+    for c in claims:
+        v = verdicts.get(c.id)
+        if v is None:
+            # Fail-safe: no verdict -> demote.
+            q = rewrite_fn(c, sources)
+            out_lines.append(q)
+            decisions.append(Decision(c.id, Action.DEMOTE, q))
+            continue
+        d = decide(v, confidence=c.confidence, temperature=temperature)
+        if d.action is Action.ASSERT:
+            out_lines.append(c.text)
+        elif d.action is Action.STATE_AS_READ:
+            out_lines.append(f"My read: {c.text}")
+        else:  # DEMOTE
+            q = rewrite_fn(c, sources)
+            d.question = q
+            out_lines.append(q)
+            if corpus is not None:
+                corpus.append(
+                    {
+                        "claim_id": c.id,
+                        "signal": "catch",
+                        "claim_text": c.text,
+                        "type": v.derived_type.value,
+                        "cited_sources": c.cites,
+                        "demoted_question": q,
+                        "judge_rationale": v.rationale,
+                        "thread_id": thread_id,
+                        "user_id": user_id,
+                    }
+                )
+                logged.append(c.id)
+        decisions.append(d)
+
+    if passthrough:
+        out_lines.append(passthrough)
+    return GateResult(message="\n".join(out_lines), decisions=decisions, logged_ids=logged)

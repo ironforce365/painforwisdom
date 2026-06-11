@@ -1,0 +1,74 @@
+# Grounding Gate (Stream 0)
+
+Per-claim grounding for the coach: **assertions about you must cite an entailing
+source or be demoted to a question; interpretations are throttled by a
+temperature knob.** Catches confabulations like the PoC's "you were punishing
+yourself" before they reach you.
+
+Spec: `docs/superpowers/specs/2026-06-05-grounding-gate-precision-eval-design.md`
+Plan: `docs/superpowers/plans/2026-06-05-grounding-gate-precision-eval.md`
+
+## Pieces
+
+| Module | Role |
+|--------|------|
+| `llm.py` | Subscription LLM seam — `claude -p --output-format json` (no API key). |
+| `types.py` | `ClaimType`, `Claim`, `Source`, `Verdict`, `Decision`, `GateResult`. |
+| `config.py` | `temperature` + `absorption` knobs (env, 1–10, default 5). |
+| `segmenter.py` | Parse a `[[claim ...]]`-tagged draft → claims + passthrough. |
+| `judge.py` | Re-derive each claim's type + check grounding (one batched LLM call). |
+| `decide.py` | **Pure** routing: hard floor (facts) + temperature band (interpretations). |
+| `rewriter.py` | Demote a blocked assertion → an open question. |
+| `corpus.py` | Regression corpus (jsonl + md): catches, corrections, validations. |
+| `gate.py` | Orchestrates segment → judge → decide → rewrite → log → reassemble. |
+| `harness.py` | Offline precision harness over `cases/*.json`. |
+| `integration.py` | `maybe_gate(...)` adapter for the coach send-path (flag-gated). |
+| `cases/` | Synthetic self-labeling fixtures (planted allow/deny lists). |
+
+## The claim contract
+
+The coach emits each claim tagged (adopted in Stream 2):
+
+```
+[[claim id=c1 type=fact cite=S1]] You missed Thursday and Friday.
+[[claim id=c2 type=interpretation conf=7]] This reads like self-punishment.
+```
+
+`type` ∈ {fact, interpretation, conceptual}; `cite` required for fact/conceptual;
+`conf` 1–10 required for interpretation. Untagged lines pass through. **Until the
+coach prompt emits these tags (Stream 2), the gate is a safe no-op** (no claims →
+reply unchanged).
+
+## Run the harness (real subscription judge)
+
+```bash
+PYTHONPATH=services/coach python3 -m eval.grounding.harness --temperature 6
+```
+
+Latest calibration: `CALIBRATION.md` (8/8, f000 demotes "punishing yourself").
+
+## Run the tests (offline, monkeypatched LLM)
+
+```bash
+PYTHONPATH=services/coach python3 -m pytest services/coach/tests/test_grounding_*.py services/coach/tests/test_eval_*.py -q
+```
+
+(Service-level tests need `fastapi`/`claude_agent_sdk` and `importorskip` on the
+host — they run in docker/CI.)
+
+## Enabling in the coach
+
+Off by default. To turn the gate on for a turn:
+
+```
+COACH_GROUNDING_GATE=1          # 1|true|on|yes
+COACH_GROUNDING_TEMPERATURE=6   # optional, 1-10
+COACH_GROUNDING_ABSORPTION=5    # optional, 1-10
+COACH_GROUNDING_CORPUS_DIR=/data/grounding_corpus
+```
+
+When on, `/turn` gates the reply and `/turn/stream` buffers → gates → sends. Any
+gate error falls back to the ungated reply (never breaks a live turn).
+**Do not enable in prod until** the coach emits the claim contract (Stream 2) and
+the human calibration set (`CALIBRATION_TODO.md`) validates the judge on
+borderline cases.
