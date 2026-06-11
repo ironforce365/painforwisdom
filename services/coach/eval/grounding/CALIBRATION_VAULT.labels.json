@@ -1,0 +1,23 @@
+{
+  "comment": "Gonzalo's verdicts on the clean 18-case set (one claim per entry, slug-driven from CALIBRATION_MENU.md). Verdicts given directly in the gate vocab in CALIBRATION_VAULT.md, 2026-06-10. v1 labels archived in archive_v1/.",
+  "labels": {
+    "1": {"verdict": "state_as_read", "agree": true, "correction": null},
+    "2": {"verdict": "assert", "agree": true, "correction": null},
+    "3": {"verdict": "assert", "agree": true, "correction": null},
+    "4": {"verdict": "state_as_read", "agree": true, "correction": null},
+    "5": {"verdict": "assert", "agree": true, "correction": null},
+    "6": {"verdict": "assert", "agree": true, "correction": null},
+    "7": {"verdict": "state_as_read", "agree": true, "correction": null},
+    "8": {"verdict": "assert", "agree": true, "correction": null},
+    "9": {"verdict": "assert", "agree": true, "correction": null},
+    "10": {"verdict": "state_as_read", "agree": true, "correction": null},
+    "11": {"verdict": "assert", "agree": true, "correction": null},
+    "12": {"verdict": "state_as_read", "agree": true, "correction": null},
+    "13": {"verdict": "assert", "agree": true, "correction": null},
+    "14": {"verdict": "state_as_read", "agree": true, "correction": null},
+    "15": {"verdict": "state_as_read", "agree": true, "correction": null},
+    "16": {"verdict": "assert", "agree": true, "correction": null},
+    "17": {"verdict": "demote", "agree": false, "correction": null},
+    "18": {"verdict": "assert", "agree": true, "correction": null}
+  }
+}

@@ -1,5 +1,12 @@
 # Calibration result — vault-grounded, human-labeled
 
+> **SUPERSEDED by `CALIBRATION_RESULT_V2.md`.** This v1 set wasn't representative:
+> the sampler picked claims not entries (one entry 4×, another 3×) and included 2
+> stubs the generator hallucinated stories for — ~25% junk, per Gonzalo's review.
+> What survives v2: temperature is not the lever (re-confirmed); the contradiction
+> bucket exists but is ~6% not ~20%. What flips: on clean data Gonzalo is MORE
+> permissive than the gate (10/18 assert), not stricter. Kept for history.
+
 **Run:** 2026-06-06 · `python -m eval.grounding.score_calibration --temperature 6`
 **Judge:** `claude -p --model claude-sonnet-4-6` (subscription)
 **Labels:** Gonzalo's prose verdicts on `CALIBRATION_VAULT.md`, normalized in
