@@ -78,6 +78,62 @@ def sample_claims(rows: list[dict], *, sample: int, seed: int) -> list[dict]:
     return picked
 
 
+# --- slug mode: the set is exactly the entries Gonzalo checked in the menu ---
+
+_CHECKED_RE = re.compile(r"^- \[[xX]\]\s+\*\*([a-z0-9-]+)\*\*", re.MULTILINE)
+
+
+def parse_checked_slugs(menu_text: str) -> list[str]:
+    """Slugs from checked ``- [x] **slug**`` menu lines, in document order.
+
+    Catalog table rows and unchecked ``[ ]`` lines are ignored, so the menu file
+    is the single source of truth for which entries are representative.
+    """
+    return _CHECKED_RE.findall(menu_text)
+
+
+def resolve_slugs(entries_dir: Path, slugs: list[str]) -> list[Path]:
+    """Map each slug to exactly one date-prefixed entry file, preserving order.
+
+    Fails loud (ValueError) on 0 or >1 matches: a caller-supplied set must be exact,
+    never silently dropped or doubled. Suffix match is on ``-{slug}`` so
+    ``limits-as-hypotheses`` never collides with ``limits-as-intelligence``.
+    """
+    paths = sorted(Path(entries_dir).glob("*.md"))
+    resolved: list[Path] = []
+    for slug in slugs:
+        matches = [p for p in paths if p.stem.endswith(f"-{slug}") or p.stem == slug]
+        if len(matches) != 1:
+            raise ValueError(f"slug {slug!r} matched {len(matches)} entries (expected exactly 1)")
+        resolved.append(matches[0])
+    return resolved
+
+
+def pick_one_per_entry(rows: list[dict], *, seed: int) -> list[dict]:
+    """One claim per distinct entry — interpretation preferred, deterministic.
+
+    Fixes the old bug where rich entries dominated the set (3-6 claims each). Keeps
+    first-seen entry order; within an entry picks a seeded-random interpretation
+    (the calibration-relevant kind) if any exist, else a seeded-random claim.
+    """
+    rng = random.Random(seed)
+    order: list[str] = []
+    by_entry: dict[str, list[dict]] = {}
+    for r in rows:
+        e = r["entry"]
+        if e not in by_entry:
+            by_entry[e] = []
+            order.append(e)
+        by_entry[e].append(r)
+    picked: list[dict] = []
+    for e in order:
+        claims = by_entry[e]
+        interp = [c for c in claims if c["type"] == ClaimType.INTERPRETATION.value]
+        pool = interp or claims
+        picked.append(pool[rng.randrange(len(pool))])
+    return picked
+
+
 def _excerpt(source: str, limit: int = 280) -> str:
     flat = " ".join(source.split())
     return flat if len(flat) <= limit else flat[:limit].rstrip() + "…"
@@ -111,6 +167,37 @@ def build(*, entries_dir: Path, n_entries: int, sample: int, seed: int,
     return sample_claims(rows, sample=sample, seed=seed)
 
 
+def build_from_slugs(*, entries_dir: Path, slugs: list[str], coach_prompt_path: Path,
+                     model: str, seed: int) -> list[dict]:
+    """Build a calibration set from an exact, caller-chosen list of entry slugs.
+
+    One claim per entry (``pick_one_per_entry``) so no entry dominates, and the set
+    is exactly what was selected — no random entry sampling, no dups, no stubs.
+    """
+    coach_prompt = coach_prompt_path.read_text(encoding="utf-8")
+    rows: list[dict] = []
+    for p in resolve_slugs(entries_dir, slugs):
+        source = extract_source(p.read_text(encoding="utf-8"))
+        if not source:
+            print(f"  ! {p.name}: no source sections, skipping")
+            continue
+        try:
+            claims = generate_claims(source, coach_prompt, model=model)
+        except Exception as e:  # noqa: BLE001 - skip a bad entry, keep going
+            print(f"  ! {p.name}: generation failed: {e}")
+            continue
+        for c in claims:
+            rows.append({
+                "entry": p.stem,
+                "source_full": source,
+                "claim": c.text,
+                "type": c.type.value,
+                "conf": c.confidence,
+            })
+        print(f"  {p.name}: {len(claims)} claims")
+    return pick_one_per_entry(rows, seed=seed)
+
+
 def _render_table(rows: list[dict]) -> str:
     lines = [
         "## Vault-grounded cases (peer-review)",
@@ -140,16 +227,34 @@ def _main() -> None:
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--model", default="claude-sonnet-4-6")
     ap.add_argument("--out", default="services/coach/eval/grounding/CALIBRATION_VAULT.md")
+    ap.add_argument("--menu", default=None,
+                    help="menu .md whose checked [x] slugs define the set (one claim/entry)")
+    ap.add_argument("--slugs", default=None,
+                    help="comma-separated slugs (alternative to --menu)")
     args = ap.parse_args()
 
-    rows = build(
-        entries_dir=Path(args.entries_dir),
-        n_entries=args.n_entries,
-        sample=args.sample,
-        seed=args.seed,
-        coach_prompt_path=Path(args.coach_prompt),
-        model=args.model,
-    )
+    if args.menu or args.slugs:
+        if args.menu:
+            slugs = parse_checked_slugs(Path(args.menu).read_text(encoding="utf-8"))
+        else:
+            slugs = [s.strip() for s in args.slugs.split(",") if s.strip()]
+        print(f"slug mode: {len(slugs)} entries -> {slugs}")
+        rows = build_from_slugs(
+            entries_dir=Path(args.entries_dir),
+            slugs=slugs,
+            coach_prompt_path=Path(args.coach_prompt),
+            model=args.model,
+            seed=args.seed,
+        )
+    else:
+        rows = build(
+            entries_dir=Path(args.entries_dir),
+            n_entries=args.n_entries,
+            sample=args.sample,
+            seed=args.seed,
+            coach_prompt_path=Path(args.coach_prompt),
+            model=args.model,
+        )
     out = Path(args.out)
     out.write_text(_render_table(rows), encoding="utf-8")
     sidecar = out.with_suffix(".jsonl")
