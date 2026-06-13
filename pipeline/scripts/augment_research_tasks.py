@@ -466,12 +466,26 @@ def main(argv: list[str] | None = None) -> int:
 
             if book_skip_to_unreachable:
                 is_zlib_only = bool(row.get("_zlib_only"))
-                bucket, do_downgrade = _classify_book_miss(
+                bucket, notion_state = _classify_book_miss(
                     is_zlib_only=is_zlib_only,
                     skipped_by_quota=skipped_by_quota,
                     is_transient=skipped_transient,
                 )
-                if do_downgrade:
+                if notion_state == "yes":
+                    # Reachable book — only its OPTIONAL offline z-lib copy missed.
+                    # Write Reachable=yes: keeps the row's own URL serving daily
+                    # briefs AND heals books a prior buggy run wrongly downgraded.
+                    # 2026-06-10: this path used to mark them Reachable=no and
+                    # file them as "need manual sourcing" — both wrong; a z-lib
+                    # miss silently dropped readable sources from briefs.
+                    print(f"  z-lib miss on reachable book — healing Reachable=yes (offline copy pending)")
+                    _notion_update(
+                        client,
+                        page_id=row["page_id"],
+                        reachable="yes",
+                        reachability_reason="reachable via original URL; z-library offline copy pending",
+                    )
+                else:
                     # Genuinely unreachable (paywalled / no URL): mark Reachable=no.
                     _notion_update(
                         client,
@@ -479,13 +493,6 @@ def main(argv: list[str] | None = None) -> int:
                         reachable="no",
                         reachability_reason=reason or "z-library: failure",
                     )
-                else:
-                    # Reachable book — only its OPTIONAL offline z-lib copy missed.
-                    # Keep Reachable=yes (the row's own URL still serves daily
-                    # briefs). 2026-06-10: this path used to downgrade reachable
-                    # books AND file them as "need manual sourcing" — both wrong;
-                    # a z-lib miss silently dropped readable sources from briefs.
-                    print(f"  z-lib miss on reachable book — keeping Reachable=yes (offline copy pending)")
                 _telemetry(row, "zlib-only-miss" if is_zlib_only else "book-unreachable", 0.0)
                 record = {
                     "page_id": row.get("page_id", ""),
@@ -633,25 +640,26 @@ def _is_transient_zlib_failure(reason: str) -> bool:
 
 def _classify_book_miss(
     *, is_zlib_only: bool, skipped_by_quota: bool, is_transient: bool
-) -> tuple[str, bool]:
-    """Decide a failed book's digest bucket and whether to downgrade Notion.
+) -> tuple[str, str]:
+    """Decide a failed book's digest bucket and the Notion Reachable state to write.
 
-    Returns (bucket, downgrade). bucket ∈
-    {zlib_only_miss, quota, transient, manual}.
+    Returns (bucket, notion_state). bucket ∈
+    {zlib_only_miss, quota, transient, manual}; notion_state ∈ {"yes", "no"}.
 
     A `_zlib_only` book is REACHABLE via its own URL — z-library is only an
-    optional offline copy. A miss there must NEVER downgrade it (that excludes
-    a readable source from daily briefs) and is never "manual sourcing". For
-    genuinely-unreachable books, quota/transient auto-retry; a real not-found
-    is the only thing a human must act on.
+    optional offline copy. A miss there must write Reachable=**yes** (heal): it
+    keeps the source in daily briefs AND recovers books a prior buggy run
+    wrongly downgraded. It is never "manual sourcing". For genuinely-unreachable
+    books, quota/transient auto-retry (still Reachable=no); a real not-found is
+    the only thing a human must act on.
     """
     if is_zlib_only:
-        return ("zlib_only_miss", False)
+        return ("zlib_only_miss", "yes")
     if skipped_by_quota:
-        return ("quota", True)
+        return ("quota", "no")
     if is_transient:
-        return ("transient", True)
-    return ("manual", True)
+        return ("transient", "no")
+    return ("manual", "no")
 
 
 def _write_failures_and_notify(
