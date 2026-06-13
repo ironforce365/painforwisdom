@@ -1,21 +1,21 @@
-"""Telegram digest = operational NUMBERS only, with a STANDING backlog line.
+"""Telegram digest = operational NUMBERS with a real backlog DENOMINATOR.
 
-Two pieces of 2026-06-10 feedback drive this contract:
+2026-06-10 feedback, two rounds:
 
-1. "I don't understand what 'need manual sourcing' means" — the digest must
-   distinguish books the pipeline will retry on its own (quota/budget/transient
-   tooling crash) from books that genuinely need a human (z-lib can't find them).
+1. "I don't understand what 'need manual sourcing' means" + it was lumping in
+   tooling crashes and reachable books. Manual = genuinely-unreachable books a
+   human must find (paywalled / no URL / not on z-lib). subprocess-error,
+   extract-failed, and reachable `_zlib_only` misses all auto-retry.
 
-2. "that doesn't tell me how many more are pending to download" — the old digest
-   only printed a pending line when z-lib quota ran out mid-run. On a normal day
-   (downloads stop under the cap) the line vanished, so the standing backlog was
-   invisible. The backlog line must ALWAYS be present:
+2. "it still doesn't tell me how many books from the backlog are still pending
+   to be downloaded." → the digest must show the DENOMINATOR: of all book rows,
+   how many now have a local full-text copy vs how many are still missing.
 
-       books still without a source: N
-          • A auto-retry  (quota/budget — pipeline retries)
-          • M need manual  (z-library can't find them — you source)
+       📚 full-text copies: 182 / 189 books  (7 still missing)
+          • 4 retry automatically (readable now; offline copy pending)
+          • 3 need you to source (paywalled / no URL / not on z-lib)
 
-Full titles still live in augment-failures-*.jsonl for anyone who wants them.
+Full titles still live in augment-failures-*.jsonl.
 """
 from __future__ import annotations
 
@@ -32,36 +32,23 @@ from pipeline.scripts import augment_research_tasks as art  # noqa: E402
 
 
 class TransientClassifierTests(unittest.TestCase):
-    """subprocess-error / extract-failed are tooling crashes — the book may well
-    download next run. They must NOT sit in the human 'manual sourcing' bucket."""
-
     def test_subprocess_error_is_transient(self):
-        self.assertTrue(
-            art._is_transient_zlib_failure("z-library: subprocess-error (bridge crashed)")
-        )
+        self.assertTrue(art._is_transient_zlib_failure("z-library: subprocess-error (crash)"))
 
     def test_extract_failed_is_transient(self):
-        self.assertTrue(
-            art._is_transient_zlib_failure("z-library: extract-failed (Download path missing)")
-        )
+        self.assertTrue(art._is_transient_zlib_failure("z-library: extract-failed (no path)"))
 
     def test_not_found_is_not_transient(self):
-        self.assertFalse(
-            art._is_transient_zlib_failure("z-library: not-found (No author-matched results)")
-        )
+        self.assertFalse(art._is_transient_zlib_failure("z-library: not-found (0 results)"))
 
     def test_not_configured_is_not_transient(self):
-        self.assertFalse(
-            art._is_transient_zlib_failure("z-library: not-configured (creds unset)")
-        )
+        self.assertFalse(art._is_transient_zlib_failure("z-library: not-configured"))
 
     def test_image_only_pdf_is_not_transient(self):
-        self.assertFalse(
-            art._is_transient_zlib_failure("z-library: image-only-pdf (no text layer)")
-        )
+        self.assertFalse(art._is_transient_zlib_failure("z-library: image-only-pdf"))
 
 
-class DigestBacklogTests(unittest.TestCase):
+class DigestCoverageTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
@@ -72,12 +59,14 @@ class DigestBacklogTests(unittest.TestCase):
             book_failures=[],
             quota_skipped=[],
             transient_skipped=[],
+            zlib_only_misses=[],
+            n_books_total=50,
             n_zlib_hit=1,
             n_curated_local=1,
             n_dedup_reuse=0,
             n_success=2,
             n_halt=0,
-            zlib_quota_exhausted=True,
+            zlib_quota_exhausted=False,
         )
         base.update(overrides)
         with patch.object(art, "telegram_send", lambda m: sent.update(msg=m)), patch.object(
@@ -86,99 +75,82 @@ class DigestBacklogTests(unittest.TestCase):
             art._write_failures_and_notify(**base)
         return sent["msg"]
 
-    # --- numbers only, no per-title lists -------------------------------------
+    # --- numbers only ---------------------------------------------------------
 
     def test_no_book_titles_in_message(self):
         msg = self._send(
             book_failures=[{"title": "Opening Up by Writing It Down", "reason": "not-found"}],
-            quota_skipped=[{"title": "The Talent Code — Ch. 2", "reason": "quota"}],
+            n_books_total=189,
         )
         self.assertNotIn("Opening Up by Writing It Down", msg)
-        self.assertNotIn("The Talent Code", msg)
         self.assertNotIn("and 21 more", msg)
 
-    # --- THE BUG: standing backlog visible even with no quota-deferred ---------
+    # --- THE ASK: coverage denominator ---------------------------------------
 
-    def test_backlog_line_present_when_no_quota_deferred(self):
-        # Today's exact case: 7 genuine failures, 0 deferred. Old digest showed
-        # NO count of what's left. New digest must say "still without a source: 7".
+    def test_coverage_line_shows_total_and_missing(self):
+        # Today's real shape: 189 books, 7 still missing → 182 have a copy.
         msg = self._send(
-            n_zlib_hit=6,
-            n_curated_local=1,
-            quota_skipped=[],
-            transient_skipped=[],
-            book_failures=[{"title": f"F{i}", "reason": "not-found"} for i in range(7)],
-            zlib_quota_exhausted=False,
-        )
-        self.assertRegex(msg.lower(), r"still without a source:\s*7")
-        self.assertRegex(msg.lower(), r"7\s*need manual")
-        self.assertRegex(msg.lower(), r"0\s*auto-retry")
-
-    def test_backlog_splits_auto_and_manual(self):
-        msg = self._send(
-            quota_skipped=[{"title": f"Q{i}", "reason": "quota"} for i in range(26)],
-            transient_skipped=[],
+            n_books_total=189,
+            zlib_only_misses=[{"title": f"R{i}"} for i in range(4)],
             book_failures=[{"title": f"F{i}", "reason": "not-found"} for i in range(3)],
         )
-        self.assertRegex(msg.lower(), r"still without a source:\s*29")
-        self.assertRegex(msg.lower(), r"26\s*auto-retry")
-        self.assertRegex(msg.lower(), r"3\s*need manual")
+        self.assertRegex(msg, r"182\s*/\s*189")
+        self.assertRegex(msg.lower(), r"7\s*still missing")
 
-    def test_transient_counts_as_auto_retry_not_manual(self):
-        # 2 tooling crashes (subprocess-error) + 0 genuine failures → total 2,
-        # all auto-retry, manual 0.
+    def test_split_counts_auto_vs_manual(self):
         msg = self._send(
-            quota_skipped=[],
-            transient_skipped=[{"title": "Peak", "reason": "subprocess-error"} for _ in range(2)],
-            book_failures=[],
-            zlib_quota_exhausted=False,
+            n_books_total=189,
+            zlib_only_misses=[{"title": f"R{i}"} for i in range(4)],
+            book_failures=[{"title": f"F{i}", "reason": "not-found"} for i in range(3)],
         )
-        self.assertRegex(msg.lower(), r"still without a source:\s*2")
-        self.assertRegex(msg.lower(), r"2\s*auto-retry")
-        self.assertRegex(msg.lower(), r"0\s*need manual")
+        self.assertRegex(msg.lower(), r"4\s*retry automatically")
+        self.assertRegex(msg.lower(), r"3\s*need you to source")
+
+    def test_zlib_only_miss_and_transient_count_as_auto(self):
+        msg = self._send(
+            n_books_total=20,
+            zlib_only_misses=[{"title": "Peak"}],
+            transient_skipped=[{"title": "X", "reason": "subprocess-error"}],
+            quota_skipped=[{"title": "Q", "reason": "quota"}],
+            book_failures=[],
+        )
+        self.assertRegex(msg.lower(), r"3\s*retry automatically")
+        self.assertRegex(msg.lower(), r"0\s*need you to source")
 
     # --- status colour --------------------------------------------------------
 
+    def test_green_when_only_zlib_only_misses(self):
+        # Reachable books missing an offline copy are not a red flag.
+        msg = self._send(
+            zlib_only_misses=[{"title": "Peak"}, {"title": "Lore of Running"}],
+            book_failures=[],
+        )
+        self.assertTrue(msg.startswith("✅"), msg.splitlines()[0])
+
     def test_green_when_only_quota_deferred(self):
-        msg = self._send(
-            quota_skipped=[{"title": "x", "reason": "q"} for _ in range(5)],
-            book_failures=[],
-        )
+        msg = self._send(quota_skipped=[{"title": "x"} for _ in range(5)], book_failures=[])
         self.assertTrue(msg.startswith("✅"), msg.splitlines()[0])
 
-    def test_green_when_only_transient(self):
-        # Tooling crashes are not a red flag — pipeline retries them.
-        msg = self._send(
-            transient_skipped=[{"title": "Peak", "reason": "subprocess-error"}],
-            book_failures=[],
-            zlib_quota_exhausted=False,
-        )
-        self.assertTrue(msg.startswith("✅"), msg.splitlines()[0])
-
-    def test_yellow_when_genuine_failures(self):
-        msg = self._send(
-            book_failures=[{"title": "x", "reason": "not-found"}],
-            zlib_quota_exhausted=False,
-        )
+    def test_yellow_when_genuine_manual(self):
+        msg = self._send(book_failures=[{"title": "x", "reason": "not-found"}])
         self.assertTrue(msg.startswith("🟡"), msg.splitlines()[0])
 
-    # --- still points at the detail file, stays compact -----------------------
+    # --- detail file + compactness -------------------------------------------
 
     def test_points_at_detail_file(self):
-        msg = self._send(
-            book_failures=[{"title": "X", "reason": "not-found"}],
-            zlib_quota_exhausted=False,
-        )
+        msg = self._send(book_failures=[{"title": "X", "reason": "not-found"}])
         self.assertIn("augment-failures-", msg)
 
     def test_message_is_compact(self):
-        # Big numbers must NOT balloon the message — counts only.
         msg = self._send(
-            quota_skipped=[{"title": f"B{i}", "reason": "q"} for i in range(26)],
-            transient_skipped=[{"title": f"T{i}", "reason": "subprocess-error"} for i in range(4)],
+            n_books_total=189,
+            quota_skipped=[{"title": f"B{i}"} for i in range(26)],
+            transient_skipped=[{"title": f"T{i}"} for i in range(4)],
+            zlib_only_misses=[{"title": f"R{i}"} for i in range(10)],
             book_failures=[{"title": f"F{i}", "reason": "not-found"} for i in range(33)],
+            zlib_quota_exhausted=True,
         )
-        self.assertLessEqual(len(msg.splitlines()), 8)
+        self.assertLessEqual(len(msg.splitlines()), 9)
 
 
 if __name__ == "__main__":
