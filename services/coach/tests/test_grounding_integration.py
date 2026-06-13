@@ -32,8 +32,33 @@ def test_gate_failure_falls_back_to_ungated(monkeypatch):
 
     monkeypatch.setattr(integ, "judge_claims", boom)
     reply = "[[claim id=c1 type=fact]] Something."
-    # must not raise into the live turn; returns the original reply on error
-    assert integ.maybe_gate(reply, sources=[], user_id="u", thread_id="t") == reply
+    # must not raise into the live turn; on error the claim tags are STRIPPED
+    # (the contract is appended to the prompt when the flag is on, so the raw
+    # reply carries tags — leaking them to the user would be worse than ungating).
+    out = integ.maybe_gate(reply, sources=[], user_id="u", thread_id="t")
+    assert out == "Something."
+    assert "[[claim" not in out
+
+
+def test_gate_failure_strips_tags_multiline(monkeypatch):
+    monkeypatch.setenv("COACH_GROUNDING_GATE", "1")
+
+    def boom(claims, srcs):
+        raise RuntimeError("judge down")
+
+    monkeypatch.setattr(integ, "judge_claims", boom)
+    reply = (
+        "[[claim id=c1 type=fact cite=S1]] You missed Thursday.\n"
+        "[[claim id=c2 type=interpretation conf=7]] This reads like avoidance.\n"
+        "What do you think?"
+    )
+    out = integ.maybe_gate(reply, sources=[], user_id="u", thread_id="t")
+    assert "[[claim" not in out
+    assert out == (
+        "You missed Thursday.\n"
+        "This reads like avoidance.\n"
+        "What do you think?"
+    )
 
 
 def _fake_chat_factory(reply: str):

@@ -18,6 +18,7 @@ from .corpus import RegressionCorpus
 from .gate import run_gate
 from .judge import judge_claims
 from .rewriter import demote_to_question
+from .segmenter import strip_claim_tags
 from .types import Source
 from .validation_detector import detect
 from .validations import PendingValidations
@@ -72,7 +73,9 @@ def maybe_gate(reply: str, *, sources: list[Source], user_id: str, thread_id: st
         return result.message
     except Exception:  # noqa: BLE001 - never let the gate break a live turn
         _LOG.exception("grounding gate failed; falling back to ungated reply")
-        return reply
+        # With the flag on, the coach emitted [[claim]] tags; strip them so a gate
+        # error never leaks the internal protocol into the user's reply.
+        return strip_claim_tags(reply)
 
 
 def detect_validation_signals(user_text: str, *, thread_id: str, user_id: str) -> list[dict]:
