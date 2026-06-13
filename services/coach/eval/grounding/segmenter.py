@@ -12,6 +12,20 @@ import re
 from .types import Claim, ClaimType
 
 _TAG = re.compile(r"^\s*\[\[claim\s+([^\]]*)\]\]\s*(.*)$")
+# Non-anchored variant for the gate's fail-safe: strip a claim marker wherever it
+# appears (even mid-line, even if the coach violated the one-per-line contract),
+# keeping the surrounding text. Last line of defence before a reply reaches the user.
+_TAG_ANYWHERE = re.compile(r"\[\[claim\s+[^\]]*\]\]\s*")
+
+
+def strip_claim_tags(draft: str) -> str:
+    """Remove every ``[[claim ...]]`` marker, preserving the claim text and order.
+
+    Used on the gate's exception path: if the judge errors *after* the coach has
+    emitted tagged claims, we must still never leak the internal protocol tags to
+    the user. On tag-free text (flag off) this is a no-op.
+    """
+    return _TAG_ANYWHERE.sub("", draft)
 
 
 def _attrs(blob: str) -> dict[str, str]:

@@ -1,0 +1,25 @@
+{
+  "_note": "Gonzalo's prose verdicts from CALIBRATION_VAULT.md, normalized to assert/state_as_read/demote. 'agree' = he endorsed the coach read. 'correction' = his words when the read was wrong (regression-corpus signal). Mapping by Claude, pending his confirm.",
+  "labels": {
+    "1":  {"verdict": "state_as_read", "agree": true,  "correction": null},
+    "2":  {"verdict": "assert",        "agree": true,  "correction": null},
+    "3":  {"verdict": "demote",        "agree": false, "correction": "I don't understand the 'tax framing' / 'cycle' — coach referenced context not in the source."},
+    "4":  {"verdict": "demote",        "agree": false, "correction": "It indeed required more output to keep up. The goal was to force myself to challenge the preconceived ceiling — not gear-substitution."},
+    "5":  {"verdict": "state_as_read", "agree": true,  "correction": null},
+    "6":  {"verdict": "demote",        "agree": false, "correction": "Different point: it's a foot-in-the-door tactic — do something small, break the upfront resistance, then keep going."},
+    "7":  {"verdict": "assert",        "agree": true,  "correction": null},
+    "8":  {"verdict": "state_as_read", "agree": true,  "correction": null},
+    "9":  {"verdict": "demote",        "agree": false, "correction": "Need more data (no story anchor)."},
+    "10": {"verdict": "state_as_read", "agree": true,  "correction": null},
+    "11": {"verdict": "state_as_read", "agree": true,  "correction": null},
+    "12": {"verdict": "state_as_read", "agree": true,  "correction": null},
+    "13": {"verdict": "state_as_read", "agree": true,  "correction": null},
+    "14": {"verdict": "state_as_read", "agree": true,  "correction": null},
+    "15": {"verdict": "demote",        "agree": false, "correction": "Need more data (conceptual, no anchor)."},
+    "16": {"verdict": "state_as_read", "agree": true,  "correction": null},
+    "17": {"verdict": "demote",        "agree": false, "correction": "No, it wasn't avoidance work. It was a tactic to convince myself to do something I had inner resistance to."},
+    "18": {"verdict": "state_as_read", "agree": true,  "correction": null},
+    "19": {"verdict": "demote",        "agree": false, "correction": "Invalid, need more data (no anchor)."},
+    "20": {"verdict": "state_as_read", "agree": true,  "correction": null}
+  }
+}

@@ -13,6 +13,7 @@ from .judge import judge_claims
 from .rewriter import demote_to_question
 from .segmenter import segment
 from .types import Action, Decision, GateResult, Source
+from .validations import PendingValidations
 
 
 def run_gate(
@@ -23,6 +24,8 @@ def run_gate(
     judge_fn: Callable = judge_claims,
     rewrite_fn: Callable = demote_to_question,
     corpus: Optional[RegressionCorpus] = None,
+    validations: Optional[PendingValidations] = None,
+    ts: str = "",
     thread_id: str = "",
     user_id: str = "",
 ) -> GateResult:
@@ -45,6 +48,20 @@ def run_gate(
             out_lines.append(c.text)
         elif d.action is Action.STATE_AS_READ:
             out_lines.append(f"My read: {c.text}")
+            if validations is not None:
+                # a stated read implicitly invites confirmation — remember it so
+                # the user's answer can be matched and logged (Stream 2)
+                validations.open({
+                    "ts": ts,
+                    "thread_id": thread_id,
+                    "user_id": user_id,
+                    "claim_id": c.id,
+                    "claim_text": c.text,
+                    "claim_type": v.derived_type.value,
+                    "confidence": c.confidence,
+                    "action": Action.STATE_AS_READ.value,
+                    "question": "",
+                })
         else:  # DEMOTE
             q = rewrite_fn(c, sources)
             d.question = q
@@ -64,6 +81,18 @@ def run_gate(
                     }
                 )
                 logged.append(c.id)
+            if validations is not None:
+                validations.open({
+                    "ts": ts,
+                    "thread_id": thread_id,
+                    "user_id": user_id,
+                    "claim_id": c.id,
+                    "claim_text": c.text,
+                    "claim_type": v.derived_type.value,
+                    "confidence": c.confidence,
+                    "action": Action.DEMOTE.value,
+                    "question": q,
+                })
         decisions.append(d)
 
     if passthrough:

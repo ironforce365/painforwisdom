@@ -80,8 +80,13 @@ def format_vault_context(results: list[dict]) -> str:
     )
 
 
-def retrieve_for_turn(text: str) -> tuple[str, list[str]]:
-    """Retrieve vault context for a turn → (context_block, source_slugs).
+def retrieve_for_turn_rich(text: str) -> tuple[str, list[str], dict[str, str]]:
+    """Retrieve vault context for a turn → (context_block, source_slugs, slug_text).
+
+    ``slug_text`` maps each slug to its retrieved chunk text so the grounding
+    judge can check entailment against real source text (Stream 2 plumbing —
+    slug-only sources carried ``text=""`` and were unverifiable). Blank chunks
+    are omitted from the map.
 
     Never raises: a retrieval failure degrades the turn to no-context (the system
     prompt handles "nothing relevant") rather than taking down the coach.
@@ -90,7 +95,18 @@ def retrieve_for_turn(text: str) -> tuple[str, list[str]]:
         nodes = _get_retriever().retrieve(text)
     except Exception:
         log.exception("vault pre-retrieval failed; proceeding without context")
-        return "", []
+        return "", [], {}
     results = [_node_to_dict(n) for n in nodes]
     slugs = [r["source"] for r in results if r.get("source")]
-    return format_vault_context(results), slugs
+    slug_text: dict[str, str] = {}
+    for r in results:
+        chunk = (r.get("text") or "").strip()
+        if r.get("source") and chunk:
+            slug_text.setdefault(r["source"], chunk)
+    return format_vault_context(results), slugs, slug_text
+
+
+def retrieve_for_turn(text: str) -> tuple[str, list[str]]:
+    """Back-compat two-tuple wrapper around :func:`retrieve_for_turn_rich`."""
+    block, slugs, _ = retrieve_for_turn_rich(text)
+    return block, slugs

@@ -18,21 +18,41 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from agent.hooks import write_inbox_entry
-from agent.retrieval import retrieve_for_turn
+from agent.prompts import compose_system_prompt
+from agent.retrieval import retrieve_for_turn_rich
 from agent.session_map import SessionMap
 from crisis.filter import check_message
 
-# Grounding gate (Stream 0), default OFF via COACH_GROUNDING_GATE. Import-guarded
-# so a problem in the eval package can never break the coach's import or a live
-# turn. Inert on today's untagged coach output (the [[claim ...]] contract lands
-# in Stream 2); with the flag OFF it is a no-op regardless.
+# Per-turn slug -> retrieved chunk text, bound fresh by each endpoint and filled
+# by `_compose_turn_prompt`, so the grounding judge can verify entailment against
+# real source text (Stream 2 plumbing). ContextVar for the same reason as
+# `_stream_sources`: per-task isolation; fakes that bypass composition simply
+# leave it empty.
+_turn_slug_text: contextvars.ContextVar[dict] = contextvars.ContextVar(
+    "_turn_slug_text", default={}
+)
+
+# Grounding gate (Stream 0) + validation loop (Stream 2), default OFF via
+# COACH_GROUNDING_GATE. Import-guarded so a problem in the eval package can never
+# break the coach's import or a live turn. With the flag OFF every hook here is a
+# no-op and the coach behaves exactly as before.
 try:
-    from eval.grounding.integration import gate_enabled, maybe_gate
+    from eval.grounding.integration import (
+        detect_validation_signals,
+        gate_enabled,
+        maybe_gate,
+    )
     from eval.grounding.types import Source as _GroundingSource
 
     def _slugs_to_sources(slugs: list[str]) -> list["_GroundingSource"]:
-        # Slug-only sources carry no text yet; Stream 2 must plumb the retrieved
-        # chunk TEXT through for the judge to verify entailment.
+        # The judge was calibrated against a single S1 source; the coach's claim
+        # contract cites S1 = "the supplied vault context". Concatenate the
+        # retrieved chunk text under that id. Fall back to text-less per-slug
+        # sources when no chunk text was captured (fakes / no retrieval).
+        texts = _turn_slug_text.get()
+        joined = "\n\n".join(texts[s] for s in slugs if s in texts)
+        if joined:
+            return [_GroundingSource(id="S1", tier=1, kind="vault_context", text=joined)]
         return [_GroundingSource(id=s, tier=1, kind="vault_entry", text="") for s in slugs]
 except Exception:  # noqa: BLE001 - never let eval-package issues break the service
 
@@ -41,6 +61,9 @@ except Exception:  # noqa: BLE001 - never let eval-package issues break the serv
 
     def maybe_gate(reply: str, **_kw) -> str:
         return reply
+
+    def detect_validation_signals(user_text: str, **_kw) -> list:
+        return []
 
     def _slugs_to_sources(slugs: list[str]) -> list:
         return []
@@ -165,7 +188,9 @@ def _compose_turn_prompt(user_id: str, text: str) -> Tuple[str, list[str]]:
     The context block is placed before the user's text so the model reads its
     grounding first; it is omitted entirely when retrieval found nothing.
     """
-    context_block, slugs = retrieve_for_turn(text)
+    context_block, slugs, slug_text = retrieve_for_turn_rich(text)
+    # Stash chunk text for the grounding judge (endpoint binds a fresh dict).
+    _turn_slug_text.get().update(slug_text)
     parts = [f"<user_id>{user_id}</user_id>"]
     if context_block:
         parts.append(context_block)
@@ -223,9 +248,10 @@ def _build_agent_options(user_id: str):
     # Passing a fabricated id makes `claude --resume <id>` fail ("No conversation
     # found"); first turn must run with resume=None so the SDK creates the session.
     session_id = _sessions.get(user_id)
-    coach_prompt = Path(__file__).parent.parent / "coach_prompt.md"
     return ClaudeAgentOptions(
-        system_prompt=coach_prompt.read_text(encoding="utf-8"),
+        # Claim contract appended ONLY when the gate is on; flag off => prompt
+        # byte-identical to before, no [[claim]] tags can ever leak.
+        system_prompt=compose_system_prompt(claims=gate_enabled()),
         resume=session_id,
         # Headless service: auto-approve the coach's own MCP tools (server-level
         # patterns cover every tool each server exposes). Without this the SDK's
@@ -317,15 +343,29 @@ async def turn(t: Turn) -> Reply:
     if hit is not None:
         return Reply(reply=hit.canned_reply, crisis=True)
 
-    reply_text, sources = await _chat_with_agent(t.user_id, t.text)
-    # Gate before persisting: when ON the gated text IS the reply (demotions
-    # change content), so inbox and client must both see it. Footer stays last.
-    reply_text = maybe_gate(
-        reply_text,
-        sources=_slugs_to_sources(sources),
-        user_id=t.user_id,
+    # Stream 2: match the incoming text against this thread's open validations
+    # (questions the coach previously asked / reads it stated). Confirmations and
+    # corrections are logged to the corpus and close their items. No-op when the
+    # gate flag is off; failures are swallowed inside.
+    detect_validation_signals(
+        t.text,
         thread_id=_sessions.get(t.user_id) or t.user_id,
+        user_id=t.user_id,
     )
+
+    slug_text_token = _turn_slug_text.set({})
+    try:
+        reply_text, sources = await _chat_with_agent(t.user_id, t.text)
+        # Gate before persisting: when ON the gated text IS the reply (demotions
+        # change content), so inbox and client must both see it. Footer stays last.
+        reply_text = maybe_gate(
+            reply_text,
+            sources=_slugs_to_sources(sources),
+            user_id=t.user_id,
+            thread_id=_sessions.get(t.user_id) or t.user_id,
+        )
+    finally:
+        _turn_slug_text.reset(slug_text_token)
     inbox_root = Path(os.environ.get("COACH_INBOX_ROOT", "/vault/_inbox"))
     write_inbox_entry(
         inbox_root=inbox_root,
@@ -359,9 +399,17 @@ async def turn_stream(t: Turn) -> StreamingResponse:
             yield json.dumps({"done": True, "crisis": True}) + "\n"
             return
 
+        # Stream 2: incoming text vs this thread's open validations (see /turn).
+        detect_validation_signals(
+            t.text,
+            thread_id=_sessions.get(t.user_id) or t.user_id,
+            user_id=t.user_id,
+        )
+
         # Fresh per-stream source sink isolated to this task's context.
         sources: list[str] = []
         token = _stream_sources.set(sources)
+        slug_text_token = _turn_slug_text.set({})
         chunks: list[str] = []
         # When the gate is ON we cannot un-send streamed tokens, so we buffer
         # the whole draft, gate it, then emit it as a single delta (draft ->
@@ -376,14 +424,17 @@ async def turn_stream(t: Turn) -> StreamingResponse:
             _stream_sources.reset(token)
         merged = _merge_sources(sources)
         final_text = "".join(chunks)
-        if gated:
-            final_text = maybe_gate(
-                final_text,
-                sources=_slugs_to_sources(merged),
-                user_id=t.user_id,
-                thread_id=_sessions.get(t.user_id) or t.user_id,
-            )
-            yield json.dumps({"delta": final_text}) + "\n"
+        try:
+            if gated:
+                final_text = maybe_gate(
+                    final_text,
+                    sources=_slugs_to_sources(merged),
+                    user_id=t.user_id,
+                    thread_id=_sessions.get(t.user_id) or t.user_id,
+                )
+                yield json.dumps({"delta": final_text}) + "\n"
+        finally:
+            _turn_slug_text.reset(slug_text_token)
         write_inbox_entry(
             inbox_root=inbox_root,
             user_id=t.user_id,

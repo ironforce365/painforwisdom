@@ -1,0 +1,111 @@
+{
+  "comment": "Validation-detector calibration cases. Corrections use Gonzalo's REAL words from the labeled calibration sets (calibration_corpus). Expected outcomes are the labels the detector must reproduce. Conservative bias: ambiguity -> unaddressed.",
+  "cases": [
+    {
+      "id": "v01-explicit-confirm",
+      "open_items": [
+        {"claim_id": "c1", "action": "state_as_read",
+         "claim_text": "The bargaining was never about 10 minutes — it was a permission structure; each concession reset the baseline.",
+         "question": ""}
+      ],
+      "user_reply": "Yes, exactly. Once I open that negotiation I've already lost.",
+      "expected": {"c1": "confirmed"}
+    },
+    {
+      "id": "v02-substance-confirm-no-yes",
+      "open_items": [
+        {"claim_id": "c1", "action": "demote",
+         "claim_text": "The pre-run fatigue was anticipatory and cognitive, not physiological.",
+         "question": "Was the tiredness you felt before the run a body signal, or more of a mental forecast?"}
+      ],
+      "user_reply": "Looking back, my legs were fine the whole run. It was the story in my head the night before that almost kept me home.",
+      "expected": {"c1": "confirmed"}
+    },
+    {
+      "id": "v03-real-correction-tactic",
+      "open_items": [
+        {"claim_id": "c1", "action": "state_as_read",
+         "claim_text": "The displaced activity (painting, previously avoided) suggests the avoidance migrated rather than resolved.",
+         "question": ""}
+      ],
+      "user_reply": "Different point — it's a foot-in-the-door tactic. I do something small to break the upfront resistance, and then I'm already moving. The painting wasn't avoidance migrating, it was me tricking myself into starting.",
+      "expected": {"c1": "corrected"}
+    },
+    {
+      "id": "v04-agree-then-redirect-is-correction",
+      "open_items": [
+        {"claim_id": "c1", "action": "state_as_read",
+         "claim_text": "The stacking of external load markers (vest + boots + sauna pants) suggests escalation for its own sake.",
+         "question": ""}
+      ],
+      "user_reply": "It indeed required more output to keep up. But the goal was to force myself to challenge the preconceived limit I had set on Monday — not escalation for its own sake.",
+      "expected": {"c1": "corrected"}
+    },
+    {
+      "id": "v05-topic-change-unaddressed",
+      "open_items": [
+        {"claim_id": "c1", "action": "demote",
+         "claim_text": "You were punishing yourself for the missed sessions.",
+         "question": "Were you pushing that hard to punish yourself, or was something else going on?"}
+      ],
+      "user_reply": "What should I eat before a long trail run? Last time I bonked at mile 14.",
+      "expected": {"c1": "unaddressed"}
+    },
+    {
+      "id": "v06-partial-two-items",
+      "open_items": [
+        {"claim_id": "c1", "action": "state_as_read",
+         "claim_text": "The night-trail fear is a proxy for a deeper doubt about your capability as a runner.",
+         "question": ""},
+        {"claim_id": "c2", "action": "demote",
+         "claim_text": "You chose the storm route to validate an adversity-seeking identity.",
+         "question": "Did you pick the storm route to prove something to yourself, or for another reason?"}
+      ],
+      "user_reply": "Honestly yes — the night thing is not about the trail, it's about whether I believe I'm the kind of runner who can handle it.",
+      "expected": {"c1": "confirmed", "c2": "unaddressed"}
+    },
+    {
+      "id": "v07-mixed-confirm-and-correct",
+      "open_items": [
+        {"claim_id": "c1", "action": "state_as_read",
+         "claim_text": "Getting up at 5 instead of 4 was technical compliance — the snooze behavior survived in disguise.",
+         "question": ""},
+        {"claim_id": "c2", "action": "demote",
+         "claim_text": "You stayed in bed because the workout scared you.",
+         "question": "Was staying in bed about dreading the workout?"}
+      ],
+      "user_reply": "The one-more-minute game is absolutely snoozing with extra steps, you got me there. But no — the workout didn't scare me, I was just cold and the bed was warm.",
+      "expected": {"c1": "confirmed", "c2": "corrected"}
+    },
+    {
+      "id": "v08-ambiguous-hedge-stays-open",
+      "open_items": [
+        {"claim_id": "c1", "action": "demote",
+         "claim_text": "The comparison habit served as a motivation substitute.",
+         "question": "Did comparing yourself to those videos work as fuel, or did it mostly drain you?"}
+      ],
+      "user_reply": "Hmm, maybe. I'd have to think about that one.",
+      "expected": {"c1": "unaddressed"}
+    },
+    {
+      "id": "v09-correction-without-negation-words",
+      "open_items": [
+        {"claim_id": "c1", "action": "state_as_read",
+         "claim_text": "Wearing the sauna jacket on a warm day was about building heat tolerance for the summer race.",
+         "question": ""}
+      ],
+      "user_reply": "The jacket is my way of making an easy day count for something. There's no race on the calendar — I just refuse to let a short run be comfortable.",
+      "expected": {"c1": "corrected"}
+    },
+    {
+      "id": "v10-enthusiasm-about-other-text",
+      "open_items": [
+        {"claim_id": "c1", "action": "state_as_read",
+         "claim_text": "The 195 BPM moment rewired what you treat as a hard ceiling.",
+         "question": ""}
+      ],
+      "user_reply": "Love the interval plan, let's do it. Tuesday works better for me than Monday.",
+      "expected": {"c1": "unaddressed"}
+    }
+  ]
+}
