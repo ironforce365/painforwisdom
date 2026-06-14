@@ -104,9 +104,21 @@ def build(vault_dir: Path, out_dir: Path, source_dirs: list[str], *, llm_fn=None
     }
 
 
+def corpus_dir() -> Path:
+    """Where the doctrine corpus lives. Convention: all corpora live under
+    ``COACH_CORPUS_ROOT`` (a durable host dir bind-mounted into the container),
+    each in its own subdir. ``COACH_DOCTRINE_CORPUS_DIR`` overrides for the
+    doctrine corpus specifically."""
+    explicit = os.environ.get("COACH_DOCTRINE_CORPUS_DIR")
+    if explicit:
+        return Path(explicit)
+    root = os.environ.get("COACH_CORPUS_ROOT", "/data/corpus")
+    return Path(root) / "doctrine"
+
+
 def main() -> None:
     vault_dir = Path(os.environ["COACH_VAULT_PATH"])
-    out_dir = Path(os.environ.get("COACH_DOCTRINE_CORPUS_DIR", "/data/doctrine_corpus"))
+    out_dir = corpus_dir()
     source_dirs = [
         d.strip()
         for d in os.environ.get("COACH_DOCTRINE_SOURCE_DIRS", ",".join(DEFAULT_SOURCE_DIRS)).split(",")

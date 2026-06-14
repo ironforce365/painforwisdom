@@ -55,9 +55,15 @@ services:
       # Default OFF — inert until Stream 2 emits [[claim ...]] tags; flip via
       # COACH_GROUNDING_GATE in .env.coach.
       COACH_GROUNDING_GATE: ${COACH_GROUNDING_GATE:-false}
+      # Stream 3 (doctrine vs memory): the coach grounds teaching on the distilled
+      # doctrine INDEX (built from the corpus mounted at /corpus). All corpora live
+      # under COACH_CORPUS_ROOT (host ${COACH_CORPUS_HOST_PATH} -> /corpus :ro).
+      COACH_CORPUS_ROOT: /corpus
+      COACH_DOCTRINE_INDEX_DIR: ${COACH_DOCTRINE_INDEX_DIR:-/data/doctrine_index}
     # CRITICAL: do NOT set ANTHROPIC_API_KEY here — it would shadow the OAuth token.
     volumes:
       - ${VAULT_HOST_PATH}:/vault
+      - ${COACH_CORPUS_HOST_PATH}:/corpus:ro
       - coach_data:/data
       - whisper_cache:/root/.cache
     command: ["uvicorn", "agent.service:app", "--host", "0.0.0.0", "--port", "8800"]
