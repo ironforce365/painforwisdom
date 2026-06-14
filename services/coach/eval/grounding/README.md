@@ -52,6 +52,39 @@ before. Detector calibration: 12/12 live
 (`VALIDATION_DETECTOR_CALIBRATION.md`). Design:
 `docs/superpowers/specs/2026-06-10-stream2-validation-loop-design.md`.
 
+## Stream 3 (built, flag-gated): doctrine vs. memory
+
+The gate originally treated "grounded in the vault" as sufficient warrant for any
+fact — so it would *bless* the coach pulling a biographical fact from the vault
+and asserting it about whoever it's talking to (the "four months of recovery"
+leak). Stream 3 splits the coach's knowledge into two sources with different
+warrants, and makes the gate enforce the split:
+
+- **Doctrine (`D1`, kind `doctrine`, tier 2):** distilled, de-personalised
+  principles (`doctrine/` package — `distill.py` + `build_corpus.py`), retrieved
+  into a `<doctrine>` block. Grounds **conceptual/principle** claims only.
+- **Memory (`M1`, kind `memory`, tier 1):** conversation-only per-user facts
+  (mem0, `agent/memory.py`), retrieved into `<about_this_user>`. The ONLY source
+  that can ground a **fact about the user**.
+
+`decide()` runs in *typed mode* whenever a `doctrine`/`memory` source is present:
+a FACT must be entailed by a MEMORY source (else demote); a CONCEPTUAL claim may
+be entailed by doctrine. Untyped sources keep legacy behaviour. The claim
+contract (`coach_prompt_claims.md`) now cites `M1` for facts, `D1` for principles.
+
+**Deploy prerequisite:** build the doctrine corpus + index BEFORE enabling, else
+`<doctrine>` is empty and the coach is ungrounded:
+```
+# 1. distill raw vault -> clean principle corpus (subscription LLM)
+COACH_VAULT_PATH=/vault COACH_DOCTRINE_CORPUS_DIR=/data/doctrine_corpus \
+  python -m doctrine.build_corpus
+# 2. index the clean corpus (OpenAI embeddings)
+python -c "from pathlib import Path; from vault_rag.builder import build_index; \
+  build_index(Path('/data/doctrine_corpus'), Path('/data/doctrine_index'))"
+# 3. set COACH_DOCTRINE_INDEX_DIR=/data/doctrine_index, then enable the gate
+```
+Design: `docs/superpowers/specs/2026-06-14-doctrine-memory-separation-design.md`.
+
 ## Run the harness (real subscription judge)
 
 ```bash

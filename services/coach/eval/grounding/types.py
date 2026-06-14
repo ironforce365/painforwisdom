@@ -6,6 +6,15 @@ from enum import Enum
 from typing import Optional
 
 
+# Source kinds that carry epistemic ROLE (Stream 3 — doctrine vs. memory).
+# A fact about the user may only be grounded in a MEMORY source (what the user
+# actually said, conversation-derived); a DOCTRINE source (distilled, de-
+# personalised vault wisdom) may only ground conceptual/principle claims. Other
+# kind strings (debrief, vault_entry, …) are "untyped" and keep legacy behaviour.
+KIND_DOCTRINE = "doctrine"
+KIND_MEMORY = "memory"
+
+
 class ClaimType(str, Enum):
     FACT = "fact"                    # stated as fact about the user
     INTERPRETATION = "interpretation"  # the coach's read, beyond the literal source
@@ -39,9 +48,13 @@ class Claim:
 class Verdict:
     claim_id: str
     derived_type: ClaimType  # judge re-derived (anti-dodge), may differ from Claim.type
-    grounded: bool           # fact/conceptual: cited & entailed by a Tier-1 source
+    grounded: bool           # fact/conceptual: cited & entailed by ≥1 cited source
     contradicts: bool        # interpretation: contradicts a source
     rationale: str
+    # Source ids that ENTAIL the claim (subset of cites). Lets decide() apply the
+    # source-typed rule: a fact must be entailed by a MEMORY source, not doctrine.
+    # Empty when the judge predates source typing → decide() falls back to legacy.
+    grounded_by: list[str] = field(default_factory=list)
 
 
 @dataclass

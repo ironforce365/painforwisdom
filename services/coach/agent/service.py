@@ -18,8 +18,9 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from agent.hooks import write_inbox_entry
+from agent.memory import read_user_memory, write_user_memory
 from agent.prompts import compose_system_prompt
-from agent.retrieval import retrieve_for_turn_rich
+from agent.retrieval import retrieve_doctrine_for_turn, retrieve_for_turn_rich
 from agent.session_map import SessionMap
 from crisis.filter import check_message
 
@@ -32,6 +33,17 @@ _turn_slug_text: contextvars.ContextVar[dict] = contextvars.ContextVar(
     "_turn_slug_text", default={}
 )
 
+# Doctrine + user-memory world (Stream 3): the joined source text for this turn's
+# D1 (doctrine) and M1 (memory) grounding sources, bound fresh per endpoint and
+# filled by `_compose_turn_prompt`. ContextVar for per-task isolation, same as
+# `_turn_slug_text`.
+_turn_doctrine_text: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "_turn_doctrine_text", default=""
+)
+_turn_memory_text: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "_turn_memory_text", default=""
+)
+
 # Grounding gate (Stream 0) + validation loop (Stream 2), default OFF via
 # COACH_GROUNDING_GATE. Import-guarded so a problem in the eval package can never
 # break the coach's import or a live turn. With the flag OFF every hook here is a
@@ -42,13 +54,25 @@ try:
         gate_enabled,
         maybe_gate,
     )
+    from eval.grounding.types import KIND_DOCTRINE, KIND_MEMORY
     from eval.grounding.types import Source as _GroundingSource
 
     def _slugs_to_sources(slugs: list[str]) -> list["_GroundingSource"]:
-        # The judge was calibrated against a single S1 source; the coach's claim
-        # contract cites S1 = "the supplied vault context". Concatenate the
-        # retrieved chunk text under that id. Fall back to text-less per-slug
-        # sources when no chunk text was captured (fakes / no retrieval).
+        # Doctrine/memory world (Stream 3): a doctrine source (D1, tier 2) and a
+        # user-memory source (M1, tier 1) built from the text stashed this turn.
+        # The gate then enforces: a FACT about the user needs M1 (memory) — a
+        # doctrine source can never warrant biography.
+        dt = _turn_doctrine_text.get()
+        mt = _turn_memory_text.get()
+        if dt or mt:
+            out: list["_GroundingSource"] = []
+            if dt:
+                out.append(_GroundingSource(id="D1", tier=2, kind=KIND_DOCTRINE, text=dt))
+            if mt:
+                out.append(_GroundingSource(id="M1", tier=1, kind=KIND_MEMORY, text=mt))
+            return out
+        # Legacy (flag-off / no doctrine+memory captured): single S1 from vault
+        # chunk text, or text-less per-slug sources for fakes / no retrieval.
         texts = _turn_slug_text.get()
         joined = "\n\n".join(texts[s] for s in slugs if s in texts)
         if joined:
@@ -188,10 +212,26 @@ def _compose_turn_prompt(user_id: str, text: str) -> Tuple[str, list[str]]:
     The context block is placed before the user's text so the model reads its
     grounding first; it is omitted entirely when retrieval found nothing.
     """
+    parts = [f"<user_id>{user_id}</user_id>"]
+    if gate_enabled():
+        # Doctrine + memory world: ground teaching on distilled doctrine (D1) and
+        # facts about the user ONLY on conversation-derived memory (M1). The raw
+        # vault is never retrieved at coach-time here — it is only distillation
+        # input. Slugs (doctrine principles) still feed the inbox + debug canary.
+        doctrine_block, slugs, doctrine_text = retrieve_doctrine_for_turn(text)
+        memory_block, memory_text = read_user_memory(user_id, text)
+        _turn_doctrine_text.set(doctrine_text)
+        _turn_memory_text.set(memory_text)
+        if doctrine_block:
+            parts.append(doctrine_block)
+        if memory_block:
+            parts.append(memory_block)
+        parts.append(text)
+        return "\n\n".join(parts), slugs
+    # Legacy (flag OFF): raw vault context, byte-identical to before.
     context_block, slugs, slug_text = retrieve_for_turn_rich(text)
     # Stash chunk text for the grounding judge (endpoint binds a fresh dict).
     _turn_slug_text.get().update(slug_text)
-    parts = [f"<user_id>{user_id}</user_id>"]
     if context_block:
         parts.append(context_block)
     parts.append(text)
@@ -354,6 +394,8 @@ async def turn(t: Turn) -> Reply:
     )
 
     slug_text_token = _turn_slug_text.set({})
+    doctrine_token = _turn_doctrine_text.set("")
+    memory_token = _turn_memory_text.set("")
     try:
         reply_text, sources = await _chat_with_agent(t.user_id, t.text)
         # Gate before persisting: when ON the gated text IS the reply (demotions
@@ -364,8 +406,14 @@ async def turn(t: Turn) -> Reply:
             user_id=t.user_id,
             thread_id=_sessions.get(t.user_id) or t.user_id,
         )
+        # Conversation-only memory: persist the user's OWN words (mem0 extracts
+        # durable facts). Gate-on only; swallows failures inside.
+        if gate_enabled():
+            write_user_memory(t.user_id, t.text)
     finally:
         _turn_slug_text.reset(slug_text_token)
+        _turn_doctrine_text.reset(doctrine_token)
+        _turn_memory_text.reset(memory_token)
     inbox_root = Path(os.environ.get("COACH_INBOX_ROOT", "/vault/_inbox"))
     write_inbox_entry(
         inbox_root=inbox_root,
@@ -410,6 +458,8 @@ async def turn_stream(t: Turn) -> StreamingResponse:
         sources: list[str] = []
         token = _stream_sources.set(sources)
         slug_text_token = _turn_slug_text.set({})
+        doctrine_token = _turn_doctrine_text.set("")
+        memory_token = _turn_memory_text.set("")
         chunks: list[str] = []
         # When the gate is ON we cannot un-send streamed tokens, so we buffer
         # the whole draft, gate it, then emit it as a single delta (draft ->
@@ -433,8 +483,12 @@ async def turn_stream(t: Turn) -> StreamingResponse:
                     thread_id=_sessions.get(t.user_id) or t.user_id,
                 )
                 yield json.dumps({"delta": final_text}) + "\n"
+                # Conversation-only memory: persist the user's OWN words.
+                write_user_memory(t.user_id, t.text)
         finally:
             _turn_slug_text.reset(slug_text_token)
+            _turn_doctrine_text.reset(doctrine_token)
+            _turn_memory_text.reset(memory_token)
         write_inbox_entry(
             inbox_root=inbox_root,
             user_id=t.user_id,

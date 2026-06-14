@@ -31,6 +31,8 @@ def run_gate(
 ) -> GateResult:
     claims, passthrough = segment(draft)
     verdicts = {v.claim_id: v for v in judge_fn(claims, sources)}
+    # id -> kind, so decide() can enforce "a fact needs a MEMORY source".
+    source_kinds = {s.id: s.kind for s in sources}
     out_lines: list[str] = []
     decisions: list[Decision] = []
     logged: list[str] = []
@@ -43,7 +45,7 @@ def run_gate(
             out_lines.append(q)
             decisions.append(Decision(c.id, Action.DEMOTE, q))
             continue
-        d = decide(v, confidence=c.confidence, temperature=temperature)
+        d = decide(v, confidence=c.confidence, temperature=temperature, source_kinds=source_kinds)
         if d.action is Action.ASSERT:
             out_lines.append(c.text)
         elif d.action is Action.STATE_AS_READ:

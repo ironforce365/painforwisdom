@@ -48,6 +48,29 @@ def test_retrieve_for_turn_still_two_tuple():
     assert slugs == ["s1"]
 
 
+def test_retrieve_doctrine_for_turn_returns_block_slugs_text():
+    r.set_doctrine_retriever_for_tests(
+        _FakeRetriever([
+            _FakeNode("Pain that quiets under load can mask damage.", "body-literacy", 1.0),
+            _FakeNode("Recovery is a strategy, not a concession.", "recovery", 0.7),
+        ])
+    )
+    block, slugs, joined = r.retrieve_doctrine_for_turn("achilles")
+    assert "<doctrine>" in block and "mask damage." in block
+    assert "teaching material" in block.lower()  # framed as doctrine, not biography
+    assert slugs == ["body-literacy", "recovery"]
+    assert "Pain that quiets" in joined and "<doctrine>" not in joined
+
+
+def test_retrieve_doctrine_for_turn_swallows_errors():
+    class _Boom:
+        def retrieve(self, q):
+            raise RuntimeError("no doctrine index")
+
+    r.set_doctrine_retriever_for_tests(_Boom())
+    assert r.retrieve_doctrine_for_turn("x") == ("", [], "")
+
+
 def test_retrieve_for_turn_rich_swallows_errors():
     class _Boom:
         def retrieve(self, q):
@@ -68,4 +91,7 @@ def test_compose_system_prompt_with_claims_appends_contract():
     assert full.startswith(compose_system_prompt(claims=False))
     assert "[[claim" in full
     assert "conf=" in full
-    assert "cite=S1" in full
+    # doctrine/memory world: facts cite M1 (memory), principles cite D1 (doctrine)
+    assert "cite=M1" in full
+    assert "cite=D1" in full
+    assert "<about_this_user>" in full and "<doctrine>" in full
