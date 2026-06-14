@@ -177,6 +177,25 @@ them would allow incoherent half-states.
 - The full doctrine reindex is a deploy prerequisite; enabling the flag without a
   built doctrine index degrades to ungrounded (documented, not silent).
 
-## 8. Explicitly NOT done in this slice
+## 8. Explicitly NOT done in this slice (no silent drops)
 
-(filled in as the night progresses if I cut anything — no silent drops)
+- **Full doctrine corpus + index not built into prod.** Code + a validated
+  3-file sample are done; the full ~280-file distill ran overnight for validation
+  (host). Building the prod index (corpus → OpenAI embeddings → `/data/
+  doctrine_index`) is an operational step, documented in the README + wakeup. The
+  gate must not be enabled on this branch until it exists.
+- **`search_vault` MCP tool still points at the RAW vault.** When the gate is on,
+  the model is told to ground on `<doctrine>`/`<about_this_user>`, but it can
+  still call `search_vault` mid-turn and pull raw biographical entries into its
+  context. The gate still DEMOTES any tagged fact that only the raw vault
+  supports (it isn't in D1/M1) — but raw biography could bleed into untagged text
+  or interpretations. **Follow-up:** repoint/disable `search_vault` to the
+  doctrine index under the flag. Surfaced, not silently dropped.
+- **mem0 extraction quality not eval'd.** We pass the user's raw text and let
+  mem0 extract; no eval yet on what it stores / recalls. Worth a small eval.
+- **Flag-on prompt still carries the legacy `<vault_context>` paragraph** from
+  the unchanged base `coach_prompt.md` (the appended contract overrides it). Kept
+  this way to preserve byte-identical flag-off; a clean unified flag-on base
+  prompt is a follow-up.
+- **No live end-to-end run** with a real doctrine index + gate on a real
+  conversation yet (needs the index built; it's a supervised step for Gonzalo).
