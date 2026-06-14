@@ -152,6 +152,20 @@ them would allow incoherent half-states.
   incl. end-to-end "four months" biography-leak regression. 33 passed / 2 skipped,
   zero regressions across decide/judge/gate/types/integration/validations.
 
+- **Step 4 DONE — contract + prompt.** `coach_prompt_claims.md` rewritten to the
+  doctrine/memory world (facts cite `M1`, principles cite `D1`, hard line:
+  doctrine can never warrant biography). Base `coach_prompt.md` UNCHANGED →
+  flag-off still byte-identical. Plumbing test updated.
+- **Step 5 DONE — retrieval + service wiring.** `retrieval.py`
+  (`retrieve_doctrine_for_turn` + `format_doctrine_context`, doctrine retriever
+  singleton at `COACH_DOCTRINE_INDEX_DIR`). `service.py`: gate-aware
+  `_compose_turn_prompt` (flag-on → `<doctrine>`+`<about_this_user>`; flag-off →
+  legacy vault, byte-identical), `_slugs_to_sources` builds typed D1/M1 sources,
+  conversation-only `write_user_memory` after the turn, two new ContextVars.
+  New `test_agent_doctrine_memory.py` (5, docker) incl. end-to-end demotion of a
+  doctrine-only fact + conversation-only memory write. **Full docker coach suite:
+  219 passed / 3 skipped, zero regressions.** Host-safe set: 110 passed / 2.
+
 ## 7. Assumptions to review (collected)
 
 - One flag (`COACH_GROUNDING_GATE`) governs doctrine + memory + typed gate.

@@ -21,6 +21,7 @@ from pathlib import Path
 log = logging.getLogger("coach.retrieval")
 
 _retriever = None  # process-wide singleton; built lazily on first turn
+_doctrine_retriever = None  # doctrine-corpus retriever (Stream 3), built lazily
 
 
 def _build_retriever():
@@ -32,6 +33,15 @@ def _build_retriever():
     return build_retriever(index, top_k=int(os.environ.get("COACH_VAULT_TOPK", "5")))
 
 
+def _build_doctrine_retriever():
+    from vault_rag.builder import load_index
+    from vault_rag.retriever import build_retriever
+
+    storage_dir = Path(os.environ.get("COACH_DOCTRINE_INDEX_DIR", "/data/doctrine_index"))
+    index = load_index(storage_dir)
+    return build_retriever(index, top_k=int(os.environ.get("COACH_DOCTRINE_TOPK", "5")))
+
+
 def _get_retriever():
     global _retriever
     if _retriever is None:
@@ -39,10 +49,23 @@ def _get_retriever():
     return _retriever
 
 
+def _get_doctrine_retriever():
+    global _doctrine_retriever
+    if _doctrine_retriever is None:
+        _doctrine_retriever = _build_doctrine_retriever()
+    return _doctrine_retriever
+
+
 def set_retriever_for_tests(retriever) -> None:
     """Inject a fake retriever (tests) or reset to None to force a rebuild."""
     global _retriever
     _retriever = retriever
+
+
+def set_doctrine_retriever_for_tests(retriever) -> None:
+    """Inject a fake doctrine retriever (tests) or reset to None."""
+    global _doctrine_retriever
+    _doctrine_retriever = retriever
 
 
 def _node_to_dict(n) -> dict:
@@ -110,3 +133,48 @@ def retrieve_for_turn(text: str) -> tuple[str, list[str]]:
     """Back-compat two-tuple wrapper around :func:`retrieve_for_turn_rich`."""
     block, slugs, _ = retrieve_for_turn_rich(text)
     return block, slugs
+
+
+def format_doctrine_context(results: list[dict]) -> str:
+    """Render distilled doctrine principles as the `<doctrine>` block, or ''.
+
+    Doctrine is teaching material — transferable principles, NOT facts about the
+    user. Framed so the model reasons WITH it but never attributes it to the
+    person it's talking to. Slugs omitted (same no-citation rule as the vault).
+    """
+    blocks = []
+    for i, r in enumerate(results, 1):
+        text = (r.get("text") or "").strip()
+        if not text:
+            continue
+        blocks.append(f"[{i}] {text}")
+    if not blocks:
+        return ""
+    body = "\n\n".join(blocks)
+    return (
+        "<doctrine>\n"
+        "Distilled coaching principles relevant to THIS turn — transferable wisdom "
+        "to reason WITH. This is teaching material, NOT facts about the person you "
+        "are talking to; never attribute it to them as their own history.\n\n"
+        f"{body}\n"
+        "</doctrine>"
+    )
+
+
+def retrieve_doctrine_for_turn(text: str) -> tuple[str, list[str], str]:
+    """Retrieve distilled doctrine for a turn → (block, slugs, joined_text).
+
+    ``joined_text`` is the concatenated principle text for the grounding judge's
+    D1 source. Never raises: a failure (e.g. no doctrine index yet) degrades to
+    empty, and the system prompt handles "nothing relevant".
+    """
+    try:
+        nodes = _get_doctrine_retriever().retrieve(text)
+    except Exception:
+        log.exception("doctrine pre-retrieval failed; proceeding without doctrine")
+        return "", [], ""
+    results = [_node_to_dict(n) for n in nodes]
+    slugs = [r["source"] for r in results if r.get("source")]
+    texts = [(r.get("text") or "").strip() for r in results]
+    joined = "\n\n".join(t for t in texts if t)
+    return format_doctrine_context(results), slugs, joined
