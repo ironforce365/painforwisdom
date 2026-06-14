@@ -184,13 +184,12 @@ them would allow incoherent half-states.
   (host). Building the prod index (corpus → OpenAI embeddings → `/data/
   doctrine_index`) is an operational step, documented in the README + wakeup. The
   gate must not be enabled on this branch until it exists.
-- **`search_vault` MCP tool still points at the RAW vault.** When the gate is on,
-  the model is told to ground on `<doctrine>`/`<about_this_user>`, but it can
-  still call `search_vault` mid-turn and pull raw biographical entries into its
-  context. The gate still DEMOTES any tagged fact that only the raw vault
-  supports (it isn't in D1/M1) — but raw biography could bleed into untagged text
-  or interpretations. **Follow-up:** repoint/disable `search_vault` to the
-  doctrine index under the flag. Surfaced, not silently dropped.
+- ~~**`search_vault` MCP tool still points at the RAW vault.**~~ **FIXED in
+  v0.1.7** (caught by the first prod smoke test — the coach called `search_vault`,
+  hit the raw vault, and narrated the author's biography incl. "four months"). When
+  the gate is on, `_build_agent_options` now points the `search_vault` MCP server's
+  `COACH_INDEX_STORAGE_DIR` at the doctrine index, so a mid-turn dig-deeper returns
+  de-personalised principles, never raw biography. Capability preserved.
 - **mem0 extraction quality not eval'd.** We pass the user's raw text and let
   mem0 extract; no eval yet on what it stores / recalls. Worth a small eval.
 - **Flag-on prompt still carries the legacy `<vault_context>` paragraph** from

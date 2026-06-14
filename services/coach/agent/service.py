@@ -288,6 +288,16 @@ def _build_agent_options(user_id: str):
     # Passing a fabricated id makes `claude --resume <id>` fail ("No conversation
     # found"); first turn must run with resume=None so the SDK creates the session.
     session_id = _sessions.get(user_id)
+    # When the gate is ON, point the `search_vault` tool at the DOCTRINE index so a
+    # mid-turn dig-deeper returns de-personalised principles, never raw biography.
+    # Without this, the model can call search_vault, hit the raw vault, and narrate
+    # the author's personal history (the "four months of recovery" leak) — which the
+    # claim gate won't catch because it's phrased about the author, not the user.
+    vault_env = dict(os.environ)
+    if gate_enabled():
+        vault_env["COACH_INDEX_STORAGE_DIR"] = os.environ.get(
+            "COACH_DOCTRINE_INDEX_DIR", "/data/doctrine_index"
+        )
     return ClaudeAgentOptions(
         # Claim contract appended ONLY when the gate is on; flag off => prompt
         # byte-identical to before, no [[claim]] tags can ever leak.
@@ -300,7 +310,7 @@ def _build_agent_options(user_id: str):
         allowed_tools=["mcp__vault_rag", "mcp__user_memory", "mcp__mem0"],
         mcp_servers={
             "vault_rag": McpStdioServerConfig(
-                command="python", args=["-m", "vault_rag.mcp_server"], env=dict(os.environ),
+                command="python", args=["-m", "vault_rag.mcp_server"], env=vault_env,
             ),
             "user_memory": McpStdioServerConfig(
                 command="python", args=["-m", "user_memory.mcp_server"], env=dict(os.environ),
