@@ -18,8 +18,10 @@ _SYSTEM = (
     "set grounded true/false. An uncited fact/conceptual claim is grounded=false. "
     "An uncited conceptual claim should be re-derived as 'interpretation'.\n"
     "- interpretation: does it CONTRADICT any source? set contradicts true/false.\n"
+    "Also set grounded_by: the list of source ids (e.g. [\"M1\"]) that actually "
+    "ENTAIL the claim — a subset of the cited sources. Empty list if none.\n"
     'Return ONLY JSON: {"verdicts":[{"claim_id","derived_type","grounded",'
-    '"contradicts","rationale"}]} with one entry per claim, in order.'
+    '"grounded_by","contradicts","rationale"}]} with one entry per claim, in order.'
 )
 
 
@@ -49,6 +51,9 @@ def judge_claims(
     data = json.loads(raw[start : end + 1])
     verdicts: list[Verdict] = []
     for v in data["verdicts"]:
+        gb = v.get("grounded_by") or []
+        if not isinstance(gb, list):
+            gb = []
         verdicts.append(
             Verdict(
                 claim_id=v["claim_id"],
@@ -56,6 +61,7 @@ def judge_claims(
                 grounded=bool(v.get("grounded", False)),
                 contradicts=bool(v.get("contradicts", False)),
                 rationale=v.get("rationale", ""),
+                grounded_by=[str(x) for x in gb],
             )
         )
     return verdicts
