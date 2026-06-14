@@ -47,10 +47,29 @@ def test_build_writes_clean_corpus_and_drops_contaminated(tmp_path, monkeypatch)
     corpus_text = "\n".join(p.read_text() for p in out.glob("*.md"))
     assert "Pain that quiets under load" in corpus_text
     assert "four months" not in corpus_text          # contamination never written
-    # the whole corpus passes the QA gate line by line
+    # every retrievable principle line passes the QA gate (skip frontmatter, which
+    # carries the path/slug + theme and is excluded from embeddings, not content)
+    _meta = ("#", "---", "source:", "theme:")
     for line in corpus_text.splitlines():
-        if line.strip() and not line.startswith("#"):
-            assert dd.is_depersonalized(line), f"contaminated line in corpus: {line!r}"
+        s = line.strip()
+        if s and not s.startswith(_meta):
+            assert dd.is_depersonalized(s), f"contaminated principle line: {s!r}"
+
+
+def test_build_slugs_by_relative_path_no_collision(tmp_path):
+    # deep-dives repeat the stem 'theory.md' across theme dirs — they must NOT
+    # collapse into one corpus file (provenance loss).
+    v = tmp_path / "vault"
+    (v / "gonzalo-book" / "deep-dive" / "theme-a").mkdir(parents=True)
+    (v / "gonzalo-book" / "deep-dive" / "theme-b").mkdir(parents=True)
+    (v / "gonzalo-book" / "deep-dive" / "theme-a" / "theory.md").write_text("a")
+    (v / "gonzalo-book" / "deep-dive" / "theme-b" / "theory.md").write_text("b")
+    out = tmp_path / "c"
+    bc.build(v, out, ["gonzalo-book/deep-dive"],
+             llm_fn=lambda **kw: json.dumps({"principles": [{"text": "You grow by confronting fear.", "theme": "t"}]}),
+             model="m")
+    written = sorted(p.name for p in out.glob("*.md"))
+    assert len(written) == 2, f"slug collision: {written}"  # two distinct files
 
 
 def test_build_empty_when_no_sources(tmp_path):

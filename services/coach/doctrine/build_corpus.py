@@ -45,9 +45,23 @@ def iter_source_files(vault_dir: Path, source_dirs: list[str]) -> list[Path]:
     return out
 
 
-def distill_file(path: Path, *, llm_fn=None, model: str) -> list[Principle]:
+def _slug_for(path: Path, vault_dir: Path) -> str:
+    """Stable, COLLISION-FREE slug from the path relative to the vault.
+
+    Deep-dives repeat stems (`theory.md`, `application.md`) across theme dirs, so
+    a bare stem collapses dozens of distinct entries into one corpus file and
+    destroys provenance. Use the full relative path instead.
+    """
+    try:
+        rel = path.relative_to(vault_dir).with_suffix("")
+    except ValueError:
+        rel = Path(path.stem)
+    return str(rel).replace("/", "__").lower()
+
+
+def distill_file(path: Path, *, llm_fn=None, model: str, vault_dir: Path | None = None) -> list[Principle]:
     text = path.read_text(encoding="utf-8", errors="ignore")
-    slug = path.stem.lower()
+    slug = _slug_for(path, vault_dir) if vault_dir else path.stem.lower()
     return extract_principles(text, llm_fn=llm_fn, model=model, source_slug=slug)
 
 
@@ -75,7 +89,7 @@ def build(vault_dir: Path, out_dir: Path, source_dirs: list[str], *, llm_fn=None
     dropped = 0
     for f in files:
         raw_text = f.read_text(encoding="utf-8", errors="ignore")
-        slug = f.stem.lower()
+        slug = _slug_for(f, vault_dir)
         principles, n_dropped = extract_with_stats(
             raw_text, llm_fn=llm_fn, model=model, source_slug=slug
         )  # ONE LLM call per file; QA gate + drop count from the same parse

@@ -38,6 +38,21 @@ an identity, not building a capacity.*
 - The deep-dives were NOT clean at source (as Gonzalo said), but distillation
   cleans them. Confirms: distill, don't just reindex a subset.
 
+## Full-corpus run (overnight, host validation)
+
+Ran `doctrine.build_corpus` over the whole vault to validate at scale:
+- **300 source files in → 1,862 clean principles kept, 188 QA-dropped (~9%).**
+- **Full QA scan: 0 leaks** — every one of the 1,862 principle lines passed
+  `is_depersonalized` (no first-person / author name survived).
+- Surfaced + fixed a **slug-collision bug**: deep-dives repeat `theory.md` /
+  `application.md` across theme dirs, so a bare-stem slug collapsed 300 files into
+  93 corpus files (no data loss — principles merged — but provenance destroyed).
+  Fixed: slug now derives from the full relative path (`gonzalo-book__deep-dive__
+  <theme>__theory`). Regression test added.
+
+The host run was validation only; the prod corpus+index must be rebuilt in the
+coach image (below) after the slug fix.
+
 ## Full-corpus build (operational step, not committed — derived artifact)
 ~280 source files across the 5 dirs. Run in the coach image (has OPENAI key for
 the index embeddings):
