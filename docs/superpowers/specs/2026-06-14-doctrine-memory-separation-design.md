@@ -137,6 +137,14 @@ them would allow incoherent half-states.
 
 (updated as I go — newest last)
 
+- **Step 2 DONE — user memory.** `agent/memory.py` read/write/format, fake-client
+  tested (9 passed). Conversation-only by construction; degrades on failure.
+- **Step 3 DONE — doctrine distillation + corpus.** `doctrine/distill.py`
+  (`is_depersonalized` QA gate, `extract_with_stats` one-call kept+dropped),
+  `doctrine/build_corpus.py` (scope dirs, skip `_`/`_inbox`, write clean `.md`).
+  19 tests. **Live validation** (`2026-06-14-doctrine-distillation-sample.md`): 3
+  real files → 21 clean principles, 0 gate leaks, biography stripped from the
+  hardest first-person entry. Riskiest assumption CONFIRMED.
 - **Step 1 DONE — source-typed gate.** `types.py` (+`grounded_by`, KIND_* consts),
   `decide.py` (typed mode: fact needs MEMORY source; conceptual needs any;
   legacy preserved when no typed kinds), `judge.py` (emits/parses `grounded_by`),
