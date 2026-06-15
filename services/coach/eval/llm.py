@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 import subprocess
 
+from shared.perf import perf_step
+
 DEFAULT_MODEL = "claude-sonnet-4-6"
 _TIMEOUT_S = 120
 
@@ -27,7 +29,11 @@ def call_llm(*, system: str, user: str, model: str = DEFAULT_MODEL) -> str:
     prompt = f"{system}\n\n---\n\n{user}" if system else user
     cmd = ["claude", "-p", prompt, "--output-format", "json", "--model", model]
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=_TIMEOUT_S)
+        # The single most diagnostic number for turn latency: each call is a full
+        # `claude -p` CLI cold-start. Timing it tells us per-call cost AND how many
+        # LLM calls a turn fires (judge = 1; + 1 per demoted claim).
+        with perf_step("llm_subprocess", model=model):
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=_TIMEOUT_S)
     except (FileNotFoundError, subprocess.TimeoutExpired) as e:
         raise LLMError(f"claude CLI call failed: {e}") from e
     if proc.returncode != 0:
