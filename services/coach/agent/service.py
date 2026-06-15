@@ -23,6 +23,7 @@ from agent.prompts import compose_system_prompt
 from agent.retrieval import retrieve_doctrine_for_turn, retrieve_for_turn_rich
 from agent.session_map import SessionMap
 from crisis.filter import check_message
+from shared.perf import perf_step
 
 # Per-turn slug -> retrieved chunk text, bound fresh by each endpoint and filled
 # by `_compose_turn_prompt`, so the grounding judge can verify entailment against
@@ -218,8 +219,10 @@ def _compose_turn_prompt(user_id: str, text: str) -> Tuple[str, list[str]]:
         # facts about the user ONLY on conversation-derived memory (M1). The raw
         # vault is never retrieved at coach-time here — it is only distillation
         # input. Slugs (doctrine principles) still feed the inbox + debug canary.
-        doctrine_block, slugs, doctrine_text = retrieve_doctrine_for_turn(text)
-        memory_block, memory_text = read_user_memory(user_id, text)
+        with perf_step("doctrine_retrieve"):
+            doctrine_block, slugs, doctrine_text = retrieve_doctrine_for_turn(text)
+        with perf_step("memory_read"):
+            memory_block, memory_text = read_user_memory(user_id, text)
         _turn_doctrine_text.set(doctrine_text)
         _turn_memory_text.set(memory_text)
         if doctrine_block:
@@ -344,11 +347,12 @@ async def _chat_with_agent(user_id: str, text: str) -> Tuple[str, list[str]]:
     captured: dict[str, str] = {}
     query, pre_slugs = _compose_turn_prompt(user_id, text)
 
-    async with ClaudeSDKClient(options=options) as client:
-        await client.query(query)
-        reply, tool_slugs = await _extract_reply_and_sources(
-            _sniff_session(client.receive_response(), captured)
-        )
+    with perf_step("agent_query"):
+        async with ClaudeSDKClient(options=options) as client:
+            await client.query(query)
+            reply, tool_slugs = await _extract_reply_and_sources(
+                _sniff_session(client.receive_response(), captured)
+            )
     if captured.get("sid"):
         _sessions.set(user_id, captured["sid"])
     # Inbox records the deterministic pre-retrieval plus any slugs the model
@@ -407,19 +411,23 @@ async def turn(t: Turn) -> Reply:
     doctrine_token = _turn_doctrine_text.set("")
     memory_token = _turn_memory_text.set("")
     try:
-        reply_text, sources = await _chat_with_agent(t.user_id, t.text)
-        # Gate before persisting: when ON the gated text IS the reply (demotions
-        # change content), so inbox and client must both see it. Footer stays last.
-        reply_text = maybe_gate(
-            reply_text,
-            sources=_slugs_to_sources(sources),
-            user_id=t.user_id,
-            thread_id=_sessions.get(t.user_id) or t.user_id,
-        )
-        # Conversation-only memory: persist the user's OWN words (mem0 extracts
-        # durable facts). Gate-on only; swallows failures inside.
-        if gate_enabled():
-            write_user_memory(t.user_id, t.text)
+        with perf_step("turn_total", gate=gate_enabled()):
+            with perf_step("agent_total"):
+                reply_text, sources = await _chat_with_agent(t.user_id, t.text)
+            # Gate before persisting: when ON the gated text IS the reply (demotions
+            # change content), so inbox and client must both see it. Footer stays last.
+            with perf_step("gate_judge"):
+                reply_text = maybe_gate(
+                    reply_text,
+                    sources=_slugs_to_sources(sources),
+                    user_id=t.user_id,
+                    thread_id=_sessions.get(t.user_id) or t.user_id,
+                )
+            # Conversation-only memory: persist the user's OWN words (mem0 extracts
+            # durable facts). Gate-on only; swallows failures inside.
+            if gate_enabled():
+                with perf_step("memory_write"):
+                    write_user_memory(t.user_id, t.text)
     finally:
         _turn_slug_text.reset(slug_text_token)
         _turn_doctrine_text.reset(doctrine_token)
@@ -476,25 +484,31 @@ async def turn_stream(t: Turn) -> StreamingResponse:
         # gate -> send). When OFF, behaviour is identical: live token streaming.
         gated = gate_enabled()
         try:
-            async for delta in _stream_agent(t.user_id, t.text):
-                chunks.append(delta)
-                if not gated:
-                    yield json.dumps({"delta": delta}) + "\n"
+            # In gated mode (prod) this loop does not yield to the HTTP consumer,
+            # so the timer reflects generation time only; in legacy un-gated mode
+            # it also spans consumer back-pressure (noted, acceptable).
+            with perf_step("agent_stream", gate=gated):
+                async for delta in _stream_agent(t.user_id, t.text):
+                    chunks.append(delta)
+                    if not gated:
+                        yield json.dumps({"delta": delta}) + "\n"
         finally:
             _stream_sources.reset(token)
         merged = _merge_sources(sources)
         final_text = "".join(chunks)
         try:
             if gated:
-                final_text = maybe_gate(
-                    final_text,
-                    sources=_slugs_to_sources(merged),
-                    user_id=t.user_id,
-                    thread_id=_sessions.get(t.user_id) or t.user_id,
-                )
+                with perf_step("gate_judge"):
+                    final_text = maybe_gate(
+                        final_text,
+                        sources=_slugs_to_sources(merged),
+                        user_id=t.user_id,
+                        thread_id=_sessions.get(t.user_id) or t.user_id,
+                    )
                 yield json.dumps({"delta": final_text}) + "\n"
                 # Conversation-only memory: persist the user's OWN words.
-                write_user_memory(t.user_id, t.text)
+                with perf_step("memory_write"):
+                    write_user_memory(t.user_id, t.text)
         finally:
             _turn_slug_text.reset(slug_text_token)
             _turn_doctrine_text.reset(doctrine_token)
