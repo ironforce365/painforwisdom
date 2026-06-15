@@ -75,3 +75,14 @@ done
 
 echo "==> deployed $TAG to project '$PROJECT' from $LIVE_DIR"
 dc ps
+
+# Reclaim disk — best-effort, and only AFTER health passed (a failed deploy exits
+# above, keeping the old image as a rollback target). Each rebuild retags :latest
+# and leaves the previous coach image (~11GB) dangling; without this they pile up
+# silently (a prior ship died on a full disk). `until=168h` evicts only build
+# cache unused for >7 days, preserving the active pip cache mount so rebuilds stay
+# fast. Failures here never fail the deploy.
+echo "==> reclaim disk: prune dangling images + stale build cache (best-effort)"
+docker image prune -f || true
+docker builder prune -f --filter until=168h || true
+docker system df || true
