@@ -73,6 +73,30 @@ def test_flag_off_uses_legacy_vault_path(monkeypatch):
     assert slugs == ["s1"]
 
 
+def _server_env(cfg):
+    return cfg["env"] if isinstance(cfg, dict) else cfg.env
+
+
+def test_search_vault_repointed_to_doctrine_when_gate_on(monkeypatch):
+    import agent.service as svc
+
+    monkeypatch.setenv("COACH_GROUNDING_GATE", "1")
+    monkeypatch.setenv("COACH_DOCTRINE_INDEX_DIR", "/data/doctrine_index")
+    monkeypatch.setenv("COACH_INDEX_STORAGE_DIR", "/data/vault_rag")
+    opts = svc._build_agent_options("123")
+    # search_vault must hit the DOCTRINE index (no raw-vault biography mid-turn)
+    assert _server_env(opts.mcp_servers["vault_rag"])["COACH_INDEX_STORAGE_DIR"] == "/data/doctrine_index"
+
+
+def test_search_vault_uses_raw_vault_when_gate_off(monkeypatch):
+    import agent.service as svc
+
+    monkeypatch.delenv("COACH_GROUNDING_GATE", raising=False)
+    monkeypatch.setenv("COACH_INDEX_STORAGE_DIR", "/data/vault_rag")
+    opts = svc._build_agent_options("123")
+    assert _server_env(opts.mcp_servers["vault_rag"])["COACH_INDEX_STORAGE_DIR"] == "/data/vault_rag"
+
+
 def test_turn_writes_conversation_only_memory(monkeypatch, tmp_path):
     from fastapi.testclient import TestClient
 
