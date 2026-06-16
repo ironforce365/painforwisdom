@@ -77,6 +77,25 @@ def _node_to_dict(n) -> dict:
     }
 
 
+def search_vault_warm(query: str, *, doctrine: bool) -> list[dict]:
+    """Back the `search_vault` agent tool with the warm in-process retriever.
+
+    Picks the doctrine retriever when the grounding gate is on (de-personalised
+    principles — never raw biography, the "four months of recovery" leak) and the
+    raw-vault retriever otherwise. Reuses the process-wide singleton built for
+    pre-retrieval, so a mid-turn dig-deeper never re-pays the cold cross-encoder
+    load the per-turn MCP stdio subprocess incurred (~30s/call). Never raises: a
+    retrieval failure degrades to no results rather than taking down the turn.
+    """
+    try:
+        retriever = _get_doctrine_retriever() if doctrine else _get_retriever()
+        nodes = retriever.retrieve(query)
+    except Exception:
+        log.exception("warm search_vault retrieval failed; returning no results")
+        return []
+    return [_node_to_dict(n) for n in nodes]
+
+
 def format_vault_context(results: list[dict]) -> str:
     """Render retrieved chunks as a context block for the agent's turn prompt.
 

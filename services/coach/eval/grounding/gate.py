@@ -11,7 +11,7 @@ from .corpus import RegressionCorpus
 from .decide import decide
 from .judge import judge_claims
 from .rewriter import demote_to_question
-from .segmenter import segment
+from .segmenter import segment, strip_claim_tags
 from .types import Action, Decision, GateResult, Source
 from .validations import PendingValidations
 
@@ -99,4 +99,8 @@ def run_gate(
 
     if passthrough:
         out_lines.append(passthrough)
-    return GateResult(message="\n".join(out_lines), decisions=decisions, logged_ids=logged)
+    # Last line of defence: never let a tag reach the user, even if one slipped
+    # through normalization (malformed marker, unexpected shape). Claim/question
+    # text is already clean, so on well-formed output this is a no-op.
+    message = strip_claim_tags("\n".join(out_lines))
+    return GateResult(message=message, decisions=decisions, logged_ids=logged)

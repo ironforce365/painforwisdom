@@ -5,6 +5,9 @@ Asserts: flag-ON injects <doctrine> + <about_this_user>, builds D1 (doctrine) /
 M1 (memory) typed sources, writes conversation-only memory, and the gate demotes
 a doctrine-only biographical fact while keeping a memory-grounded one.
 """
+import asyncio
+import json
+
 import pytest
 
 pytest.importorskip("claude_agent_sdk")
@@ -73,28 +76,47 @@ def test_flag_off_uses_legacy_vault_path(monkeypatch):
     assert slugs == ["s1"]
 
 
-def _server_env(cfg):
-    return cfg["env"] if isinstance(cfg, dict) else cfg.env
+def test_vault_rag_is_in_process_server(monkeypatch):
+    """vault_rag is wired as an in-process SDK server — no per-turn stdio
+    subprocess (so a dig-deeper never reloads the cross-encoder from cold)."""
+    import agent.service as svc
+
+    cfg = svc._build_agent_options("123").mcp_servers["vault_rag"]
+    assert cfg["type"] == "sdk" and "command" not in cfg  # not a stdio subprocess
+    # The memory servers still shell out — only vault_rag moved in-process.
+    assert svc._build_agent_options("123").mcp_servers["user_memory"]["command"] == "python"
 
 
-def test_search_vault_repointed_to_doctrine_when_gate_on(monkeypatch):
+def test_search_vault_tool_targets_doctrine_when_gate_on(monkeypatch):
+    """Index selection moved from a per-turn env swap into the tool: gate ON =>
+    the warm DOCTRINE retriever (no raw-vault biography mid-turn)."""
     import agent.service as svc
 
     monkeypatch.setenv("COACH_GROUNDING_GATE", "1")
-    monkeypatch.setenv("COACH_DOCTRINE_INDEX_DIR", "/data/doctrine_index")
-    monkeypatch.setenv("COACH_INDEX_STORAGE_DIR", "/data/vault_rag")
-    opts = svc._build_agent_options("123")
-    # search_vault must hit the DOCTRINE index (no raw-vault biography mid-turn)
-    assert _server_env(opts.mcp_servers["vault_rag"])["COACH_INDEX_STORAGE_DIR"] == "/data/doctrine_index"
+    captured = {}
+    monkeypatch.setattr(
+        svc, "search_vault_warm",
+        lambda query, *, doctrine: captured.update(query=query, doctrine=doctrine)
+        or [{"text": "t", "source": "body-literacy", "score": 1.0}],
+    )
+    out = asyncio.run(svc._search_vault_tool.handler({"query": "achilles"}))
+    assert captured == {"query": "achilles", "doctrine": True}
+    # Return mirrors the old stdio tool: a JSON list of chunks in one text block.
+    payload = json.loads(out["content"][0]["text"])
+    assert payload[0]["source"] == "body-literacy"
 
 
-def test_search_vault_uses_raw_vault_when_gate_off(monkeypatch):
+def test_search_vault_tool_uses_raw_vault_when_gate_off(monkeypatch):
     import agent.service as svc
 
     monkeypatch.delenv("COACH_GROUNDING_GATE", raising=False)
-    monkeypatch.setenv("COACH_INDEX_STORAGE_DIR", "/data/vault_rag")
-    opts = svc._build_agent_options("123")
-    assert _server_env(opts.mcp_servers["vault_rag"])["COACH_INDEX_STORAGE_DIR"] == "/data/vault_rag"
+    captured = {}
+    monkeypatch.setattr(
+        svc, "search_vault_warm",
+        lambda query, *, doctrine: captured.update(doctrine=doctrine) or [],
+    )
+    asyncio.run(svc._search_vault_tool.handler({"query": "q"}))
+    assert captured["doctrine"] is False
 
 
 def test_turn_writes_conversation_only_memory(monkeypatch, tmp_path):
