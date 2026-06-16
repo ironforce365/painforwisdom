@@ -43,6 +43,28 @@ def test_gate_states_confident_interpretation(tmp_path):
     assert result.logged_ids == []              # nothing demoted
 
 
+def test_gate_judges_midline_tag_and_never_leaks_it(tmp_path):
+    # Regression for the Telegram leak: a tag buried mid-line must be (a) judged,
+    # not skipped, and (b) absent from the user-facing message either way.
+    draft = (
+        "Every avoided discomfort is a silent withdrawal. "
+        "[[claim id=c1 type=fact cite=M1]] A 100-miler will demand that account be full."
+    )
+    sources = [Source(id="M1", tier=1, kind="memory", text="signed up for a 100-miler")]
+    verdicts = [Verdict("c1", ClaimType.FACT, grounded=False, contradicts=False, rationale="no memory")]
+    result = run_gate(
+        draft, sources, temperature=5,
+        judge_fn=lambda c, s: verdicts,
+        rewrite_fn=lambda c, s: "Will that account need to be full on race day?",
+        corpus=RegressionCorpus(tmp_path / "c"),
+    )
+    assert "[[claim" not in result.message                         # no protocol leak
+    assert "A 100-miler will demand" not in result.message         # ungrounded fact demoted
+    assert "Will that account need to be full" in result.message   # replaced by question
+    assert "Every avoided discomfort is a silent withdrawal." in result.message  # passthrough
+    assert "c1" in result.logged_ids                               # it WAS judged
+
+
 def test_gate_missing_verdict_fails_safe_to_demote(tmp_path):
     draft = "[[claim id=c1 type=fact cite=S1]] Some fact."
     result = run_gate(

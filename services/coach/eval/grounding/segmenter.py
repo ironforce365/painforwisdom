@@ -16,16 +16,35 @@ _TAG = re.compile(r"^\s*\[\[claim\s+([^\]]*)\]\]\s*(.*)$")
 # appears (even mid-line, even if the coach violated the one-per-line contract),
 # keeping the surrounding text. Last line of defence before a reply reaches the user.
 _TAG_ANYWHERE = re.compile(r"\[\[claim\s+[^\]]*\]\]\s*")
+# Opening of a claim marker, anywhere. Used to push a mid-line tag onto its own
+# line before parsing so the line-anchored matcher above can lift it.
+_TAG_ANYWHERE_PREFIX = re.compile(r"\[\[claim\b")
 
 
 def strip_claim_tags(draft: str) -> str:
     """Remove every ``[[claim ...]]`` marker, preserving the claim text and order.
 
-    Used on the gate's exception path: if the judge errors *after* the coach has
-    emitted tagged claims, we must still never leak the internal protocol tags to
-    the user. On tag-free text (flag off) this is a no-op.
+    Used on the gate's exception path AND as the gate's final belt-and-suspenders
+    pass: if the judge errors, or the coach buries a tag mid-line where the
+    parser can't lift it into a judged claim, we must still never leak the
+    internal protocol tags to the user. On tag-free text (flag off) this is a
+    no-op.
     """
     return _TAG_ANYWHERE.sub("", draft)
+
+
+def _normalize_inline_tags(draft: str) -> str:
+    """Force every ``[[claim ...]]`` marker onto its own line.
+
+    The one-per-line contract is the coach's responsibility, but it sometimes
+    violates it — burying a tag mid-sentence (``...the price. [[claim ...]]
+    You're aware``). The line-anchored parser would then drop the whole line to
+    passthrough, leaking the tag AND skipping the grounding check for that claim.
+    Splitting at each marker turns a mid-line tag into a line-anchored one, so it
+    is parsed and judged like any other; the text before it becomes its own
+    passthrough line. Blank lines this introduces are ignored by ``segment``.
+    """
+    return _TAG_ANYWHERE_PREFIX.sub(r"\n\g<0>", draft)
 
 
 def _attrs(blob: str) -> dict[str, str]:
@@ -40,7 +59,7 @@ def _attrs(blob: str) -> dict[str, str]:
 def segment(draft: str) -> tuple[list[Claim], str]:
     claims: list[Claim] = []
     passthrough: list[str] = []
-    for line in draft.splitlines():
+    for line in _normalize_inline_tags(draft).splitlines():
         m = _TAG.match(line)
         if not m:
             if line.strip():
