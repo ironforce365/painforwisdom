@@ -78,3 +78,23 @@ def test_retrieve_for_turn_swallows_errors_to_protect_the_turn():
     block, slugs = r.retrieve_for_turn("anything")
     assert block == ""
     assert slugs == []
+
+
+def test_search_vault_warm_selects_doctrine_vs_raw():
+    # The warm tool helper picks the doctrine retriever when asked (gate on) and
+    # the raw-vault retriever otherwise — reusing the cached singletons, not a
+    # fresh per-turn subprocess.
+    r.set_doctrine_retriever_for_tests(_FakeRetriever([_FakeNode("Principle.", "body-literacy", 1.0)]))
+    r.set_retriever_for_tests(_FakeRetriever([_FakeNode("Raw entry.", "2026-03-16-x", 0.9)]))
+
+    doc = r.search_vault_warm("q", doctrine=True)
+    assert doc == [{"text": "Principle.", "source": "body-literacy", "score": 1.0}]
+    raw = r.search_vault_warm("q", doctrine=False)
+    assert raw == [{"text": "Raw entry.", "source": "2026-03-16-x", "score": 0.9}]
+
+
+def test_search_vault_warm_swallows_errors():
+    # Same protection as pre-retrieval: a mid-turn dig-deeper failure degrades to
+    # no results rather than surfacing an exception into the agent loop.
+    r.set_doctrine_retriever_for_tests(_BoomRetriever())
+    assert r.search_vault_warm("q", doctrine=True) == []

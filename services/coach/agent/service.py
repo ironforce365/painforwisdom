@@ -6,13 +6,20 @@ Wires together:
 - post-turn inbox hook
 """
 from __future__ import annotations
+import asyncio
 import contextvars
 import json
 import os
 from pathlib import Path
 from typing import AsyncIterator, Tuple
 
-from claude_agent_sdk import TextBlock, ToolResultBlock, ToolUseBlock
+from claude_agent_sdk import (
+    TextBlock,
+    ToolResultBlock,
+    ToolUseBlock,
+    create_sdk_mcp_server,
+    tool,
+)
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -20,7 +27,11 @@ from pydantic import BaseModel
 from agent.hooks import write_inbox_entry
 from agent.memory import read_user_memory, write_user_memory
 from agent.prompts import compose_system_prompt
-from agent.retrieval import retrieve_doctrine_for_turn, retrieve_for_turn_rich
+from agent.retrieval import (
+    retrieve_doctrine_for_turn,
+    retrieve_for_turn_rich,
+    search_vault_warm,
+)
 from agent.session_map import SessionMap
 from crisis.filter import check_message
 from shared.perf import perf_step
@@ -278,6 +289,32 @@ def _debug_sources_footer(sources: list[str]) -> str:
     return f"\n\n— kb sources: {body}"
 
 
+@tool(
+    "search_vault",
+    "Search Gonzalo's coaching knowledge base. Returns up to 5 relevant chunks "
+    "with source slugs. Call this BEFORE composing a reply on every turn.",
+    {"query": str},
+)
+async def _search_vault_tool(args: dict) -> dict:
+    """In-process `search_vault`: reuse the warm retriever singleton instead of
+    letting the SDK spawn a fresh `python -m vault_rag.mcp_server` stdio
+    subprocess every turn — which reloaded the cross-encoder reranker from cold
+    (~30s) on each dig-deeper call. Gate ON => doctrine index (de-personalised);
+    OFF => raw vault (legacy). Run the (CPU-bound) rerank off the event loop so a
+    mid-turn tool call never stalls token streaming. Return shape mirrors the old
+    stdio tool: the JSON list of {text, source, score} chunks."""
+    query = (args or {}).get("query", "") or ""
+    results = await asyncio.to_thread(search_vault_warm, query, doctrine=gate_enabled())
+    return {"content": [{"type": "text", "text": json.dumps(results)}]}
+
+
+# Built once per process. Same server name (`vault_rag`) and tool name
+# (`search_vault`) as the old stdio server, so `allowed_tools`, the system
+# prompt, and the model-facing `mcp__vault_rag__search_vault` contract are all
+# unchanged — only the transport (in-process vs subprocess) differs.
+_vault_rag_server = create_sdk_mcp_server(name="vault_rag", tools=[_search_vault_tool])
+
+
 def _build_agent_options(user_id: str):
     """Construct ClaudeAgentOptions for a turn (resume + MCP servers + allowlist).
 
@@ -291,16 +328,6 @@ def _build_agent_options(user_id: str):
     # Passing a fabricated id makes `claude --resume <id>` fail ("No conversation
     # found"); first turn must run with resume=None so the SDK creates the session.
     session_id = _sessions.get(user_id)
-    # When the gate is ON, point the `search_vault` tool at the DOCTRINE index so a
-    # mid-turn dig-deeper returns de-personalised principles, never raw biography.
-    # Without this, the model can call search_vault, hit the raw vault, and narrate
-    # the author's personal history (the "four months of recovery" leak) — which the
-    # claim gate won't catch because it's phrased about the author, not the user.
-    vault_env = dict(os.environ)
-    if gate_enabled():
-        vault_env["COACH_INDEX_STORAGE_DIR"] = os.environ.get(
-            "COACH_DOCTRINE_INDEX_DIR", "/data/doctrine_index"
-        )
     return ClaudeAgentOptions(
         # Claim contract appended ONLY when the gate is on; flag off => prompt
         # byte-identical to before, no [[claim]] tags can ever leak.
@@ -312,9 +339,11 @@ def _build_agent_options(user_id: str):
         # vault / memory. Built-in tools stay un-allowlisted → denied.
         allowed_tools=["mcp__vault_rag", "mcp__user_memory", "mcp__mem0"],
         mcp_servers={
-            "vault_rag": McpStdioServerConfig(
-                command="python", args=["-m", "vault_rag.mcp_server"], env=vault_env,
-            ),
+            # In-process server: no per-turn subprocess. The tool selects the
+            # doctrine vs raw-vault index by gate state internally (replacing the
+            # old per-turn COACH_INDEX_STORAGE_DIR env swap) and reuses the warm
+            # retriever singleton, so a dig-deeper never reloads the reranker cold.
+            "vault_rag": _vault_rag_server,
             "user_memory": McpStdioServerConfig(
                 command="python", args=["-m", "user_memory.mcp_server"], env=dict(os.environ),
             ),
