@@ -9,6 +9,7 @@ import asyncio
 import logging
 import os
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -17,9 +18,13 @@ from telegram.ext import (
     Application, CallbackQueryHandler, ContextTypes, MessageHandler, filters,
 )
 
+from telegram_bot import i18n
 from telegram_bot.allowlist import Allowlist
 from telegram_bot.coach_client import CoachClient, coach_error_reply
+from telegram_bot.conversation_log import ConversationLog
+from telegram_bot.quota import DailyQuota, local_today
 from telegram_bot.voice import transcribe_voice
+from telegram_bot.welcome import WelcomeRegistry
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("coach.telegram")
@@ -50,7 +55,7 @@ async def _keep_typing(bot, chat_id, interval: float = _TYPING_INTERVAL_SECONDS)
         await asyncio.sleep(interval)
 
 
-async def _stream_reply(coach, user, msg, ctx, text: str) -> None:
+async def _stream_reply(coach, user, msg, ctx, text: str, convo=None) -> None:
     """Stream a coaching turn into Telegram: send a placeholder message, then
     edit it progressively as deltas arrive (throttled), and flush the full text
     on completion. On failure, fall back to coach_error_reply.
@@ -91,7 +96,9 @@ async def _stream_reply(coach, user, msg, ctx, text: str) -> None:
         last_sent = body
 
     try:
-        it = await asyncio.to_thread(coach.stream_turn, str(user.id), text)
+        it = await asyncio.to_thread(
+            coach.stream_turn, str(user.id), text, getattr(user, "language_code", None)
+        )
         while True:
             chunk = await asyncio.to_thread(next, it, sentinel)
             if chunk is sentinel:
@@ -108,6 +115,9 @@ async def _stream_reply(coach, user, msg, ctx, text: str) -> None:
         if not acc.strip():
             # Stream produced nothing — leave the user with something honest.
             await _edit("(no response)")
+        elif convo is not None:
+            # Log the coach reply for the monitoring UI (only on a real reply).
+            convo.append(user.id, "coach", acc)
     except Exception as exc:
         # A read timeout means the agent is slow but alive; only connect /
         # protocol failures are a real outage. coach_error_reply picks the
@@ -127,6 +137,20 @@ def _build_app() -> Application:
     token = os.environ["TELEGRAM_COACH_BOT_TOKEN"]
     allowlist = Allowlist(Path(os.environ.get("COACH_ACCESS_JSON", "/app/access.json")))
     coach = CoachClient(os.environ.get("COACH_AGENT_URL", "http://coach-agent:8800"))
+
+    # Pilot onboarding state (shared volume so the monitor service can read it):
+    # welcome-once tracking, per-user daily quota, and the conversation log.
+    welcome = WelcomeRegistry(
+        Path(os.environ.get("COACH_WELCOME_JSON", "/state/welcomed.json"))
+    )
+    quota = DailyQuota(
+        Path(os.environ.get("COACH_QUOTA_JSON", "/state/quota.json")),
+        limit=int(os.environ.get("COACH_QUOTA_LIMIT", "100")),
+    )
+    quota_tz = os.environ.get("COACH_QUOTA_TZ", "UTC")
+    convo = ConversationLog(
+        Path(os.environ.get("COACH_CONVO_LOG_DIR", "/state/conversations"))
+    )
 
     async def _handle_pending(user, msg, ctx):
         admin_chat_id = os.environ.get("TELEGRAM_COACH_ALERT_CHAT_ID")
@@ -164,6 +188,16 @@ def _build_app() -> Application:
         if not allowlist.allowed(user.id):
             await _handle_pending(user, msg, ctx)
             return
+
+        # Welcome each user once, in their own language. /start is a no-op
+        # beyond the welcome, so we short-circuit it here.
+        lang = getattr(user, "language_code", None)
+        is_start = (msg.text or "").strip() == "/start"
+        if welcome.mark(user.id):
+            await msg.reply_text(i18n.welcome_text(lang))
+        if is_start:
+            return
+
         if msg.voice:
             file = await msg.voice.get_file()
             tmp = Path(f"/tmp/voice_{user.id}_{msg.message_id}.ogg")
@@ -174,7 +208,16 @@ def _build_app() -> Application:
             text = msg.text or ""
         if not text.strip():
             return
-        await _stream_reply(coach, user, msg, ctx, text)
+
+        # Daily quota: block (without consuming a coaching turn) past the limit.
+        today = local_today(datetime.now(timezone.utc), quota_tz)
+        result = quota.check_and_increment(user.id, today)
+        if not result.allowed:
+            await msg.reply_text(i18n.quota_reached_text(lang, result.limit))
+            return
+
+        convo.append(user.id, "user", text, name=user.full_name)
+        await _stream_reply(coach, user, msg, ctx, text, convo=convo)
 
     async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
