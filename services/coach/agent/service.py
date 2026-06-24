@@ -105,6 +105,21 @@ except Exception:  # noqa: BLE001 - never let eval-package issues break the serv
         return []
 
 
+# Coaching-topic + no-file guardrail (F4). Same import-guard + default-OFF
+# contract as the grounding gate. Runs in parallel with maybe_gate so it adds no
+# serial latency. A clean reply passes through untouched; a blocked reply is
+# replaced by a localized coaching redirect.
+try:
+    from eval.topic_guard import guard_enabled, maybe_guard
+except Exception:  # noqa: BLE001 - never let eval-package issues break the service
+
+    def guard_enabled() -> bool:
+        return False
+
+    def maybe_guard(reply: str, **_kw) -> str:
+        return reply
+
+
 # Namespaced MCP tool name. The claude-agent-sdk MCP tool naming convention is
 # `mcp__<server_key>__<tool>` where `<server_key>` is the key in the
 # `mcp_servers` dict passed to ClaudeAgentOptions (NOT the FastMCP constructor
@@ -127,6 +142,9 @@ _stream_sources: contextvars.ContextVar[list[str]] = contextvars.ContextVar(
 class Turn(BaseModel):
     user_id: str
     text: str
+    # Telegram client language (e.g. "es", "en-US"); drives the topic-guard
+    # redirect language. Optional so older callers/tests keep working.
+    language_code: str | None = None
 
 
 class Reply(BaseModel):
@@ -420,6 +438,35 @@ async def _stream_agent(user_id: str, text: str) -> AsyncIterator[str]:
         _sessions.set(user_id, captured["sid"])
 
 
+async def _gate_and_guard(
+    reply_text: str,
+    *,
+    sources: list,
+    user_id: str,
+    thread_id: str,
+    language_code: str | None,
+) -> str:
+    """Run the grounding gate and the coaching-topic guard concurrently.
+
+    The topic guard inspects the ORIGINAL drafted reply; if it blocks (off-topic
+    or a file offer) its localized redirect wins and the grounding result is
+    discarded — off-topic content must not be shown even if it were grounded.
+    Otherwise the grounding-gated text is returned. Both are full `claude -p`
+    calls, so running them concurrently keeps the added latency at
+    max(gate, guard) rather than their sum. Both default OFF, in which case each
+    returns its input unchanged and this collapses to prior behaviour.
+    """
+    gated, guarded = await asyncio.gather(
+        asyncio.to_thread(
+            maybe_gate, reply_text, sources=sources, user_id=user_id, thread_id=thread_id
+        ),
+        asyncio.to_thread(maybe_guard, reply_text, language_code=language_code),
+    )
+    if guarded != reply_text:  # guard blocked → redirect supersedes the gate
+        return guarded
+    return gated
+
+
 @app.post("/turn", response_model=Reply)
 async def turn(t: Turn) -> Reply:
     hit = check_message(t.text)
@@ -446,11 +493,12 @@ async def turn(t: Turn) -> Reply:
             # Gate before persisting: when ON the gated text IS the reply (demotions
             # change content), so inbox and client must both see it. Footer stays last.
             with perf_step("gate_judge"):
-                reply_text = maybe_gate(
+                reply_text = await _gate_and_guard(
                     reply_text,
                     sources=_slugs_to_sources(sources),
                     user_id=t.user_id,
                     thread_id=_sessions.get(t.user_id) or t.user_id,
+                    language_code=t.language_code,
                 )
             # Conversation-only memory: persist the user's OWN words (mem0 extracts
             # durable facts). Gate-on only; swallows failures inside.
@@ -508,36 +556,41 @@ async def turn_stream(t: Turn) -> StreamingResponse:
         doctrine_token = _turn_doctrine_text.set("")
         memory_token = _turn_memory_text.set("")
         chunks: list[str] = []
-        # When the gate is ON we cannot un-send streamed tokens, so we buffer
-        # the whole draft, gate it, then emit it as a single delta (draft ->
-        # gate -> send). When OFF, behaviour is identical: live token streaming.
-        gated = gate_enabled()
+        # When the gate OR the topic guard is ON we cannot un-send streamed
+        # tokens (either may rewrite/replace the reply), so we buffer the whole
+        # draft, post-process it, then emit it as a single delta (draft ->
+        # gate+guard -> send). When both OFF, behaviour is identical: live
+        # token streaming.
+        buffered = gate_enabled() or guard_enabled()
         try:
-            # In gated mode (prod) this loop does not yield to the HTTP consumer,
-            # so the timer reflects generation time only; in legacy un-gated mode
-            # it also spans consumer back-pressure (noted, acceptable).
-            with perf_step("agent_stream", gate=gated):
+            # In buffered mode (prod) this loop does not yield to the HTTP
+            # consumer, so the timer reflects generation time only; in legacy
+            # un-buffered mode it also spans consumer back-pressure (acceptable).
+            with perf_step("agent_stream", gate=buffered):
                 async for delta in _stream_agent(t.user_id, t.text):
                     chunks.append(delta)
-                    if not gated:
+                    if not buffered:
                         yield json.dumps({"delta": delta}) + "\n"
         finally:
             _stream_sources.reset(token)
         merged = _merge_sources(sources)
         final_text = "".join(chunks)
         try:
-            if gated:
+            if buffered:
                 with perf_step("gate_judge"):
-                    final_text = maybe_gate(
+                    final_text = await _gate_and_guard(
                         final_text,
                         sources=_slugs_to_sources(merged),
                         user_id=t.user_id,
                         thread_id=_sessions.get(t.user_id) or t.user_id,
+                        language_code=t.language_code,
                     )
                 yield json.dumps({"delta": final_text}) + "\n"
                 # Conversation-only memory: persist the user's OWN words.
-                with perf_step("memory_write"):
-                    write_user_memory(t.user_id, t.text)
+                # Tied to the grounding gate (Stream 3), not the topic guard.
+                if gate_enabled():
+                    with perf_step("memory_write"):
+                        write_user_memory(t.user_id, t.text)
         finally:
             _turn_slug_text.reset(slug_text_token)
             _turn_doctrine_text.reset(doctrine_token)

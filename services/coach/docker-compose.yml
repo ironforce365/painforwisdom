@@ -60,6 +60,11 @@ services:
       # under COACH_CORPUS_ROOT (host ${COACH_CORPUS_HOST_PATH} -> /corpus :ro).
       COACH_CORPUS_ROOT: /corpus
       COACH_DOCTRINE_INDEX_DIR: ${COACH_DOCTRINE_INDEX_DIR:-/data/doctrine_index}
+      # Coaching-topic + no-file guardrail (Stream F4): a second classifier that
+      # runs in PARALLEL with the grounding gate, replacing off-topic / file-offer
+      # replies with a localized coaching redirect. Default OFF; flip via
+      # COACH_TOPIC_GUARD in .env.coach.
+      COACH_TOPIC_GUARD: ${COACH_TOPIC_GUARD:-false}
     # CRITICAL: do NOT set ANTHROPIC_API_KEY here — it would shadow the OAuth token.
     volumes:
       - ${VAULT_HOST_PATH}:/vault
@@ -82,6 +87,15 @@ services:
       TELEGRAM_COACH_ALERT_CHAT_ID: ${TELEGRAM_COACH_ALERT_CHAT_ID}
       COACH_AGENT_URL: http://coach-agent:8800
       COACH_ACCESS_JSON: /app/access.json
+      # Pilot onboarding state on the shared coach_state volume (the monitor
+      # service reads the same volume). welcome-once tracking, the per-user daily
+      # message quota, and the conversation log all live here.
+      COACH_WELCOME_JSON: /state/welcomed.json
+      COACH_QUOTA_JSON: /state/quota.json
+      # Daily message cap per user (resets at local midnight in COACH_QUOTA_TZ).
+      COACH_QUOTA_LIMIT: ${COACH_QUOTA_LIMIT:-100}
+      COACH_QUOTA_TZ: ${COACH_QUOTA_TZ:-UTC}
+      COACH_CONVO_LOG_DIR: /state/conversations
     volumes:
       - whisper_cache:/root/.cache
       # Persist the runtime allowlist on the host. The approval flow mutates
@@ -89,7 +103,25 @@ services:
       # committed (empty) list on every rebuild, silently revoking approved
       # users. The host file is the source of truth and survives rebuilds.
       - ${COACH_ACCESS_HOST_PATH}:/app/access.json
+      # Shared pilot state (welcome/quota/conversation log) — written here,
+      # read by the monitor service.
+      - coach_state:/state
     command: ["python", "-m", "telegram_bot.bot"]
+    restart: unless-stopped
+
+  # Read-only monitoring web UI (F2 + F3): a user list + per-conversation viewer
+  # over the conversation log the bot writes to coach_state. Mounted read-only —
+  # it never mutates state or calls the coach. Bind the port to localhost only;
+  # there is no auth, so it must not be exposed to the network.
+  monitor:
+    build: .
+    environment:
+      COACH_CONVO_LOG_DIR: /state/conversations
+    volumes:
+      - coach_state:/state:ro
+    command: ["uvicorn", "monitor.app:app", "--host", "0.0.0.0", "--port", "8810"]
+    ports:
+      - "127.0.0.1:8810:8810"
     restart: unless-stopped
 
   coach-eval:
@@ -110,4 +142,5 @@ services:
 volumes:
   mem0_pg_data:
   coach_data:
+  coach_state:
   whisper_cache:

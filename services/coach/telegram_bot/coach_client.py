@@ -38,14 +38,17 @@ class CoachClient:
         self.timeout = DEFAULT_TIMEOUT if timeout is None else timeout
         self._client = httpx.Client(base_url=base_url, timeout=self.timeout)
 
-    def turn(self, user_id: str, text: str) -> dict:
+    def turn(self, user_id: str, text: str, language_code: str | None = None) -> dict:
         # Time the turn for p95 monitoring. Classify the exit: "ok" on success,
         # "timeout" for httpx read/write/pool timeouts (agent alive but slow),
         # "down" for anything else (unreachable/broken), then re-raise so caller
         # behaviour is unchanged.
         start = time.monotonic()
         try:
-            r = self._client.post("/turn", json={"user_id": user_id, "text": text})
+            r = self._client.post(
+                "/turn",
+                json={"user_id": user_id, "text": text, "language_code": language_code},
+            )
             r.raise_for_status()
             result = r.json()
         except (httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout):
@@ -57,7 +60,9 @@ class CoachClient:
         metrics.record(time.monotonic() - start, "ok")
         return result
 
-    def stream_turn(self, user_id: str, text: str) -> Iterator[str]:
+    def stream_turn(
+        self, user_id: str, text: str, language_code: str | None = None
+    ) -> Iterator[str]:
         """Stream a coaching turn from /turn/stream, yielding each assistant text
         delta as it arrives. Parses the NDJSON protocol — one JSON object per
         line, zero or more `{"delta": ...}` followed by a terminal
@@ -73,7 +78,9 @@ class CoachClient:
         start = time.monotonic()
         try:
             with self._client.stream(
-                "POST", "/turn/stream", json={"user_id": user_id, "text": text}
+                "POST",
+                "/turn/stream",
+                json={"user_id": user_id, "text": text, "language_code": language_code},
             ) as r:
                 r.raise_for_status()
                 for line in r.iter_lines():

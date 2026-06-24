@@ -66,6 +66,6 @@ def test_stream_turn_sends_user_id_and_text():
     respx.post(f"{BASE}/turn/stream").mock(side_effect=_handler)
 
     cc = CoachClient(BASE)
-    list(cc.stream_turn("42", "ping"))
+    list(cc.stream_turn("42", "ping", "es"))
 
-    assert captured == {"user_id": "42", "text": "ping"}
+    assert captured == {"user_id": "42", "text": "ping", "language_code": "es"}

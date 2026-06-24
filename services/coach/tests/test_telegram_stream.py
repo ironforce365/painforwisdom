@@ -34,6 +34,13 @@ def built(monkeypatch, tmp_path):
         json.dumps({"version": 1, "policy": "allowlist", "allowed_user_ids": [99]})
     )
     monkeypatch.setenv("COACH_ACCESS_JSON", str(access))
+    welcomed = tmp_path / "welcomed.json"
+    # Pre-mark user 99 as already welcomed so the first-contact welcome message
+    # doesn't add an extra reply_text these streaming tests don't expect.
+    welcomed.write_text(json.dumps({"version": 1, "welcomed_user_ids": [99]}))
+    monkeypatch.setenv("COACH_WELCOME_JSON", str(welcomed))
+    monkeypatch.setenv("COACH_QUOTA_JSON", str(tmp_path / "quota.json"))
+    monkeypatch.setenv("COACH_CONVO_LOG_DIR", str(tmp_path / "conversations"))
 
     # Replace CoachClient with a stub whose stream_turn we can drive per-test.
     stub_coach = MagicMock()
