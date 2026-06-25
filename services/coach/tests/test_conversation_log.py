@@ -69,3 +69,21 @@ def test_append_creates_root_dir(tmp_path: Path):
     log = ConversationLog(root)
     log.append(5, "user", "hi", ts="2026-06-21T10:00:00+00:00")
     assert (root / "5.jsonl").exists()
+
+
+def test_clear_removes_only_that_users_history(tmp_path: Path):
+    log = ConversationLog(tmp_path)
+    log.append(1, "user", "keep me", ts="2026-06-21T10:00:00+00:00")
+    log.append(2, "user", "delete me", ts="2026-06-21T10:00:00+00:00")
+
+    log.clear(2)
+
+    assert log.read_conversation(2) == []                     # gone
+    assert log.read_conversation(1)[0]["text"] == "keep me"   # untouched
+    assert [u["user_id"] for u in log.list_users()] == ["1"]
+
+
+def test_clear_missing_user_is_noop(tmp_path: Path):
+    log = ConversationLog(tmp_path)
+    log.clear(404)  # must not raise
+    assert log.read_conversation(404) == []

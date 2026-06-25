@@ -60,6 +60,13 @@ class CoachClient:
         metrics.record(time.monotonic() - start, "ok")
         return result
 
+    def reset(self, user_id: str) -> dict:
+        """Ask the agent to start this user over: drop their session + mem0
+        facts (the bot's /restart command). Short timeout — it's a cheap call."""
+        r = self._client.post("/reset", json={"user_id": user_id})
+        r.raise_for_status()
+        return r.json()
+
     def stream_turn(
         self, user_id: str, text: str, language_code: str | None = None
     ) -> Iterator[str]:

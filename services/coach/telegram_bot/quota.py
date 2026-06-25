@@ -62,6 +62,12 @@ class DailyQuota:
             self._persist()
             return QuotaResult(allowed=True, count=count, limit=self._limit)
 
+    def reset(self, user_id: int) -> None:
+        """Clear one user's count for the current day (used by /restart)."""
+        with self._lock:
+            if self._counts.pop(str(user_id), None) is not None:
+                self._persist()
+
     def _persist(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         data = {"date": self._date, "limit": self._limit, "counts": self._counts}

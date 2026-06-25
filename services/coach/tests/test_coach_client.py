@@ -97,3 +97,16 @@ def test_turn_records_down_on_other_error_and_reraises(fresh_recorder):
         cc.turn(user_id="42", text="hello")
     snap = fresh_recorder.snapshot()
     assert snap["outcomes"]["down"] == 1
+
+
+@respx.mock
+def test_reset_posts_user_id_to_reset_endpoint():
+    # /restart → bot asks the agent to drop this user's session + mem0.
+    route = respx.post("http://coach-agent:8800/reset").mock(
+        return_value=Response(200, json={"status": "reset", "user_id": "42"})
+    )
+    cc = CoachClient("http://coach-agent:8800")
+    result = cc.reset("42")
+    assert result["status"] == "reset"
+    assert route.called
+    assert b'"user_id":"42"' in route.calls.last.request.content

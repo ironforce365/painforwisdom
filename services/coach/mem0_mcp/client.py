@@ -28,5 +28,11 @@ class Mem0Client:
         # v1.1 returns {"results": [...]}; tolerate a bare list for safety.
         return data.get("results", []) if isinstance(data, dict) else data
 
+    def delete(self, user_id: str) -> dict:
+        """Delete ALL memories for a user (used by the coach's /restart)."""
+        r = self._client.delete(f"{self._base}/memories/{user_id}")
+        r.raise_for_status()
+        return r.json()
+
     def close(self) -> None:
         self._client.close()

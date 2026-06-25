@@ -29,6 +29,18 @@ def test_happy_path(client):
     assert r.json()["crisis"] is False
 
 
+def test_reset_drops_session_and_user_memory(client, monkeypatch):
+    # /restart calls this so the coach truly starts over for one user.
+    calls = {}
+    monkeypatch.setattr(svc._sessions, "reset", lambda uid: calls.__setitem__("session", uid))
+    monkeypatch.setattr(svc, "delete_user_memory", lambda uid: calls.__setitem__("mem", uid))
+
+    r = client.post("/reset", json={"user_id": "42"})
+    assert r.status_code == 200
+    assert r.json()["status"] == "reset"
+    assert calls == {"session": "42", "mem": "42"}
+
+
 @pytest.mark.asyncio
 async def test_message_parsing_extracts_text_and_source_slugs():
     """_extract_reply_and_sources concatenates assistant text and surfaces

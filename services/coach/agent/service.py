@@ -25,7 +25,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from agent.hooks import write_inbox_entry
-from agent.memory import read_user_memory, write_user_memory
+from agent.memory import delete_user_memory, read_user_memory, write_user_memory
 from agent.prompts import compose_system_prompt
 from agent.retrieval import (
     retrieve_doctrine_for_turn,
@@ -150,6 +150,10 @@ class Turn(BaseModel):
 class Reply(BaseModel):
     reply: str
     crisis: bool
+
+
+class ResetRequest(BaseModel):
+    user_id: str
 
 
 def _extract_source_slugs(content) -> list[str]:
@@ -610,6 +614,17 @@ async def turn_stream(t: Turn) -> StreamingResponse:
         yield json.dumps({"done": True, "crisis": False}) + "\n"
 
     return StreamingResponse(_gen(), media_type="application/x-ndjson")
+
+
+@app.post("/reset")
+def reset(t: ResetRequest) -> dict:
+    """Start a user over (the bot's /restart command): drop their agent session
+    so the next turn is a fresh thread, and wipe their mem0 facts so the coach no
+    longer remembers them. Conversation-log clearing happens bot-side. The vault
+    inbox is intentionally NOT touched (it feeds the content pipeline)."""
+    _sessions.reset(t.user_id)
+    delete_user_memory(t.user_id)
+    return {"status": "reset", "user_id": t.user_id}
 
 
 @app.get("/health")

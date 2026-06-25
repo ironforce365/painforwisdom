@@ -2,10 +2,17 @@
 anthropics/claude-plugins-official/external_plugins/telegram/access.json.
 
 Backed by access.json on disk so the bot can mutate it at runtime (admin
-approval flow) and survive restarts. Writes are atomic (.tmp + os.replace)."""
+approval flow) and survive restarts.
+
+Writes overwrite the file IN PLACE (truncate + write the same inode), NOT via
+the usual atomic tmp+os.replace. access.json is bind-mounted into the container
+as a SINGLE FILE, and a rename cannot cross that mountpoint — os.replace would
+either fail or write to a shadow file that never reaches the host, so runtime
+approvals silently vanished on the next restart. The file is tiny and writes are
+lock-serialized; a crash mid-write is the only loss window and is acceptable for
+a 3-user allowlist."""
 from __future__ import annotations
 import json
-import os
 import threading
 from pathlib import Path
 
@@ -40,7 +47,7 @@ class Allowlist:
                 "policy": "allowlist",
                 "allowed_user_ids": sorted(self._allowed),
             }
-            tmp = self._path.with_suffix(self._path.suffix + ".tmp")
-            tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
-            os.replace(tmp, self._path)
+            # In-place overwrite (see module docstring): the path may be a
+            # single-file bind mount, so we must not rename a temp file over it.
+            self._path.write_text(json.dumps(data, indent=2), encoding="utf-8")
             return True
