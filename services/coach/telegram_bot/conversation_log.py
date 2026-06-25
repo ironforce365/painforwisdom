@@ -65,6 +65,12 @@ class ConversationLog:
                 continue
         return out
 
+    def clear(self, user_id) -> None:
+        """Delete this user's conversation history (used by /restart). No-op if
+        the user has no log yet."""
+        with self._lock:
+            self._file(user_id).unlink(missing_ok=True)
+
     def list_users(self) -> list[dict]:
         """One summary per user: id, latest known name, last message ts/text/role.
 

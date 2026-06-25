@@ -9,6 +9,7 @@ class FakeClient:
     def __init__(self, results=None, fail=False):
         self.results = results if results is not None else []
         self.added: list[tuple[str, str]] = []
+        self.deleted: list[str] = []
         self.fail = fail
 
     def search(self, user_id, query, limit=5):
@@ -22,6 +23,25 @@ class FakeClient:
             raise RuntimeError("mem0 down")
         self.added.append((user_id, text))
         return {"ok": True}
+
+    def delete(self, user_id):
+        if self.fail:
+            raise RuntimeError("mem0 down")
+        self.deleted.append(user_id)
+        return {"deleted": True}
+
+
+# ---- delete (used by /restart) -------------------------------------------
+
+def test_delete_user_memory_calls_client():
+    client = FakeClient()
+    mem.delete_user_memory("123", client=client)
+    assert client.deleted == ["123"]
+
+
+def test_delete_user_memory_swallows_failure():
+    # A mem0 outage must never break /restart.
+    mem.delete_user_memory("123", client=FakeClient(fail=True))  # no raise
 
 
 # ---- format ---------------------------------------------------------------

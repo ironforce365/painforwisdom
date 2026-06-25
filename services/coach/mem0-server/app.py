@@ -86,3 +86,11 @@ def search_memories(req: SearchRequest) -> dict:
     # rejected); result count is `top_k`.
     out = memory.search(query=req.query, top_k=req.top_k, filters=req.filters or None)
     return _as_results(out)
+
+
+@app.delete("/memories/{user_id}")
+def delete_memories(user_id: str) -> dict:
+    # Wipe ALL of one user's memories (the coach's /restart). Idempotent: a user
+    # with nothing stored deletes cleanly.
+    memory.delete_all(user_id=user_id)
+    return {"deleted": True, "user_id": user_id}

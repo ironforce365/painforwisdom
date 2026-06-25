@@ -80,3 +80,28 @@ def test_local_today_shifts_with_timezone():
 def test_local_today_unknown_tz_falls_back_to_utc():
     now = datetime(2026, 6, 21, 3, 0, tzinfo=timezone.utc)
     assert local_today(now, "Not/AZone") == date(2026, 6, 21)
+
+
+def test_reset_clears_one_users_count(tmp_path: Path):
+    q = DailyQuota(tmp_path / "quota.json", limit=2)
+    q.check_and_increment(42, D1)
+    assert q.check_and_increment(42, D1).allowed is True   # count 2
+    assert q.check_and_increment(42, D1).allowed is False  # blocked
+
+    q.reset(42)  # fresh allowance for this user, same day
+
+    after = q.check_and_increment(42, D1)
+    assert after.allowed is True
+    assert after.count == 1
+
+
+def test_reset_persists_and_is_isolated(tmp_path: Path):
+    path = tmp_path / "quota.json"
+    q = DailyQuota(path, limit=1)
+    q.check_and_increment(1, D1)
+    q.check_and_increment(2, D1)
+    q.reset(1)
+    # User 1 reset persists across a restart; user 2 is untouched.
+    fresh = DailyQuota(path, limit=1)
+    assert fresh.check_and_increment(1, D1).allowed is True
+    assert fresh.check_and_increment(2, D1).allowed is False

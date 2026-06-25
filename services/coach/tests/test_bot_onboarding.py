@@ -142,6 +142,45 @@ async def test_conversation_is_logged(built):
     assert coach_rec["text"] == "Hola Ana."
 
 
+@pytest.mark.asyncio
+async def test_restart_wipes_history_resets_agent_and_regreets(built):
+    # Build up some state: a welcome + a logged coaching turn.
+    built.coach.stream_turn.return_value = iter(["ok"])
+    await built.on_message(*_with_ctx(_make_update(text="quiero correr")))
+    assert ConversationLog(built.tmp / "conversations").read_conversation(99)  # has history
+    built.coach.stream_turn.reset_mock()
+
+    # /restart starts the user over.
+    update, msg = _make_update(text="/restart", lang="es")
+    await built.on_message(update, _make_ctx())
+
+    # Agent session + mem0 reset was requested for this user.
+    built.coach.reset.assert_called_once_with("99")
+    # Conversation history wiped.
+    assert ConversationLog(built.tmp / "conversations").read_conversation(99) == []
+    # Re-greeted in their language...
+    assert any("Hola" in t and "metas" in t for t in _reply_texts(msg))
+    # ...and /restart itself is not a coaching turn.
+    assert not built.coach.stream_turn.called
+
+
+@pytest.mark.asyncio
+async def test_restart_resets_quota(built):
+    # limit=2 (fixture). Exhaust it, /restart, then a fresh message is allowed.
+    built.coach.stream_turn.return_value = iter(["a"])
+    await built.on_message(*_with_ctx(_make_update(text="1")))  # quota 1
+    await built.on_message(*_with_ctx(_make_update(text="2")))  # quota 2 (now at limit)
+    await built.on_message(*_with_ctx(_make_update(text="/restart")))  # resets quota
+    built.coach.stream_turn.reset_mock()
+    built.coach.stream_turn.return_value = iter(["b"])
+
+    # A normal message after /restart is allowed again (quota was reset).
+    update, msg = _make_update(text="otra vez")
+    await built.on_message(update, _make_ctx())
+    assert built.coach.stream_turn.called
+    assert not any("límite diario" in t for t in _reply_texts(msg))
+
+
 def _with_ctx(update_msg):
     """Helper: pair an (update, msg) with a fresh ctx for await built.on_message(*...)."""
     update, _ = update_msg

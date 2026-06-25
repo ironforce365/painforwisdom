@@ -180,6 +180,21 @@ def _build_app() -> Application:
         await ctx.bot.send_message(chat_id=admin_chat_id, text=summary, reply_markup=keyboard)
         await msg.reply_text("Request sent to the coach. You'll hear back shortly.")
 
+    async def _handle_restart(user, msg, lang: str | None) -> None:
+        """Start a user over: drop the agent session + mem0 (so the coach forgets
+        them), wipe the monitoring conversation log and the daily quota, then
+        greet them again. The vault inbox is intentionally left intact (it feeds
+        the content pipeline). Agent reset is best-effort — a coach hiccup must
+        not block the local wipe."""
+        try:
+            await asyncio.to_thread(coach.reset, str(user.id))
+        except Exception:
+            log.exception("coach reset failed during /restart; clearing local state anyway")
+        convo.clear(user.id)
+        quota.reset(user.id)
+        welcome.mark(user.id)  # idempotent; we greet explicitly just below
+        await msg.reply_text(i18n.welcome_text(lang))
+
     async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         user = update.effective_user
         msg = update.effective_message
@@ -189,9 +204,16 @@ def _build_app() -> Application:
             await _handle_pending(user, msg, ctx)
             return
 
+        lang = getattr(user, "language_code", None)
+
+        # /restart: wipe this user's state and greet them fresh. Used to test the
+        # full new-user flow end to end. Short-circuits before quota/coaching.
+        if (msg.text or "").strip() == "/restart":
+            await _handle_restart(user, msg, lang)
+            return
+
         # Welcome each user once, in their own language. /start is a no-op
         # beyond the welcome, so we short-circuit it here.
-        lang = getattr(user, "language_code", None)
         is_start = (msg.text or "").strip() == "/start"
         if welcome.mark(user.id):
             await msg.reply_text(i18n.welcome_text(lang))

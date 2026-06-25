@@ -21,6 +21,18 @@ def test_add_memory_posts_to_correct_endpoint():
 
 
 @respx.mock
+def test_delete_calls_delete_endpoint():
+    # /restart wipes a user's mem0 facts so a re-onboard starts memoryless.
+    route = respx.delete("http://mem0-api:8000/memories/42").mock(
+        return_value=Response(200, json={"deleted": True})
+    )
+    client = Mem0Client(base_url="http://mem0-api:8000")
+    result = client.delete(user_id="42")
+    assert result == {"deleted": True}
+    assert route.called
+
+
+@respx.mock
 def test_search_returns_results():
     # mem0 OSS server: POST /search, scope via filters.user_id, count via top_k.
     route = respx.post("http://mem0-api:8000/search").mock(

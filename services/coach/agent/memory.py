@@ -94,3 +94,15 @@ def write_user_memory(user_id: str, user_text: str, *, client=None) -> None:
         client.add(user_id, text)
     except Exception:
         log.exception("mem0 add failed; turn memory not persisted")
+
+
+def delete_user_memory(user_id: str, *, client=None) -> None:
+    """Delete ALL stored memories for a user (the coach's /restart).
+
+    Best-effort like the rest of this module: a mem0 outage must never break the
+    /restart flow, so failures are swallowed."""
+    client = client or _default_client()
+    try:
+        client.delete(user_id)
+    except Exception:
+        log.exception("mem0 delete failed; user memory not cleared")
