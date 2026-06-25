@@ -38,16 +38,18 @@ class CoachClient:
         self.timeout = DEFAULT_TIMEOUT if timeout is None else timeout
         self._client = httpx.Client(base_url=base_url, timeout=self.timeout)
 
-    def turn(self, user_id: str, text: str, language_code: str | None = None) -> dict:
+    def turn(self, user_id: str, text: str, language_code: str | None = None,
+             channel: str = "live") -> dict:
         # Time the turn for p95 monitoring. Classify the exit: "ok" on success,
         # "timeout" for httpx read/write/pool timeouts (agent alive but slow),
         # "down" for anything else (unreachable/broken), then re-raise so caller
-        # behaviour is unchanged.
+        # behaviour is unchanged. channel="test" (synthetic harness) skips the inbox.
         start = time.monotonic()
         try:
             r = self._client.post(
                 "/turn",
-                json={"user_id": user_id, "text": text, "language_code": language_code},
+                json={"user_id": user_id, "text": text,
+                      "language_code": language_code, "channel": channel},
             )
             r.raise_for_status()
             result = r.json()
@@ -64,6 +66,29 @@ class CoachClient:
         """Ask the agent to start this user over: drop their session + mem0
         facts (the bot's /restart command). Short timeout — it's a cheap call."""
         r = self._client.post("/reset", json={"user_id": user_id})
+        r.raise_for_status()
+        return r.json()
+
+    def outreach(
+        self,
+        user_id: str,
+        *,
+        kind: str = "inactivity",
+        language_code: str | None = None,
+        last_coach_text: str | None = None,
+    ) -> dict:
+        """Ask the agent to compose a proactive re-engagement message for a quiet
+        user (the scheduler's outreach job). Coach-initiated — the agent writes no
+        inbox entry and consumes no quota."""
+        r = self._client.post(
+            "/outreach",
+            json={
+                "user_id": user_id,
+                "kind": kind,
+                "language_code": language_code,
+                "last_coach_text": last_coach_text,
+            },
+        )
         r.raise_for_status()
         return r.json()
 

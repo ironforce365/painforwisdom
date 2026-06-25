@@ -8,6 +8,7 @@
   :root {
     --bg: #0f1115; --panel: #171a21; --line: #262b36; --ink: #e7e9ee;
     --muted: #8b93a7; --accent: #6ea8fe; --user: #2a3346; --coach: #1f2a22;
+    --test: #f0ad4e;
   }
   * { box-sizing: border-box; }
   body {
@@ -38,6 +39,17 @@
   .user:hover { background: #1d222c; }
   .user.active { background: #20283a; border-left: 3px solid var(--accent); }
   .user .name { font-weight: 600; }
+  .user.test { border-left: 3px solid var(--test); }
+  .badge.test {
+    display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 4px;
+    font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+    background: rgba(240, 173, 78, .18); color: var(--test); vertical-align: middle;
+  }
+  #convo .test-banner {
+    background: rgba(240, 173, 78, .14); color: var(--test); border: 1px solid var(--test);
+    border-radius: 8px; padding: 8px 12px; margin-bottom: 16px; font-size: 12px;
+    max-width: 680px; font-weight: 600;
+  }
   .user .meta { color: var(--muted); font-size: 12px; display: flex; gap: 8px; }
   .user .last {
     color: var(--muted); font-size: 12px; margin-top: 4px;
@@ -84,12 +96,18 @@
       status.textContent = users.length + " active user" + (users.length === 1 ? "" : "s");
       for (const u of users) {
         const el = document.createElement("div");
-        el.className = "user" + (u.user_id === activeUser ? " active" : "");
+        el.className = "user" + (u.user_id === activeUser ? " active" : "") + (u.test ? " test" : "");
         el.innerHTML =
           '<div class="name"></div>' +
           '<div class="meta"><span class="time"></span><span class="count"></span></div>' +
           '<div class="last"></div>';
         el.querySelector(".name").textContent = u.name || ("User " + u.user_id);
+        if (u.test) {
+          const badge = document.createElement("span");
+          badge.className = "badge test";
+          badge.textContent = "test";
+          el.querySelector(".name").appendChild(badge);
+        }
         el.querySelector(".time").textContent = fmtTime(u.last_ts);
         el.querySelector(".count").textContent = (u.message_count || 0) + " msgs";
         el.querySelector(".last").textContent = u.last_text || "";
@@ -113,6 +131,12 @@
       convo.innerHTML = "";
       if (!msgs.length) {
         convo.innerHTML = '<div class="empty">No messages yet.</div>';
+      }
+      if (msgs.some(m => m.test)) {
+        const banner = document.createElement("div");
+        banner.className = "test-banner";
+        banner.textContent = "🧪 Synthetic test conversation — not a real user, excluded from the inbox / knowledge base.";
+        convo.appendChild(banner);
       }
       for (const m of msgs) {
         const el = document.createElement("div");

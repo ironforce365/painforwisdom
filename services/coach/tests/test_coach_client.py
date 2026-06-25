@@ -100,6 +100,43 @@ def test_turn_records_down_on_other_error_and_reraises(fresh_recorder):
 
 
 @respx.mock
+def test_turn_forwards_test_channel(fresh_recorder):
+    # The synthetic harness sends channel="test" so the agent skips the inbox.
+    route = respx.post("http://coach-agent:8800/turn").mock(
+        return_value=Response(200, json={"reply": "hi"})
+    )
+    cc = CoachClient("http://coach-agent:8800")
+    cc.turn(user_id="synthetic-x", text="hello", channel="test")
+    assert b'"channel":"test"' in route.calls.last.request.content
+
+
+@respx.mock
+def test_turn_defaults_to_live_channel(fresh_recorder):
+    route = respx.post("http://coach-agent:8800/turn").mock(
+        return_value=Response(200, json={"reply": "hi"})
+    )
+    CoachClient("http://coach-agent:8800").turn(user_id="1", text="hello")
+    assert b'"channel":"live"' in route.calls.last.request.content
+
+
+@respx.mock
+def test_outreach_posts_kind_and_returns_message():
+    # Proactive outreach: bot asks the agent to compose a re-engagement message.
+    route = respx.post("http://coach-agent:8800/outreach").mock(
+        return_value=Response(200, json={"reply": "still here when you are", "crisis": False})
+    )
+    cc = CoachClient("http://coach-agent:8800")
+    result = cc.outreach("42", kind="followup", language_code="en",
+                         last_coach_text="report back after your run")
+    assert result["reply"] == "still here when you are"
+    assert route.called
+    body = route.calls.last.request.content
+    assert b'"kind":"followup"' in body
+    assert b'"user_id":"42"' in body
+    assert b"report back after your run" in body
+
+
+@respx.mock
 def test_reset_posts_user_id_to_reset_endpoint():
     # /restart → bot asks the agent to drop this user's session + mem0.
     route = respx.post("http://coach-agent:8800/reset").mock(

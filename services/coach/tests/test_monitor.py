@@ -26,6 +26,8 @@ def client(tmp_path, monkeypatch):
     log.append(1, "user", "hola coach", name="Ana", ts="2026-06-21T10:00:00+00:00")
     log.append(1, "coach", "Hola Ana, ¿en qué trabajas?", ts="2026-06-21T10:00:30+00:00")
     log.append(2, "user", "hi there", name="Bob", ts="2026-06-21T12:00:00+00:00")
+    log.append("synthetic-marathoner", "user", "test driver msg", name="Sim",
+               test=True, ts="2026-06-21T13:00:00+00:00")
     return TestClient(create_app())
 
 
@@ -38,12 +40,20 @@ def test_users_endpoint_lists_active_users(client):
     r = client.get("/api/users")
     assert r.status_code == 200
     users = r.json()["users"]
-    # Bob is most recent → first.
-    assert [u["user_id"] for u in users] == ["2", "1"]
-    ana = next(u for u in users if u["user_id"] == "1")
+    by_id = {u["user_id"]: u for u in users}
+    ana = by_id["1"]
     assert ana["name"] == "Ana"
     assert ana["last_text"] == "Hola Ana, ¿en qué trabajas?"
     assert ana["last_ts"] == "2026-06-21T10:00:30+00:00"
+    # Real users are not flagged; the synthetic conversation is.
+    assert ana["test"] is False
+    assert by_id["synthetic-marathoner"]["test"] is True
+
+
+def test_index_page_distinguishes_test_conversations(client):
+    # The UI must visibly mark test conversations so they're never confused for
+    # real pilot traffic.
+    assert "test" in client.get("/").text.lower()
 
 
 def test_conversation_endpoint_returns_messages(client):

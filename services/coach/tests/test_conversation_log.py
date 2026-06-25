@@ -87,3 +87,26 @@ def test_clear_missing_user_is_noop(tmp_path: Path):
     log = ConversationLog(tmp_path)
     log.clear(404)  # must not raise
     assert log.read_conversation(404) == []
+
+
+def test_test_flag_is_stamped_on_records_and_defaults_false(tmp_path: Path):
+    # Synthetic conversations are flagged so the monitor UI can badge them as tests.
+    log = ConversationLog(tmp_path)
+    log.append(1, "user", "real", ts="2026-06-21T10:00:00+00:00")
+    log.append("synthetic-x", "user", "fake", test=True, ts="2026-06-21T10:00:00+00:00")
+
+    real = log.read_conversation(1)
+    assert real[0].get("test") in (None, False)  # live records carry no test flag
+    synth = log.read_conversation("synthetic-x")
+    assert synth[0]["test"] is True
+
+
+def test_list_users_surfaces_the_test_flag(tmp_path: Path):
+    log = ConversationLog(tmp_path)
+    log.append(1, "user", "real", name="Ana", ts="2026-06-21T10:00:00+00:00")
+    log.append("synthetic-x", "user", "fake", name="Sim Runner", test=True,
+               ts="2026-06-21T11:00:00+00:00")
+
+    by_id = {u["user_id"]: u for u in log.list_users()}
+    assert by_id["1"]["test"] is False
+    assert by_id["synthetic-x"]["test"] is True

@@ -1,5 +1,7 @@
 """HTTP /turn endpoint: crisis hits short-circuit; happy path returns assistant text."""
 from __future__ import annotations
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -12,6 +14,11 @@ def client(monkeypatch, tmp_path):
     async def fake_chat(user_id: str, text: str):
         return ("ack: " + text, ["comfort-as-default"])
     monkeypatch.setattr(svc, "_chat_with_agent", fake_chat)
+
+    async def fake_stream(user_id: str, text: str):
+        for chunk in ("ack: ", text):
+            yield chunk
+    monkeypatch.setattr(svc, "_stream_agent", fake_stream)
     return TestClient(svc.app)
 
 
@@ -39,6 +46,55 @@ def test_reset_drops_session_and_user_memory(client, monkeypatch):
     assert r.status_code == 200
     assert r.json()["status"] == "reset"
     assert calls == {"session": "42", "mem": "42"}
+
+
+def test_live_turn_writes_an_inbox_entry(client, tmp_path):
+    r = client.post("/turn", json={"user_id": "1", "text": "hello coach"})
+    assert r.status_code == 200
+    assert list(Path(tmp_path).rglob("*.md"))  # a vault inbox entry was written
+
+
+def test_test_channel_turn_skips_the_inbox(client, tmp_path):
+    # Synthetic test conversations must never feed the content pipeline / KB.
+    r = client.post("/turn", json={"user_id": "synthetic-runner",
+                                   "text": "hello coach", "channel": "test"})
+    assert r.status_code == 200
+    assert r.json()["reply"].startswith("ack: ")  # still gets a real reply
+    assert not list(Path(tmp_path).rglob("*.md"))  # but NO inbox entry
+
+
+def test_test_channel_stream_skips_the_inbox(client, tmp_path):
+    with client.stream("POST", "/turn/stream",
+                       json={"user_id": "synthetic-runner", "text": "hi",
+                             "channel": "test"}) as r:
+        assert r.status_code == 200
+        list(r.iter_lines())  # drain
+    assert not list(Path(tmp_path).rglob("*.md"))
+
+
+def test_outreach_returns_a_message_and_skips_the_inbox(client, tmp_path):
+    # Proactive outreach is coach-initiated: it returns a message but must NOT
+    # write a vault inbox entry (that would feed a synthetic 'user turn' upstream).
+    r = client.post("/outreach", json={"user_id": "7", "kind": "inactivity",
+                                       "language_code": "en"})
+    assert r.status_code == 200
+    assert r.json()["reply"]            # non-empty nudge
+    assert r.json()["crisis"] is False
+    assert not list(Path(tmp_path).rglob("*.md"))  # no inbox file written
+
+
+def test_outreach_followup_directive_references_the_open_loop():
+    d = svc._compose_outreach_directive(
+        "followup", last_coach_text="report back after your long run", language_code="en"
+    )
+    assert "report back after your long run" in d
+    assert "ONLY the message" in d  # instructs the model to emit just the message
+
+
+def test_outreach_inactivity_directive_is_a_plain_checkin():
+    d = svc._compose_outreach_directive("inactivity", last_coach_text=None, language_code="es")
+    assert "report back" not in d
+    assert "quiet" in d.lower() or "check-in" in d.lower()
 
 
 @pytest.mark.asyncio

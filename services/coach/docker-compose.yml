@@ -96,6 +96,13 @@ services:
       COACH_QUOTA_LIMIT: ${COACH_QUOTA_LIMIT:-100}
       COACH_QUOTA_TZ: ${COACH_QUOTA_TZ:-UTC}
       COACH_CONVO_LOG_DIR: /state/conversations
+      # Proactive outreach: a scheduler re-engages quiet users (1-day inactivity /
+      # 2-hour open-loop windows, randomized send time within them, quiet hours in
+      # COACH_QUOTA_TZ). Default OFF — flip COACH_PROACTIVE_OUTREACH in .env.coach.
+      # Quiet-hours window + lack of per-user timezone are documented assumptions (docs/).
+      COACH_PROACTIVE_OUTREACH: ${COACH_PROACTIVE_OUTREACH:-false}
+      COACH_OUTREACH_JSON: /state/outreach.json
+      COACH_OUTREACH_TICK_MIN: ${COACH_OUTREACH_TICK_MIN:-30}
     volumes:
       - whisper_cache:/root/.cache
       # Persist the runtime allowlist on the host. The approval flow mutates
@@ -138,6 +145,30 @@ services:
     volumes:
       - coach_data:/eval-runs
     # No restart policy — this is a one-shot via `docker compose run --rm coach-eval ...`
+
+  # Synthetic-user test harness: drives persona profiles through full conversations
+  # with the live coach on the TEST channel (no inbox / KB pollution). Conversations
+  # show in the monitor UI badged as tests. Persona replies use the Claude CLI
+  # (subscription token), so it needs CLAUDE_CODE_OAUTH_TOKEN. One-shot:
+  #   docker compose run --rm synthetic                       # default profiles
+  #   docker compose run --rm synthetic python -m synthetic.runner --turns 120 --concurrency 5
+  synthetic:
+    build: .
+    profiles: ["synthetic"]
+    depends_on:
+      coach-agent:
+        condition: service_started
+    environment:
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN}
+      COACH_AGENT_URL: http://coach-agent:8800
+      COACH_CONVO_LOG_DIR: /state/conversations
+      SYNTHETIC_CONCURRENCY: ${SYNTHETIC_CONCURRENCY:-3}
+      SYNTHETIC_MODEL: ${SYNTHETIC_MODEL:-sonnet}
+    volumes:
+      # Writes the conversation log the monitor reads (rw, same volume as the bot).
+      - coach_state:/state
+    command: ["python", "-m", "synthetic.runner"]
+    # No restart policy — one-shot via `docker compose run --rm synthetic`.
 
 volumes:
   mem0_pg_data:

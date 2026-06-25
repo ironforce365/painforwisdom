@@ -24,13 +24,17 @@ class ConversationLog:
         return self._root / f"{user_id}.jsonl"
 
     def append(self, user_id, role: str, text: str, *, name: str | None = None,
-               ts: str | None = None) -> None:
+               ts: str | None = None, test: bool = False) -> None:
         record = {
             "ts": ts or datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "role": role,
             "text": text,
             "name": name,
         }
+        if test:
+            # Only stamped on synthetic-harness conversations, so the monitor UI can
+            # badge them and live records stay byte-identical to before.
+            record["test"] = True
         line = json.dumps(record, ensure_ascii=False) + "\n"
         with self._lock:
             self._root.mkdir(parents=True, exist_ok=True)
@@ -93,6 +97,8 @@ class ConversationLog:
                 "last_text": last.get("text", ""),
                 "last_role": last.get("role", ""),
                 "message_count": len(records),
+                # A conversation is a test if any of its records is flagged.
+                "test": any(r.get("test") for r in records),
             })
         summaries.sort(key=lambda s: s["last_ts"], reverse=True)
         return summaries

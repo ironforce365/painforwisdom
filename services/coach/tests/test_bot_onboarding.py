@@ -16,6 +16,7 @@ import pytest
 
 import telegram_bot.bot as bot
 from telegram_bot.conversation_log import ConversationLog
+from telegram_bot.outreach import OutreachStore
 
 
 @pytest.fixture
@@ -31,6 +32,7 @@ def built(monkeypatch, tmp_path):
     monkeypatch.setenv("COACH_QUOTA_LIMIT", "2")
     monkeypatch.setenv("COACH_QUOTA_TZ", "UTC")
     monkeypatch.setenv("COACH_CONVO_LOG_DIR", str(tmp_path / "conversations"))
+    monkeypatch.setenv("COACH_OUTREACH_JSON", str(tmp_path / "outreach.json"))
 
     stub_coach = MagicMock()
     monkeypatch.setattr(bot, "CoachClient", lambda *a, **k: stub_coach)
@@ -179,6 +181,29 @@ async def test_restart_resets_quota(built):
     await built.on_message(update, _make_ctx())
     assert built.coach.stream_turn.called
     assert not any("límite diario" in t for t in _reply_texts(msg))
+
+
+@pytest.mark.asyncio
+async def test_user_message_records_outreach_activity(built):
+    # A turn must register activity (and the coach's last words) so the proactive
+    # outreach scheduler can later spot quiet users / open loops.
+    built.coach.stream_turn.return_value = iter(["go run and tell me how it goes"])
+    await built.on_message(*_with_ctx(_make_update(text="quiero correr", lang="es")))
+
+    s = OutreachStore(built.tmp / "outreach.json").get("99")
+    assert s.last_user_ts is not None
+    assert s.language_code == "es"
+    assert s.last_coach_text == "go run and tell me how it goes"
+
+
+@pytest.mark.asyncio
+async def test_restart_clears_outreach_state(built):
+    built.coach.stream_turn.return_value = iter(["ok"])
+    await built.on_message(*_with_ctx(_make_update(text="hi")))
+    assert "99" in OutreachStore(built.tmp / "outreach.json").all_users()
+
+    await built.on_message(*_with_ctx(_make_update(text="/restart")))
+    assert "99" not in OutreachStore(built.tmp / "outreach.json").all_users()
 
 
 def _with_ctx(update_msg):
