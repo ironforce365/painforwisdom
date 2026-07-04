@@ -56,6 +56,7 @@ def built(monkeypatch, tmp_path):
     monkeypatch.setenv("COACH_WELCOME_JSON", str(tmp_path / "welcomed.json"))
     monkeypatch.setenv("COACH_QUOTA_JSON", str(tmp_path / "quota.json"))
     monkeypatch.setenv("COACH_CONVO_LOG_DIR", str(tmp_path / "conversations"))
+    monkeypatch.setenv("COACH_OUTREACH_JSON", str(tmp_path / "outreach.json"))
     stub_coach = MagicMock()
     monkeypatch.setattr(bot, "CoachClient", lambda *a, **k: stub_coach)
     app = bot._build_app()

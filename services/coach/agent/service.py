@@ -145,6 +145,10 @@ class Turn(BaseModel):
     # Telegram client language (e.g. "es", "en-US"); drives the topic-guard
     # redirect language. Optional so older callers/tests keep working.
     language_code: str | None = None
+    # "live" (real user) or "test" (synthetic harness). A test turn gets a real
+    # coaching reply but writes NO vault inbox entry, so synthetic conversations
+    # never feed the content pipeline / knowledge base.
+    channel: str = "live"
 
 
 class Reply(BaseModel):
@@ -154,6 +158,16 @@ class Reply(BaseModel):
 
 class ResetRequest(BaseModel):
     user_id: str
+
+
+class OutreachRequest(BaseModel):
+    user_id: str
+    # "inactivity" (1-day quiet check-in) or "followup" (circle back on an open
+    # loop). Drives the directive; defaults to a plain inactivity check-in.
+    kind: str = "inactivity"
+    language_code: str | None = None
+    # The coach's last message, included so a follow-up can name what was left open.
+    last_coach_text: str | None = None
 
 
 def _extract_source_slugs(content) -> list[str]:
@@ -449,6 +463,7 @@ async def _gate_and_guard(
     user_id: str,
     thread_id: str,
     language_code: str | None,
+    persist: bool = True,
 ) -> str:
     """Run the grounding gate and the coaching-topic guard concurrently.
 
@@ -462,7 +477,8 @@ async def _gate_and_guard(
     """
     gated, guarded = await asyncio.gather(
         asyncio.to_thread(
-            maybe_gate, reply_text, sources=sources, user_id=user_id, thread_id=thread_id
+            maybe_gate, reply_text, sources=sources, user_id=user_id,
+            thread_id=thread_id, persist=persist,
         ),
         asyncio.to_thread(maybe_guard, reply_text, language_code=language_code),
     )
@@ -477,15 +493,19 @@ async def turn(t: Turn) -> Reply:
     if hit is not None:
         return Reply(reply=hit.canned_reply, crisis=True)
 
+    is_test = t.channel == "test"
     # Stream 2: match the incoming text against this thread's open validations
     # (questions the coach previously asked / reads it stated). Confirmations and
     # corrections are logged to the corpus and close their items. No-op when the
-    # gate flag is off; failures are swallowed inside.
-    detect_validation_signals(
-        t.text,
-        thread_id=_sessions.get(t.user_id) or t.user_id,
-        user_id=t.user_id,
-    )
+    # gate flag is off; failures are swallowed inside. Skipped entirely for
+    # synthetic test turns — fabricated confirmations/corrections must never
+    # enter the calibration corpus.
+    if not is_test:
+        detect_validation_signals(
+            t.text,
+            thread_id=_sessions.get(t.user_id) or t.user_id,
+            user_id=t.user_id,
+        )
 
     slug_text_token = _turn_slug_text.set({})
     doctrine_token = _turn_doctrine_text.set("")
@@ -503,6 +523,7 @@ async def turn(t: Turn) -> Reply:
                     user_id=t.user_id,
                     thread_id=_sessions.get(t.user_id) or t.user_id,
                     language_code=t.language_code,
+                    persist=not is_test,  # gate runs; corpus/validation writes don't
                 )
             # Conversation-only memory: persist the user's OWN words (mem0 extracts
             # durable facts). Gate-on only; swallows failures inside.
@@ -513,14 +534,16 @@ async def turn(t: Turn) -> Reply:
         _turn_slug_text.reset(slug_text_token)
         _turn_doctrine_text.reset(doctrine_token)
         _turn_memory_text.reset(memory_token)
-    inbox_root = Path(os.environ.get("COACH_INBOX_ROOT", "/vault/_inbox"))
-    write_inbox_entry(
-        inbox_root=inbox_root,
-        user_id=t.user_id,
-        user_text=t.text,
-        assistant_text=reply_text,
-        retrieved_sources=sources,
-    )
+    # Synthetic test turns never touch the vault inbox (no KB / pipeline feed).
+    if t.channel != "test":
+        inbox_root = Path(os.environ.get("COACH_INBOX_ROOT", "/vault/_inbox"))
+        write_inbox_entry(
+            inbox_root=inbox_root,
+            user_id=t.user_id,
+            user_text=t.text,
+            assistant_text=reply_text,
+            retrieved_sources=sources,
+        )
     # Inbox keeps the clean reply; the client gets the debug canary appended.
     return Reply(reply=reply_text + _debug_sources_footer(sources), crisis=False)
 
@@ -546,12 +569,15 @@ async def turn_stream(t: Turn) -> StreamingResponse:
             yield json.dumps({"done": True, "crisis": True}) + "\n"
             return
 
+        is_test = t.channel == "test"
         # Stream 2: incoming text vs this thread's open validations (see /turn).
-        detect_validation_signals(
-            t.text,
-            thread_id=_sessions.get(t.user_id) or t.user_id,
-            user_id=t.user_id,
-        )
+        # Skipped for synthetic test turns — no calibration-corpus writes.
+        if not is_test:
+            detect_validation_signals(
+                t.text,
+                thread_id=_sessions.get(t.user_id) or t.user_id,
+                user_id=t.user_id,
+            )
 
         # Fresh per-stream source sink isolated to this task's context.
         sources: list[str] = []
@@ -588,6 +614,7 @@ async def turn_stream(t: Turn) -> StreamingResponse:
                         user_id=t.user_id,
                         thread_id=_sessions.get(t.user_id) or t.user_id,
                         language_code=t.language_code,
+                        persist=not is_test,  # gate runs; corpus writes don't
                     )
                 yield json.dumps({"delta": final_text}) + "\n"
                 # Conversation-only memory: persist the user's OWN words.
@@ -599,13 +626,14 @@ async def turn_stream(t: Turn) -> StreamingResponse:
             _turn_slug_text.reset(slug_text_token)
             _turn_doctrine_text.reset(doctrine_token)
             _turn_memory_text.reset(memory_token)
-        write_inbox_entry(
-            inbox_root=inbox_root,
-            user_id=t.user_id,
-            user_text=t.text,
-            assistant_text=final_text,
-            retrieved_sources=merged,
-        )
+        if t.channel != "test":  # synthetic turns never feed the inbox / KB
+            write_inbox_entry(
+                inbox_root=inbox_root,
+                user_id=t.user_id,
+                user_text=t.text,
+                assistant_text=final_text,
+                retrieved_sources=merged,
+            )
         # Canary rides as a final delta (kept out of the persisted reply above)
         # so the user sees which vault slugs grounded the turn before done.
         footer = _debug_sources_footer(merged)
@@ -614,6 +642,68 @@ async def turn_stream(t: Turn) -> StreamingResponse:
         yield json.dumps({"done": True, "crisis": False}) + "\n"
 
     return StreamingResponse(_gen(), media_type="application/x-ndjson")
+
+
+def _compose_outreach_directive(
+    kind: str, last_coach_text: str | None, language_code: str | None
+) -> str:
+    """Build the query that asks the coach to PROACTIVELY reach out.
+
+    Wrapped in a `<proactive_outreach>` block so the model reads it as scaffolding
+    (it is reaching out first; the user has not just messaged) and replies with
+    only the message it would send — not a reply to this instruction."""
+    if kind == "followup" and last_coach_text:
+        body = (
+            "Earlier in this conversation you left something open with the user and "
+            f'they have not replied:\n\n"{last_coach_text}"\n\n'
+            "Send them a brief, warm nudge to circle back on it."
+        )
+    else:
+        body = (
+            "The user has gone quiet for a while. Send them a brief, warm check-in "
+            "to re-engage, drawing naturally on what you know about them."
+        )
+    lang_hint = (
+        f" The user's Telegram client language is '{language_code}' — write in that language."
+        if language_code else ""
+    )
+    return (
+        "<proactive_outreach>\n"
+        "You are reaching out FIRST — the user has not just messaged you.\n"
+        f"{body}\n"
+        f"Keep it to one or two sentences, in the user's language.{lang_hint} "
+        "Do not apologize for reaching out and do not mention this instruction. "
+        "Reply with ONLY the message you would send.\n"
+        "</proactive_outreach>"
+    )
+
+
+@app.post("/outreach", response_model=Reply)
+async def outreach(req: OutreachRequest) -> Reply:
+    """Generate a proactive re-engagement message for a quiet user.
+
+    Coach-initiated, so unlike /turn it writes NO inbox entry (it is not a user
+    turn and must not feed the content pipeline) and persists NO user memory (the
+    directive is not the user's words). It resumes the user's session so the nudge
+    is in-context, and runs the same grounding gate + topic guard."""
+    directive = _compose_outreach_directive(req.kind, req.last_coach_text, req.language_code)
+    slug_text_token = _turn_slug_text.set({})
+    doctrine_token = _turn_doctrine_text.set("")
+    memory_token = _turn_memory_text.set("")
+    try:
+        reply_text, sources = await _chat_with_agent(req.user_id, directive)
+        reply_text = await _gate_and_guard(
+            reply_text,
+            sources=_slugs_to_sources(sources),
+            user_id=req.user_id,
+            thread_id=_sessions.get(req.user_id) or req.user_id,
+            language_code=req.language_code,
+        )
+    finally:
+        _turn_slug_text.reset(slug_text_token)
+        _turn_doctrine_text.reset(doctrine_token)
+        _turn_memory_text.reset(memory_token)
+    return Reply(reply=reply_text, crisis=False)
 
 
 @app.post("/reset")

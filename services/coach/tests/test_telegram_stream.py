@@ -41,6 +41,7 @@ def built(monkeypatch, tmp_path):
     monkeypatch.setenv("COACH_WELCOME_JSON", str(welcomed))
     monkeypatch.setenv("COACH_QUOTA_JSON", str(tmp_path / "quota.json"))
     monkeypatch.setenv("COACH_CONVO_LOG_DIR", str(tmp_path / "conversations"))
+    monkeypatch.setenv("COACH_OUTREACH_JSON", str(tmp_path / "outreach.json"))
 
     # Replace CoachClient with a stub whose stream_turn we can drive per-test.
     stub_coach = MagicMock()

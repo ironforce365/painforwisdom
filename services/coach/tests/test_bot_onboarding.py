@@ -16,6 +16,7 @@ import pytest
 
 import telegram_bot.bot as bot
 from telegram_bot.conversation_log import ConversationLog
+from telegram_bot.outreach import OutreachStore
 
 
 @pytest.fixture
@@ -31,6 +32,7 @@ def built(monkeypatch, tmp_path):
     monkeypatch.setenv("COACH_QUOTA_LIMIT", "2")
     monkeypatch.setenv("COACH_QUOTA_TZ", "UTC")
     monkeypatch.setenv("COACH_CONVO_LOG_DIR", str(tmp_path / "conversations"))
+    monkeypatch.setenv("COACH_OUTREACH_JSON", str(tmp_path / "outreach.json"))
 
     stub_coach = MagicMock()
     monkeypatch.setattr(bot, "CoachClient", lambda *a, **k: stub_coach)
@@ -179,6 +181,45 @@ async def test_restart_resets_quota(built):
     await built.on_message(update, _make_ctx())
     assert built.coach.stream_turn.called
     assert not any("límite diario" in t for t in _reply_texts(msg))
+
+
+@pytest.mark.asyncio
+async def test_user_message_records_outreach_activity(built):
+    # A turn must register activity (and the coach's last words) so the proactive
+    # outreach scheduler can later spot quiet users / open loops.
+    built.coach.stream_turn.return_value = iter(["go run and tell me how it goes"])
+    await built.on_message(*_with_ctx(_make_update(text="quiero correr", lang="es")))
+
+    s = OutreachStore(built.tmp / "outreach.json").get("99")
+    assert s.last_user_ts is not None
+    assert s.language_code == "es"
+    assert s.last_coach_text == "go run and tell me how it goes"
+
+
+@pytest.mark.asyncio
+async def test_quota_blocked_message_still_counts_as_activity(built):
+    # limit=2 (fixture). A user who burned their quota but keeps messaging is
+    # ACTIVE — those blocked messages must refresh outreach activity, or the
+    # scheduler would send "you've gone quiet" to someone talking to the bot.
+    built.coach.stream_turn.return_value = iter(["a"])
+    await built.on_message(*_with_ctx(_make_update(text="1")))
+    await built.on_message(*_with_ctx(_make_update(text="2")))  # at limit
+    ts_before = OutreachStore(built.tmp / "outreach.json").get("99").last_user_ts
+
+    await built.on_message(*_with_ctx(_make_update(text="3")))  # quota-blocked
+
+    ts_after = OutreachStore(built.tmp / "outreach.json").get("99").last_user_ts
+    assert ts_after is not None and ts_after > ts_before
+
+
+@pytest.mark.asyncio
+async def test_restart_clears_outreach_state(built):
+    built.coach.stream_turn.return_value = iter(["ok"])
+    await built.on_message(*_with_ctx(_make_update(text="hi")))
+    assert "99" in OutreachStore(built.tmp / "outreach.json").all_users()
+
+    await built.on_message(*_with_ctx(_make_update(text="/restart")))
+    assert "99" not in OutreachStore(built.tmp / "outreach.json").all_users()
 
 
 def _with_ctx(update_msg):

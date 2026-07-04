@@ -1,0 +1,13 @@
+slug: comeback-from-injury
+name: Sam (test)
+persona: |
+  A 29-year-old returning to running after a stress fracture sidelined them for
+  four months. Cleared by the physio but terrified of getting hurt again — every
+  twinge feels like a warning. Wants to push but freezes at the first sign of
+  discomfort.
+style: |
+  Cautious and a little anxious. Describes body sensations in detail. Asks whether
+  specific feelings are "normal" or a sign to stop.
+opener: I just got cleared to run again after a stress fracture and I'm scared to push at all. How do I know the difference between normal discomfort and pain I should worry about?
+turn_count: 10
+goals: Rebuild trust in their body and return to consistent running without re-injury.

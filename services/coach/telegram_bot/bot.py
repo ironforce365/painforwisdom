@@ -8,8 +8,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import random
 import time
 from datetime import datetime, timezone
+from typing import Awaitable, Callable
 from pathlib import Path
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -22,6 +24,12 @@ from telegram_bot import i18n
 from telegram_bot.allowlist import Allowlist
 from telegram_bot.coach_client import CoachClient, coach_error_reply
 from telegram_bot.conversation_log import ConversationLog
+from telegram_bot.outreach import (
+    OutreachConfig,
+    OutreachStore,
+    decide,
+    is_open_loop_heuristic,
+)
 from telegram_bot.quota import DailyQuota, local_today
 from telegram_bot.voice import transcribe_voice
 from telegram_bot.welcome import WelcomeRegistry
@@ -55,7 +63,7 @@ async def _keep_typing(bot, chat_id, interval: float = _TYPING_INTERVAL_SECONDS)
         await asyncio.sleep(interval)
 
 
-async def _stream_reply(coach, user, msg, ctx, text: str, convo=None) -> None:
+async def _stream_reply(coach, user, msg, ctx, text: str, convo=None, outreach=None) -> None:
     """Stream a coaching turn into Telegram: send a placeholder message, then
     edit it progressively as deltas arrive (throttled), and flush the full text
     on completion. On failure, fall back to coach_error_reply.
@@ -118,6 +126,15 @@ async def _stream_reply(coach, user, msg, ctx, text: str, convo=None) -> None:
         elif convo is not None:
             # Log the coach reply for the monitoring UI (only on a real reply).
             convo.append(user.id, "coach", acc)
+            if outreach is not None:
+                # Record the coach's last words so the outreach scheduler can spot
+                # open loops and time inactivity from this exchange. The debug
+                # canary footer rides the stream as a final delta — strip it so
+                # it never gets quoted back into a follow-up directive.
+                clean = acc.split("\n\n— kb sources:", 1)[0]
+                outreach.record_coach_message(
+                    str(user.id), datetime.now(timezone.utc), clean
+                )
     except Exception as exc:
         # A read timeout means the agent is slow but alive; only connect /
         # protocol failures are a real outage. coach_error_reply picks the
@@ -131,6 +148,88 @@ async def _stream_reply(coach, user, msg, ctx, text: str, convo=None) -> None:
             await msg.reply_text(coach_error_reply(exc))
     finally:
         await _stop_typing()
+
+
+async def scan_and_outreach(
+    *,
+    store: OutreachStore,
+    allowlist,
+    coach,
+    convo,
+    send_message: Callable[[str, str], Awaitable[None]],
+    now: datetime,
+    config: OutreachConfig,
+    rng: Callable[[], float] = random.random,
+    is_open_loop: Callable[[str], bool] = is_open_loop_heuristic,
+) -> int:
+    """Walk every known user, decide whether to reach out, and for those due:
+    ask the coach to compose a message, send it, log it to the monitor, and mark
+    the outreach (so the no-pester rule applies next tick). One user's failure is
+    logged and skipped — it never aborts the scan. Returns the number sent.
+
+    Failure policy: never-spam beats guaranteed-delivery. A *generation* failure
+    (coach down / mid-deploy) is transient → retried next tick. But once past
+    generation, any dead end — empty composed reply, failed Telegram send (user
+    blocked the bot) — stamps the attempt via record_outreach_attempt, so the
+    no-pester rule stops the scheduler from re-generating (or worse, re-sending)
+    for the same silence every tick. After a successful send the no-pester stamp
+    is written FIRST; the conversation-log append is best-effort so a monitor-log
+    hiccup can never cause a duplicate message to a real user."""
+    sent = 0
+    for uid in store.all_users():
+        try:
+            if not allowlist.allowed(int(uid)):
+                continue
+        except (TypeError, ValueError):
+            continue  # non-numeric (synthetic test) id — never proactively contacted
+        state = store.get(uid)
+        decision = decide(state, now, rng=rng, is_open_loop=is_open_loop, config=config)
+        store.set_due_at(uid, decision.due_at)
+        if not decision.should_outreach:
+            continue
+
+        try:
+            result = await asyncio.to_thread(
+                coach.outreach,
+                uid,
+                kind=decision.kind,
+                language_code=state.language_code,
+                last_coach_text=state.last_coach_text,
+            )
+        except Exception:
+            log.exception("outreach generation failed for user %s; retrying next tick", uid)
+            continue
+        text = ((result or {}).get("reply") or "").strip()
+
+        # The generation takes ~90s and the handler runs on this same event loop:
+        # if the user messaged in the meantime they are active again — drop the
+        # now-stale "you've gone quiet" nudge instead of sending it right after
+        # their message.
+        latest = store.get(uid)
+        if latest.last_user_ts is not None and (
+            state.last_user_ts is None or latest.last_user_ts > state.last_user_ts
+        ):
+            log.info("user %s messaged mid-generation; dropping stale outreach", uid)
+            continue
+
+        if not text:
+            store.record_outreach_attempt(uid, now)
+            log.warning("outreach for user %s came back empty; suppressed until they return", uid)
+            continue
+        try:
+            await send_message(uid, text)
+        except Exception:
+            store.record_outreach_attempt(uid, now)
+            log.exception("outreach send failed for user %s; suppressed (no-pester)", uid)
+            continue
+        # Delivered: stamp no-pester BEFORE the fallible log append.
+        store.record_coach_message(uid, now, text, is_outreach=True)
+        sent += 1
+        try:
+            convo.append(int(uid), "coach", text)
+        except Exception:
+            log.exception("outreach delivered to %s but conversation-log append failed", uid)
+    return sent
 
 
 def _build_app() -> Application:
@@ -151,6 +250,17 @@ def _build_app() -> Application:
     convo = ConversationLog(
         Path(os.environ.get("COACH_CONVO_LOG_DIR", "/state/conversations"))
     )
+    # Proactive outreach state (shared volume): tracks per-user activity so the
+    # scheduler can re-engage quiet users. Default OFF — flip COACH_PROACTIVE_OUTREACH.
+    outreach = OutreachStore(
+        Path(os.environ.get("COACH_OUTREACH_JSON", "/state/outreach.json"))
+    )
+    outreach_cfg = OutreachConfig(tz=quota_tz)
+    proactive_enabled = (
+        os.environ.get("COACH_PROACTIVE_OUTREACH", "false").strip().lower()
+        in {"1", "true", "yes", "on"}
+    )
+    outreach_tick_min = int(os.environ.get("COACH_OUTREACH_TICK_MIN", "30"))
 
     async def _handle_pending(user, msg, ctx):
         admin_chat_id = os.environ.get("TELEGRAM_COACH_ALERT_CHAT_ID")
@@ -192,6 +302,7 @@ def _build_app() -> Application:
             log.exception("coach reset failed during /restart; clearing local state anyway")
         convo.clear(user.id)
         quota.reset(user.id)
+        outreach.clear(str(user.id))  # forget activity/schedule for a clean start
         welcome.mark(user.id)  # idempotent; we greet explicitly just below
         await msg.reply_text(i18n.welcome_text(lang))
 
@@ -231,6 +342,17 @@ def _build_app() -> Application:
         if not text.strip():
             return
 
+        # Refresh outreach activity BEFORE the quota gate: even a quota-blocked
+        # message proves the user is active (an active-but-capped user must not
+        # get a "you've gone quiet" nudge later the same day). Guarded so a state
+        # write failure can never break the reply path.
+        try:
+            outreach.record_user_message(
+                str(user.id), datetime.now(timezone.utc), language_code=lang
+            )
+        except Exception:
+            log.exception("outreach activity record failed; continuing the turn")
+
         # Daily quota: block (without consuming a coaching turn) past the limit.
         today = local_today(datetime.now(timezone.utc), quota_tz)
         result = quota.check_and_increment(user.id, today)
@@ -239,7 +361,7 @@ def _build_app() -> Application:
             return
 
         convo.append(user.id, "user", text, name=user.full_name)
-        await _stream_reply(coach, user, msg, ctx, text, convo=convo)
+        await _stream_reply(coach, user, msg, ctx, text, convo=convo, outreach=outreach)
 
     async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
@@ -271,6 +393,31 @@ def _build_app() -> Application:
     app = Application.builder().token(token).build()
     app.add_handler(MessageHandler(filters.TEXT | filters.VOICE, on_message))
     app.add_handler(CallbackQueryHandler(on_callback))
+
+    # Proactive outreach: a repeating job re-engages quiet users. Default OFF; when
+    # ON it ticks every COACH_OUTREACH_TICK_MIN minutes (the decide() windows, not
+    # the tick, set the actual cadence — a tick just gives due users a chance to fire).
+    if proactive_enabled and app.job_queue is not None:
+        async def _outreach_job(ctx: ContextTypes.DEFAULT_TYPE) -> None:
+            async def _send(uid: str, body: str) -> None:
+                await ctx.bot.send_message(chat_id=int(uid), text=body)
+            sent = await scan_and_outreach(
+                store=outreach,
+                allowlist=allowlist,
+                coach=coach,
+                convo=convo,
+                send_message=_send,
+                now=datetime.now(timezone.utc),
+                config=outreach_cfg,
+            )
+            if sent:
+                log.info("proactive outreach sent to %d user(s)", sent)
+
+        interval = outreach_tick_min * 60
+        app.job_queue.run_repeating(_outreach_job, interval=interval, first=interval)
+        log.info("proactive outreach ON (tick=%dm, tz=%s)", outreach_tick_min, quota_tz)
+    elif proactive_enabled:
+        log.warning("COACH_PROACTIVE_OUTREACH set but job_queue unavailable; outreach off")
     return app
 
 
