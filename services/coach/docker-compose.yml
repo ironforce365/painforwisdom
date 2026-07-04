@@ -1,5 +1,19 @@
+# DNS pinning (2026-07-01→04 outage): docker copies the HOST's resolver into a
+# container's embedded DNS at container-START time only. The stack once started
+# while Tailscale MagicDNS (100.100.100.100) was the host resolver; the host
+# later moved to 1.1.1.1 and every already-running container silently lost
+# external DNS for 3 days (agent couldn't reach api.anthropic.com → every turn
+# died slow). Pinning public resolvers removes the dependency on host-resolver
+# state entirely. Compose-internal names (mem0-api, coach-agent…) resolve via
+# docker's embedded DNS regardless, so the pin only affects external lookups.
+x-coach-dns: &coach-dns
+  dns:
+    - 1.1.1.1
+    - 8.8.8.8
+
 services:
   mem0-postgres:
+    <<: *coach-dns
     image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: ${MEM0_PG_USER}
@@ -18,6 +32,7 @@ services:
   # published arm64-only — unrunnable on this amd64 host — and carries JWT/app-DB
   # baggage the coach doesn't need. Graph memory is a documented follow-up.
   mem0-api:
+    <<: *coach-dns
     build: ./mem0-server
     depends_on:
       mem0-postgres:
@@ -31,9 +46,17 @@ services:
       POSTGRES_PASSWORD: ${MEM0_PG_PASSWORD}
       POSTGRES_DB: ${MEM0_PG_DB}
       POSTGRES_COLLECTION_NAME: coach_memories
+    healthcheck:
+      # Liveness only (is uvicorn answering?); the watchdog does deep checks.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     restart: unless-stopped
 
   coach-agent:
+    <<: *coach-dns
     build: .
     depends_on:
       mem0-api:
@@ -47,6 +70,12 @@ services:
       COACH_INBOX_ROOT: /vault/_inbox
       COACH_VAULT_PATH: /vault
       COACH_USAGE_LOG: /data/usage.jsonl
+      # The reranker/embedder model bytes live on the whisper_cache volume; with
+      # offline mode ON a cold build never phones huggingface.co (2026-07-04: a
+      # DNS outage broke doctrine retrieval despite a fully-populated cache).
+      # Fresh host/empty volume? Set HF_HUB_OFFLINE=0 in .env.coach for ONE run
+      # to populate the cache, then unset.
+      HF_HUB_OFFLINE: ${HF_HUB_OFFLINE:-1}
       # Debug canary: append a "kb sources" footer to each reply naming the vault
       # slugs that grounded the turn ("(none)" = generic-answer alarm). Default-on
       # for now; flip via COACH_DEBUG in .env.coach.
@@ -65,6 +94,12 @@ services:
       # replies with a localized coaching redirect. Default OFF; flip via
       # COACH_TOPIC_GUARD in .env.coach.
       COACH_TOPIC_GUARD: ${COACH_TOPIC_GUARD:-false}
+      # Turn-latency budgets (2026-07-04 outage: an unreachable API burned 191s of
+      # SDK retries + 120s of doomed gate/guard calls per turn while the bot's
+      # read deadline made every reply "Still with you"). Generation is capped at
+      # COACH_STREAM_BUDGET_S; each gate/guard `claude -p` call at COACH_LLM_TIMEOUT_S.
+      COACH_STREAM_BUDGET_S: ${COACH_STREAM_BUDGET_S:-150}
+      COACH_LLM_TIMEOUT_S: ${COACH_LLM_TIMEOUT_S:-60}
     # CRITICAL: do NOT set ANTHROPIC_API_KEY here — it would shadow the OAuth token.
     volumes:
       - ${VAULT_HOST_PATH}:/vault
@@ -74,9 +109,17 @@ services:
     command: ["uvicorn", "agent.service:app", "--host", "0.0.0.0", "--port", "8800"]
     ports:
       - "8800:8800"
+    healthcheck:
+      # Liveness only (is uvicorn answering?); the watchdog polls /health/deep.
+      test: ["CMD", "curl", "-fsS", "http://localhost:8800/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     restart: unless-stopped
 
   telegram-bot:
+    <<: *coach-dns
     build: .
     depends_on:
       coach-agent:
@@ -121,6 +164,7 @@ services:
   # it never mutates state or calls the coach. Bind the port to localhost only;
   # there is no auth, so it must not be exposed to the network.
   monitor:
+    <<: *coach-dns
     build: .
     environment:
       COACH_CONVO_LOG_DIR: /state/conversations
@@ -129,9 +173,16 @@ services:
     command: ["uvicorn", "monitor.app:app", "--host", "0.0.0.0", "--port", "8810"]
     ports:
       - "127.0.0.1:8810:8810"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8810/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     restart: unless-stopped
 
   coach-eval:
+    <<: *coach-dns
     build: .
     profiles: ["eval"]
     depends_on:
@@ -153,6 +204,7 @@ services:
   #   docker compose run --rm synthetic                       # default profiles
   #   docker compose run --rm synthetic python -m synthetic.runner --turns 120 --concurrency 5
   synthetic:
+    <<: *coach-dns
     build: .
     profiles: ["synthetic"]
     depends_on:

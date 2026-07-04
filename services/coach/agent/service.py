@@ -9,7 +9,9 @@ from __future__ import annotations
 import asyncio
 import contextvars
 import json
+import logging
 import os
+import socket
 from pathlib import Path
 from typing import AsyncIterator, Tuple
 
@@ -20,10 +22,11 @@ from claude_agent_sdk import (
     create_sdk_mcp_server,
     tool,
 )
-from fastapi import FastAPI
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
+from agent.failures import conn_trouble_reply, is_api_error_reply
 from agent.hooks import write_inbox_entry
 from agent.memory import delete_user_memory, read_user_memory, write_user_memory
 from agent.prompts import compose_system_prompt
@@ -128,6 +131,15 @@ SEARCH_VAULT_TOOL = "mcp__vault_rag__search_vault"
 
 app = FastAPI(title="painforwisdom-coach")
 _sessions = SessionMap()
+log = logging.getLogger("coach.service")
+
+
+def _stream_budget_s() -> float:
+    """Hard wall-clock budget for agent generation (2026-07-04 outage: the SDK
+    retried an unreachable API for 191s, past every client deadline). Read
+    per-call so ops can tune live; must stay below the bot's read timeout with
+    room for gate/guard (≤ COACH_LLM_TIMEOUT_S) on top."""
+    return float(os.environ.get("COACH_STREAM_BUDGET_S", "150"))
 
 # Per-stream side channel for source slugs collected during `_stream_agent`.
 # `_stream_agent` populates the list bound here; the endpoint reads it after the
@@ -512,8 +524,26 @@ async def turn(t: Turn) -> Reply:
     memory_token = _turn_memory_text.set("")
     try:
         with perf_step("turn_total", gate=gate_enabled()):
-            with perf_step("agent_total"):
-                reply_text, sources = await _chat_with_agent(t.user_id, t.text)
+            try:
+                with perf_step("agent_total"):
+                    # asyncio.timeout, NOT wait_for: wait_for runs the coroutine
+                    # in its own Task, whose context COPY would swallow the
+                    # doctrine/memory ContextVars _compose_turn_prompt sets for
+                    # the grounding gate. timeout() stays in this task's context.
+                    async with asyncio.timeout(_stream_budget_s()):
+                        reply_text, sources = await _chat_with_agent(t.user_id, t.text)
+            except TimeoutError:
+                # Generation blew the budget (unreachable API → SDK retry storm,
+                # or a genuine hang). Answer honestly NOW, before the bot's read
+                # deadline turns this into a "Still with you" mystery.
+                log.error("turn budget exceeded (%.0fs); failing fast", _stream_budget_s())
+                return Reply(reply=conn_trouble_reply(t.language_code), crisis=False)
+            if is_api_error_reply(reply_text):
+                # The draft IS a CLI API error, not coaching content. It must not
+                # reach the gate/guard (two more doomed LLM calls), the inbox, or
+                # the user (2026-07-04 outage).
+                log.error("agent draft is an API error; failing fast: %s", reply_text[:200])
+                return Reply(reply=conn_trouble_reply(t.language_code), crisis=False)
             # Gate before persisting: when ON the gated text IS the reply (demotions
             # change content), so inbox and client must both see it. Footer stays last.
             with perf_step("gate_judge"):
@@ -586,6 +616,7 @@ async def turn_stream(t: Turn) -> StreamingResponse:
         doctrine_token = _turn_doctrine_text.set("")
         memory_token = _turn_memory_text.set("")
         chunks: list[str] = []
+        failure: str | None = None
         # When the gate OR the topic guard is ON we cannot un-send streamed
         # tokens (either may rewrite/replace the reply), so we buffer the whole
         # draft, post-process it, then emit it as a single delta (draft ->
@@ -593,19 +624,43 @@ async def turn_stream(t: Turn) -> StreamingResponse:
         # token streaming.
         buffered = gate_enabled() or guard_enabled()
         try:
-            # In buffered mode (prod) this loop does not yield to the HTTP
-            # consumer, so the timer reflects generation time only; in legacy
-            # un-buffered mode it also spans consumer back-pressure (acceptable).
-            with perf_step("agent_stream", gate=buffered):
-                async for delta in _stream_agent(t.user_id, t.text):
-                    chunks.append(delta)
-                    if not buffered:
-                        yield json.dumps({"delta": delta}) + "\n"
-        finally:
-            _stream_sources.reset(token)
-        merged = _merge_sources(sources)
-        final_text = "".join(chunks)
-        try:
+            try:
+                # In buffered mode (prod) this loop does not yield to the HTTP
+                # consumer, so the timer reflects generation time only; in legacy
+                # un-buffered mode it also spans consumer back-pressure (acceptable).
+                with perf_step("agent_stream", gate=buffered):
+                    async with asyncio.timeout(_stream_budget_s()):
+                        async for delta in _stream_agent(t.user_id, t.text):
+                            if is_api_error_reply(delta):
+                                # The CLI emitted its API-error text as the reply
+                                # (unreachable API). Never show or gate it.
+                                failure = "api_unreachable"
+                                break
+                            chunks.append(delta)
+                            if not buffered:
+                                yield json.dumps({"delta": delta}) + "\n"
+            except TimeoutError:
+                # Generation blew COACH_STREAM_BUDGET_S (SDK retry storm against
+                # a dead API, or a hang). Fail honestly before the bot's read
+                # deadline turns this into a "Still with you" mystery.
+                failure = "budget_exceeded"
+            finally:
+                _stream_sources.reset(token)
+
+            # Belt & braces: a multi-chunk draft that assembles into an API error.
+            if failure is None and is_api_error_reply("".join(chunks)):
+                failure = "api_unreachable"
+
+            if failure is not None:
+                log.error("stream turn failed fast (%s) for user %s", failure, t.user_id)
+                # No gate/guard (doomed LLM calls on error text), no memory write,
+                # no inbox entry — an error turn is not a coaching turn.
+                yield json.dumps({"delta": conn_trouble_reply(t.language_code)}) + "\n"
+                yield json.dumps({"done": True, "crisis": False, "error": failure}) + "\n"
+                return
+
+            merged = _merge_sources(sources)
+            final_text = "".join(chunks)
             if buffered:
                 with perf_step("gate_judge"):
                     final_text = await _gate_and_guard(
@@ -691,7 +746,19 @@ async def outreach(req: OutreachRequest) -> Reply:
     doctrine_token = _turn_doctrine_text.set("")
     memory_token = _turn_memory_text.set("")
     try:
-        reply_text, sources = await _chat_with_agent(req.user_id, directive)
+        try:
+            # asyncio.timeout, not wait_for — same ContextVar reasoning as /turn.
+            async with asyncio.timeout(_stream_budget_s()):
+                reply_text, sources = await _chat_with_agent(req.user_id, directive)
+        except TimeoutError:
+            log.error("outreach budget exceeded (%.0fs); skipping outreach for %s",
+                      _stream_budget_s(), req.user_id)
+            raise HTTPException(status_code=503, detail="generation timed out; outreach skipped")
+        if is_api_error_reply(reply_text):
+            # Proactive path: there is no user waiting, so the never-spam answer
+            # to a dead API is to send NOTHING. 503 tells the scheduler to skip.
+            log.error("outreach draft is an API error; skipping outreach for %s", req.user_id)
+            raise HTTPException(status_code=503, detail="api unreachable; outreach skipped")
         reply_text = await _gate_and_guard(
             reply_text,
             sources=_slugs_to_sources(sources),
@@ -720,3 +787,40 @@ def reset(t: ResetRequest) -> dict:
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+# Deep health (2026-07-01→04 outage): the container's pinned DNS upstream died
+# while the shallow /health kept saying ok. These checks run from INSIDE the
+# container — exactly where the failure lived — so the host watchdog heals on
+# effect, not guesswork. Helpers never raise; any exception reads as False.
+_API_HOST = "api.anthropic.com"
+
+
+def _check_api_dns() -> bool:
+    """Can this container resolve the Anthropic API host right now?"""
+    try:
+        socket.getaddrinfo(_API_HOST, 443)
+        return True
+    except OSError:
+        return False
+
+
+def _check_mem0() -> bool:
+    """Is the mem0 shim answering its liveness endpoint?"""
+    try:
+        import httpx
+
+        base = os.environ.get("MEM0_API_URL", "http://mem0-api:8000").rstrip("/")
+        return httpx.get(f"{base}/health", timeout=5.0).status_code == 200
+    except Exception:  # noqa: BLE001 - a health check must never raise
+        return False
+
+
+@app.get("/health/deep")
+def health_deep() -> JSONResponse:
+    checks = {"api_dns": _check_api_dns(), "mem0": _check_mem0()}
+    ok = all(checks.values())
+    return JSONResponse(
+        status_code=200 if ok else 503,
+        content={"status": "ok" if ok else "degraded", "checks": checks},
+    )

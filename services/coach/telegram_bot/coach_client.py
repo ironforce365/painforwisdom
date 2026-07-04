@@ -14,7 +14,11 @@ from telegram_bot import metrics
 # (incident 2026-06-03). Split the budget: a generous *read* deadline that
 # clears worst-case turn latency, but a tight *connect* deadline so a genuinely
 # unreachable agent still fails fast instead of hanging for the full read window.
-DEFAULT_TIMEOUT = httpx.Timeout(connect=10.0, read=180.0, write=10.0, pool=10.0)
+# Read = 240s: the agent now enforces its OWN budgets (COACH_STREAM_BUDGET_S=150
+# generation + ≤60s gate/guard, 2026-07-04 outage) and answers honestly within
+# ~215s worst-case, so this deadline is the last resort — every degraded turn
+# used to cross the old 180s and read as "Still with you".
+DEFAULT_TIMEOUT = httpx.Timeout(connect=10.0, read=240.0, write=10.0, pool=10.0)
 
 # User-facing replies for the two failure classes the bot must tell apart.
 TIMEOUT_REPLY = "Still with you — this one's taking longer than usual. Give me a moment and resend if you don't hear back."

@@ -8,12 +8,20 @@ runs offline.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 
 from shared.perf import perf_step
 
 DEFAULT_MODEL = "claude-sonnet-4-6"
-_TIMEOUT_S = 120
+# Healthy classifier/judge calls run 5–10s. The old hardcoded 120s meant that
+# with the API unreachable every gate/guard call blocked for two full minutes
+# on top of an already-failed turn (2026-07-04 outage). Env-tunable for ops.
+_DEFAULT_TIMEOUT_S = 60.0
+
+
+def _timeout_s() -> float:
+    return float(os.environ.get("COACH_LLM_TIMEOUT_S", _DEFAULT_TIMEOUT_S))
 
 
 class LLMError(RuntimeError):
@@ -33,7 +41,7 @@ def call_llm(*, system: str, user: str, model: str = DEFAULT_MODEL) -> str:
         # `claude -p` CLI cold-start. Timing it tells us per-call cost AND how many
         # LLM calls a turn fires (judge = 1; + 1 per demoted claim).
         with perf_step("llm_subprocess", model=model):
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=_TIMEOUT_S)
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=_timeout_s())
     except (FileNotFoundError, subprocess.TimeoutExpired) as e:
         raise LLMError(f"claude CLI call failed: {e}") from e
     if proc.returncode != 0:
