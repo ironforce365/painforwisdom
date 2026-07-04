@@ -1,5 +1,7 @@
 """Hybrid retrieval: vector + BM25 → reciprocal rank fusion → cross-encoder rerank."""
 from __future__ import annotations
+import logging
+
 from llama_index.core import PropertyGraphIndex
 from llama_index.core.retrievers import QueryFusionRetriever
 from llama_index.core.indices.property_graph import VectorContextRetriever
@@ -7,6 +9,8 @@ from llama_index.retrievers.bm25 import BM25Retriever
 from llama_index.core.postprocessor import SentenceTransformerRerank
 from llama_index.core.base.base_retriever import BaseRetriever
 from llama_index.core.llms import MockLLM
+
+log = logging.getLogger("coach.retriever")
 
 
 class _RerankRetriever(BaseRetriever):
@@ -21,6 +25,27 @@ class _RerankRetriever(BaseRetriever):
     def _retrieve(self, query_bundle):
         nodes = self._inner.retrieve(query_bundle)
         return self._rerank.postprocess_nodes(nodes, query_bundle)
+
+
+def _maybe_rerank(inner: BaseRetriever, top_n: int) -> BaseRetriever:
+    """Wrap ``inner`` with the cross-encoder reranker, degrading to ``inner``
+    itself if the model can't load.
+
+    2026-07-04 outage: with container DNS down, the reranker's cold build hit a
+    huggingface.co metadata check and raised — and the WHOLE retriever build
+    failed, so turns ran with no doctrine grounding at all. The reranker is an
+    optional quality layer over fusion; losing it must cost ranking quality
+    only, never retrieval itself. (HF_HUB_OFFLINE=1 in compose prevents the
+    network dependency; this fallback covers a missing/corrupt local cache.)
+    """
+    try:
+        return _RerankRetriever(inner, top_n=top_n)
+    except Exception:  # noqa: BLE001 - degrade, never break retrieval
+        log.warning(
+            "cross-encoder rerank unavailable; falling back to fusion-only retrieval",
+            exc_info=True,
+        )
+        return inner
 
 
 def build_retriever(index: PropertyGraphIndex, top_k: int = 5) -> BaseRetriever:
@@ -54,4 +79,4 @@ def build_retriever(index: PropertyGraphIndex, top_k: int = 5) -> BaseRetriever:
         use_async=False,
         verbose=False,
     )
-    return _RerankRetriever(fusion, top_n=top_k)
+    return _maybe_rerank(fusion, top_n=top_k)

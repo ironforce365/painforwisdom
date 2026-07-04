@@ -1,0 +1,26 @@
+# Coach watchdog: host-side prober + auto-healer + Telegram alerter.
+# Install: services/coach/scripts/install-watchdog.sh
+#
+# Host-side on purpose: it must survive any container/stack failure (the
+# 2026-07-01→04 DNS outage took out every in-stack observer). Runs from the
+# LIVE checkout so it heals whatever tag is deployed.
+#
+# StartLimitIntervalSec=0: never trip the start-limit — the augment service
+# once crash-looped into a stuck `failed` state on a transient DNS blip and
+# stayed silent for 2 days. A watchdog that can get stuck is worse than none.
+[Unit]
+Description=painforwisdom coach watchdog (probe + auto-heal + alert)
+After=network-online.target docker.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+# Telegram token + alert chat id come from the live .env.coach.
+EnvironmentFile=%h/workspace/painforwisdom-live/services/coach/.env.coach
+Environment=COACH_COMPOSE_DIR=%h/workspace/painforwisdom-live/services/coach
+ExecStart=/usr/bin/python3 %h/workspace/painforwisdom-live/services/coach/watchdog/runner.py
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=default.target
