@@ -72,6 +72,34 @@ def test_test_channel_stream_skips_the_inbox(client, tmp_path):
     assert not list(Path(tmp_path).rglob("*.md"))
 
 
+def test_test_channel_skips_validation_signal_detection(client, monkeypatch):
+    # Synthetic confirmations/corrections must never reach the grounding
+    # calibration corpus — detection is skipped entirely on the test channel.
+    calls = []
+    monkeypatch.setattr(svc, "detect_validation_signals",
+                        lambda text, **kw: calls.append(kw) or [])
+    client.post("/turn", json={"user_id": "synthetic-x", "text": "yes exactly",
+                               "channel": "test"})
+    assert calls == []
+    client.post("/turn", json={"user_id": "1", "text": "yes exactly"})
+    assert len(calls) == 1  # live turns still detect
+
+
+def test_test_channel_gates_without_persisting(client, monkeypatch):
+    # The grounding gate must still RUN for test turns (representative replies)
+    # but with persist=False so no corpus/validation writes happen.
+    seen = []
+
+    def spy_gate(reply, **kw):
+        seen.append(kw.get("persist"))
+        return reply
+
+    monkeypatch.setattr(svc, "maybe_gate", spy_gate)
+    client.post("/turn", json={"user_id": "synthetic-x", "text": "hi", "channel": "test"})
+    client.post("/turn", json={"user_id": "1", "text": "hi"})
+    assert seen == [False, True]
+
+
 def test_outreach_returns_a_message_and_skips_the_inbox(client, tmp_path):
     # Proactive outreach is coach-initiated: it returns a message but must NOT
     # write a vault inbox entry (that would feed a synthetic 'user turn' upstream).
@@ -95,6 +123,14 @@ def test_outreach_inactivity_directive_is_a_plain_checkin():
     d = svc._compose_outreach_directive("inactivity", last_coach_text=None, language_code="es")
     assert "report back" not in d
     assert "quiet" in d.lower() or "check-in" in d.lower()
+
+
+def test_outreach_directive_carries_the_user_language():
+    d = svc._compose_outreach_directive("inactivity", last_coach_text=None, language_code="es")
+    assert "'es'" in d
+    # No language known → no dangling hint.
+    d2 = svc._compose_outreach_directive("inactivity", last_coach_text=None, language_code=None)
+    assert "client language" not in d2
 
 
 @pytest.mark.asyncio

@@ -140,6 +140,22 @@ def test_quiet_hours_respect_configured_timezone():
     assert d.should_outreach is False
 
 
+def test_quiet_hours_support_a_non_wrapping_window():
+    # A same-day window (01:00–06:00) must be quiet inside and allowed outside —
+    # the naive or-predicate would treat this configuration as always-quiet.
+    from datetime import time as dtime
+    cfg = OutreachConfig(quiet_start=dtime(1, 0), quiet_end=dtime(6, 0))
+    last = T0 - timedelta(hours=40)
+    due = last + timedelta(hours=30)
+    s = _state(last_user_ts=last, due_at=due)
+    # 03:00 → inside the window → held.
+    night = datetime(2026, 6, 21, 3, 0, tzinfo=UTC)
+    assert decide(s, night, rng=MID, is_open_loop=NO_OPEN, config=cfg).should_outreach is False
+    # 12:00 → outside the window → sends.
+    noon = datetime(2026, 6, 21, 12, 0, tzinfo=UTC)
+    assert decide(s, noon, rng=MID, is_open_loop=NO_OPEN, config=cfg).should_outreach is True
+
+
 # ---- state store -----------------------------------------------------------
 
 def test_store_records_and_persists_across_instances(tmp_path: Path):
@@ -180,6 +196,26 @@ def test_record_outreach_marks_outreach_timestamp(tmp_path: Path):
     s = store.get("42")
     assert s.last_outreach_ts == T0 + timedelta(days=2)
     assert s.due_at is None  # sending clears the committed time
+
+
+def test_record_outreach_attempt_suppresses_without_touching_coach_text(tmp_path: Path):
+    # A failed outreach (send error, empty reply) must still count as the one
+    # attempt for this silence — no-pester semantics — without corrupting the
+    # last_coach_text used for open-loop detection.
+    store = OutreachStore(tmp_path / "o.json")
+    store.record_user_message("42", T0)
+    store.record_coach_message("42", T0 + timedelta(seconds=5), "tell me how it goes")
+    store.set_due_at("42", T0 + timedelta(hours=30))
+
+    store.record_outreach_attempt("42", T0 + timedelta(hours=31))
+
+    s = store.get("42")
+    assert s.last_outreach_ts == T0 + timedelta(hours=31)
+    assert s.due_at is None
+    assert s.last_coach_text == "tell me how it goes"  # untouched
+    # And decide() now applies the no-pester rule.
+    d = decide(s, T0 + timedelta(hours=32), rng=MID, is_open_loop=ALWAYS_OPEN, config=CFG)
+    assert d.should_outreach is False
 
 
 def test_clear_removes_a_user(tmp_path: Path):

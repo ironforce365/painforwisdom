@@ -128,9 +128,12 @@ async def _stream_reply(coach, user, msg, ctx, text: str, convo=None, outreach=N
             convo.append(user.id, "coach", acc)
             if outreach is not None:
                 # Record the coach's last words so the outreach scheduler can spot
-                # open loops and time inactivity from this exchange.
+                # open loops and time inactivity from this exchange. The debug
+                # canary footer rides the stream as a final delta — strip it so
+                # it never gets quoted back into a follow-up directive.
+                clean = acc.split("\n\n— kb sources:", 1)[0]
                 outreach.record_coach_message(
-                    str(user.id), datetime.now(timezone.utc), acc
+                    str(user.id), datetime.now(timezone.utc), clean
                 )
     except Exception as exc:
         # A read timeout means the agent is slow but alive; only connect /
@@ -162,7 +165,16 @@ async def scan_and_outreach(
     """Walk every known user, decide whether to reach out, and for those due:
     ask the coach to compose a message, send it, log it to the monitor, and mark
     the outreach (so the no-pester rule applies next tick). One user's failure is
-    logged and skipped — it never aborts the scan. Returns the number sent."""
+    logged and skipped — it never aborts the scan. Returns the number sent.
+
+    Failure policy: never-spam beats guaranteed-delivery. A *generation* failure
+    (coach down / mid-deploy) is transient → retried next tick. But once past
+    generation, any dead end — empty composed reply, failed Telegram send (user
+    blocked the bot) — stamps the attempt via record_outreach_attempt, so the
+    no-pester rule stops the scheduler from re-generating (or worse, re-sending)
+    for the same silence every tick. After a successful send the no-pester stamp
+    is written FIRST; the conversation-log append is best-effort so a monitor-log
+    hiccup can never cause a duplicate message to a real user."""
     sent = 0
     for uid in store.all_users():
         try:
@@ -175,6 +187,7 @@ async def scan_and_outreach(
         store.set_due_at(uid, decision.due_at)
         if not decision.should_outreach:
             continue
+
         try:
             result = await asyncio.to_thread(
                 coach.outreach,
@@ -183,15 +196,39 @@ async def scan_and_outreach(
                 language_code=state.language_code,
                 last_coach_text=state.last_coach_text,
             )
-            text = ((result or {}).get("reply") or "").strip()
-            if not text:
-                continue
-            await send_message(uid, text)
-            convo.append(int(uid), "coach", text)
-            store.record_coach_message(uid, now, text, is_outreach=True)
-            sent += 1
         except Exception:
-            log.exception("proactive outreach failed for user %s", uid)
+            log.exception("outreach generation failed for user %s; retrying next tick", uid)
+            continue
+        text = ((result or {}).get("reply") or "").strip()
+
+        # The generation takes ~90s and the handler runs on this same event loop:
+        # if the user messaged in the meantime they are active again — drop the
+        # now-stale "you've gone quiet" nudge instead of sending it right after
+        # their message.
+        latest = store.get(uid)
+        if latest.last_user_ts is not None and (
+            state.last_user_ts is None or latest.last_user_ts > state.last_user_ts
+        ):
+            log.info("user %s messaged mid-generation; dropping stale outreach", uid)
+            continue
+
+        if not text:
+            store.record_outreach_attempt(uid, now)
+            log.warning("outreach for user %s came back empty; suppressed until they return", uid)
+            continue
+        try:
+            await send_message(uid, text)
+        except Exception:
+            store.record_outreach_attempt(uid, now)
+            log.exception("outreach send failed for user %s; suppressed (no-pester)", uid)
+            continue
+        # Delivered: stamp no-pester BEFORE the fallible log append.
+        store.record_coach_message(uid, now, text, is_outreach=True)
+        sent += 1
+        try:
+            convo.append(int(uid), "coach", text)
+        except Exception:
+            log.exception("outreach delivered to %s but conversation-log append failed", uid)
     return sent
 
 
@@ -305,6 +342,17 @@ def _build_app() -> Application:
         if not text.strip():
             return
 
+        # Refresh outreach activity BEFORE the quota gate: even a quota-blocked
+        # message proves the user is active (an active-but-capped user must not
+        # get a "you've gone quiet" nudge later the same day). Guarded so a state
+        # write failure can never break the reply path.
+        try:
+            outreach.record_user_message(
+                str(user.id), datetime.now(timezone.utc), language_code=lang
+            )
+        except Exception:
+            log.exception("outreach activity record failed; continuing the turn")
+
         # Daily quota: block (without consuming a coaching turn) past the limit.
         today = local_today(datetime.now(timezone.utc), quota_tz)
         result = quota.check_and_increment(user.id, today)
@@ -313,8 +361,6 @@ def _build_app() -> Application:
             return
 
         convo.append(user.id, "user", text, name=user.full_name)
-        # Refresh outreach activity (resets any pending re-engagement for this user).
-        outreach.record_user_message(str(user.id), datetime.now(timezone.utc), language_code=lang)
         await _stream_reply(coach, user, msg, ctx, text, convo=convo, outreach=outreach)
 
     async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):

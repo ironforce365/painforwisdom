@@ -197,6 +197,22 @@ async def test_user_message_records_outreach_activity(built):
 
 
 @pytest.mark.asyncio
+async def test_quota_blocked_message_still_counts_as_activity(built):
+    # limit=2 (fixture). A user who burned their quota but keeps messaging is
+    # ACTIVE — those blocked messages must refresh outreach activity, or the
+    # scheduler would send "you've gone quiet" to someone talking to the bot.
+    built.coach.stream_turn.return_value = iter(["a"])
+    await built.on_message(*_with_ctx(_make_update(text="1")))
+    await built.on_message(*_with_ctx(_make_update(text="2")))  # at limit
+    ts_before = OutreachStore(built.tmp / "outreach.json").get("99").last_user_ts
+
+    await built.on_message(*_with_ctx(_make_update(text="3")))  # quota-blocked
+
+    ts_after = OutreachStore(built.tmp / "outreach.json").get("99").last_user_ts
+    assert ts_after is not None and ts_after > ts_before
+
+
+@pytest.mark.asyncio
 async def test_restart_clears_outreach_state(built):
     built.coach.stream_turn.return_value = iter(["ok"])
     await built.on_message(*_with_ctx(_make_update(text="hi")))

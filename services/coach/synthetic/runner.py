@@ -71,16 +71,21 @@ def run_many(
     reply_fn: Callable[[Profile, list[dict]], str],
     concurrency: int = 4,
 ) -> list[dict]:
-    """Run several profiles concurrently (one thread + one coach client each)."""
-    results: list[dict] = []
+    """Run several profiles concurrently (one thread + one coach client each).
 
+    One profile's failure (e.g. an httpx timeout mid-conversation) must not
+    discard the other profiles' results or abort the caller's cleanup, so each
+    conversation is isolated: a crashed profile yields an ``{"error": ...}``
+    entry instead of raising."""
     def _one(profile: Profile) -> dict:
-        return run_profile(profile, coach=make_coach(), convo=convo, reply_fn=reply_fn)
+        try:
+            return run_profile(profile, coach=make_coach(), convo=convo, reply_fn=reply_fn)
+        except Exception as exc:
+            log.exception("synthetic conversation failed for %s", profile.user_id())
+            return {"user_id": profile.user_id(), "turns": 0, "error": str(exc)}
 
     with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
-        for res in pool.map(_one, profiles):
-            results.append(res)
-    return results
+        return list(pool.map(_one, profiles))
 
 
 def main() -> int:  # pragma: no cover - thin CLI glue over tested pieces

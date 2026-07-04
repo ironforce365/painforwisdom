@@ -127,12 +127,16 @@ async def test_coach_failure_does_not_crash_the_scan(tmp_path: Path):
 
     assert n == 0
     assert sent == []
-    # Not marked as reached-out → it'll be retried on a later tick.
+    # A GENERATION failure is transient (coach down / mid-deploy): not marked as
+    # reached-out → it'll be retried on a later tick.
     assert store.get("42").last_outreach_ts is None
 
 
 @pytest.mark.asyncio
-async def test_empty_reply_is_not_sent(tmp_path: Path):
+async def test_empty_reply_is_suppressed_not_retried_forever(tmp_path: Path):
+    # An empty composed reply is a dead end for this silence: without stamping
+    # the attempt, the past-due due_at would trigger a full ~90s regeneration on
+    # every tick indefinitely.
     store = OutreachStore(tmp_path / "o.json")
     store.record_user_message("42", NOON - timedelta(hours=40))
     store.set_due_at("42", NOON - timedelta(hours=1))
@@ -142,3 +146,84 @@ async def test_empty_reply_is_not_sent(tmp_path: Path):
 
     assert n == 0
     assert sent == []
+    assert store.get("42").last_outreach_ts == NOON  # attempt stamped (no-pester)
+    # Next tick: no second generation.
+    n2, _ = await _scan(store, coach, now=NOON + timedelta(minutes=30))
+    assert len(coach.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_send_failure_is_suppressed_not_retried_forever(tmp_path: Path):
+    # e.g. the user blocked the bot → telegram raises on send. Never-spam beats
+    # delivery: stamp the attempt so the scheduler stops regenerating every tick.
+    store = OutreachStore(tmp_path / "o.json")
+    store.record_user_message("42", NOON - timedelta(hours=40))
+    store.set_due_at("42", NOON - timedelta(hours=1))
+    coach = FakeCoach()
+
+    async def failing_send(uid, text):
+        raise RuntimeError("Forbidden: bot was blocked by the user")
+
+    n = await scan_and_outreach(
+        store=store, allowlist=FakeAllowlist(), coach=coach, convo=FakeConvo(),
+        send_message=failing_send, now=NOON, rng=MID, is_open_loop=NO_OPEN, config=CFG,
+    )
+    assert n == 0
+    assert store.get("42").last_outreach_ts == NOON
+    # Next tick is a no-op for this user (no second generation).
+    await _scan(store, coach, now=NOON + timedelta(minutes=30))
+    assert len(coach.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_convo_log_failure_after_send_does_not_resend(tmp_path: Path):
+    # The no-pester stamp must land BEFORE the fallible conversation-log append:
+    # a monitor-log error after a delivered message must not cause a duplicate
+    # send on the next tick.
+    store = OutreachStore(tmp_path / "o.json")
+    store.record_user_message("42", NOON - timedelta(hours=40))
+    store.set_due_at("42", NOON - timedelta(hours=1))
+    coach = FakeCoach()
+
+    class ExplodingConvo:
+        def append(self, *a, **kw):
+            raise OSError("disk full")
+
+    sent_msgs = []
+
+    async def send(uid, text):
+        sent_msgs.append(uid)
+
+    n = await scan_and_outreach(
+        store=store, allowlist=FakeAllowlist(), coach=coach, convo=ExplodingConvo(),
+        send_message=send, now=NOON, rng=MID, is_open_loop=NO_OPEN, config=CFG,
+    )
+    assert n == 1  # delivered and counted despite the log failure
+    assert store.get("42").last_outreach_ts == NOON
+    # Next tick: nothing re-sent.
+    await _scan(store, coach, now=NOON + timedelta(minutes=30))
+    assert sent_msgs == ["42"]
+    assert len(coach.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_user_message_mid_generation_drops_the_stale_nudge(tmp_path: Path):
+    # The user finally messages while their outreach is being generated (~90s):
+    # sending the "you've gone quiet" nudge right after their message would read
+    # as the bot ignoring them — it must be dropped.
+    store = OutreachStore(tmp_path / "o.json")
+    store.record_user_message("42", NOON - timedelta(hours=40))
+    store.set_due_at("42", NOON - timedelta(hours=1))
+
+    class RacingCoach(FakeCoach):
+        def outreach(self, user_id, **kw):
+            # Simulate the user's message landing while generation is in flight.
+            store.record_user_message(user_id, NOON)
+            return super().outreach(user_id, **kw)
+
+    coach = RacingCoach()
+    n, sent = await _scan(store, coach)
+
+    assert n == 0
+    assert sent == []
+    assert store.get("42").last_outreach_ts is None  # nothing was attempted at them

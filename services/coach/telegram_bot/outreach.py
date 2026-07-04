@@ -21,7 +21,7 @@ from __future__ import annotations
 import json
 import os
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, time, timedelta
 from pathlib import Path
 from typing import Callable
@@ -92,11 +92,15 @@ def _zone(tz_name: str) -> ZoneInfo:
 
 
 def _in_quiet_hours(now: datetime, config: OutreachConfig) -> bool:
-    """True if ``now`` (aware UTC) falls in the nighttime quiet window of ``tz``.
+    """True if ``now`` (aware UTC) falls in the quiet window of ``tz``.
 
-    Allowed window is [quiet_end, quiet_start); quiet is its complement."""
+    The window runs [quiet_start, quiet_end) and may wrap midnight (the default
+    22:00→09:00 does); a same-day window (e.g. 01:00→06:00) works too, and
+    quiet_start == quiet_end means no quiet hours at all."""
     local = now.astimezone(_zone(config.tz)).timetz().replace(tzinfo=None)
-    return local < config.quiet_end or local >= config.quiet_start
+    if config.quiet_start <= config.quiet_end:  # same-day window (empty if equal)
+        return config.quiet_start <= local < config.quiet_end
+    return local >= config.quiet_start or local < config.quiet_end
 
 
 def decide(
@@ -188,8 +192,12 @@ class OutreachStore:
                 )
 
     def get(self, user_id) -> UserOutreach:
+        """Return a snapshot COPY of the user's state. Callers use it to compare
+        against later reads (e.g. the outreach scan's mid-generation re-check),
+        so it must not alias the live object that concurrent records mutate."""
         with self._lock:
-            return self._users.get(str(user_id)) or UserOutreach()
+            s = self._users.get(str(user_id))
+            return replace(s) if s is not None else UserOutreach()
 
     def all_users(self) -> list[str]:
         with self._lock:
@@ -224,9 +232,25 @@ class OutreachStore:
                 s.due_at = None
             self._persist()
 
-    def set_due_at(self, user_id, due_at: datetime | None) -> None:
+    def record_outreach_attempt(self, user_id, ts: datetime) -> None:
+        """An outreach was attempted but nothing (or nothing verifiable) reached
+        the user — send failure, empty composed reply, post-send bookkeeping
+        error. Still counts as this silence's one attempt (no-pester): stamping
+        `last_outreach_ts` stops the scheduler from re-generating/re-sending
+        every tick until the user speaks again. `last_coach_text` is left alone —
+        no message reached them, so open-loop context is unchanged."""
         with self._lock:
             s = self._users.setdefault(str(user_id), UserOutreach())
+            s.last_outreach_ts = ts
+            s.due_at = None
+            self._persist()
+
+    def set_due_at(self, user_id, due_at: datetime | None) -> None:
+        with self._lock:
+            s = self._users.get(str(user_id)) or UserOutreach()
+            if s.due_at == due_at:  # no change → skip the disk write (runs per tick)
+                return
+            self._users[str(user_id)] = s
             s.due_at = due_at
             self._persist()
 

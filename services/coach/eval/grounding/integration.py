@@ -53,7 +53,17 @@ def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
 
-def maybe_gate(reply: str, *, sources: list[Source], user_id: str, thread_id: str) -> str:
+def maybe_gate(
+    reply: str, *, sources: list[Source], user_id: str, thread_id: str,
+    persist: bool = True,
+) -> str:
+    """Run the grounding gate on a drafted reply.
+
+    ``persist=False`` (synthetic test-channel turns) runs the gate identically —
+    demotions and claim-tag handling included, so test replies stay
+    representative — but writes nothing to the regression corpus or the pending
+    validations: fabricated persona conversations must never feed the
+    calibration data."""
     if not gate_enabled():
         return reply
     try:
@@ -64,8 +74,8 @@ def maybe_gate(reply: str, *, sources: list[Source], user_id: str, thread_id: st
             temperature=cfg.temperature,
             judge_fn=judge_claims,
             rewrite_fn=demote_to_question,
-            corpus=_corpus(),
-            validations=_validations(),
+            corpus=_corpus() if persist else None,
+            validations=_validations() if persist else None,
             ts=_now(),
             user_id=user_id,
             thread_id=thread_id,

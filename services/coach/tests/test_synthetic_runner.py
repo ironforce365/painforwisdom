@@ -85,6 +85,31 @@ def test_long_conversation_runs_past_100_turns():
     assert len(coach.calls) == 120
 
 
+def test_run_many_isolates_a_crashed_profile():
+    # One profile's mid-conversation failure (e.g. httpx timeout) must not
+    # discard the other profiles' results or abort the caller's --reset cleanup.
+    profiles = [
+        Profile(slug=f"p{i}", name=f"P{i}", persona="x", style="", opener="hi",
+                turn_count=2)
+        for i in range(3)
+    ]
+
+    class CrashingCoach(FakeCoach):
+        def turn(self, user_id, text, language_code=None, channel="live"):
+            if user_id == "synthetic-p1":
+                raise RuntimeError("read timeout")
+            return super().turn(user_id, text, language_code, channel)
+
+    results = run_many(profiles, make_coach=CrashingCoach, convo=FakeConvo(),
+                       reply_fn=_counter_reply(), concurrency=2)
+
+    assert len(results) == 3  # nothing discarded
+    by_id = {r["user_id"]: r for r in results}
+    assert "error" in by_id["synthetic-p1"] and by_id["synthetic-p1"]["turns"] == 0
+    assert by_id["synthetic-p0"]["turns"] == 2  # unaffected
+    assert by_id["synthetic-p2"]["turns"] == 2
+
+
 def test_run_many_drives_each_profile_with_its_own_user_id():
     profiles = [
         Profile(slug=f"p{i}", name=f"P{i}", persona="x", style="", opener="hi",

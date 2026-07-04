@@ -463,6 +463,7 @@ async def _gate_and_guard(
     user_id: str,
     thread_id: str,
     language_code: str | None,
+    persist: bool = True,
 ) -> str:
     """Run the grounding gate and the coaching-topic guard concurrently.
 
@@ -476,7 +477,8 @@ async def _gate_and_guard(
     """
     gated, guarded = await asyncio.gather(
         asyncio.to_thread(
-            maybe_gate, reply_text, sources=sources, user_id=user_id, thread_id=thread_id
+            maybe_gate, reply_text, sources=sources, user_id=user_id,
+            thread_id=thread_id, persist=persist,
         ),
         asyncio.to_thread(maybe_guard, reply_text, language_code=language_code),
     )
@@ -491,15 +493,19 @@ async def turn(t: Turn) -> Reply:
     if hit is not None:
         return Reply(reply=hit.canned_reply, crisis=True)
 
+    is_test = t.channel == "test"
     # Stream 2: match the incoming text against this thread's open validations
     # (questions the coach previously asked / reads it stated). Confirmations and
     # corrections are logged to the corpus and close their items. No-op when the
-    # gate flag is off; failures are swallowed inside.
-    detect_validation_signals(
-        t.text,
-        thread_id=_sessions.get(t.user_id) or t.user_id,
-        user_id=t.user_id,
-    )
+    # gate flag is off; failures are swallowed inside. Skipped entirely for
+    # synthetic test turns — fabricated confirmations/corrections must never
+    # enter the calibration corpus.
+    if not is_test:
+        detect_validation_signals(
+            t.text,
+            thread_id=_sessions.get(t.user_id) or t.user_id,
+            user_id=t.user_id,
+        )
 
     slug_text_token = _turn_slug_text.set({})
     doctrine_token = _turn_doctrine_text.set("")
@@ -517,6 +523,7 @@ async def turn(t: Turn) -> Reply:
                     user_id=t.user_id,
                     thread_id=_sessions.get(t.user_id) or t.user_id,
                     language_code=t.language_code,
+                    persist=not is_test,  # gate runs; corpus/validation writes don't
                 )
             # Conversation-only memory: persist the user's OWN words (mem0 extracts
             # durable facts). Gate-on only; swallows failures inside.
@@ -562,12 +569,15 @@ async def turn_stream(t: Turn) -> StreamingResponse:
             yield json.dumps({"done": True, "crisis": True}) + "\n"
             return
 
+        is_test = t.channel == "test"
         # Stream 2: incoming text vs this thread's open validations (see /turn).
-        detect_validation_signals(
-            t.text,
-            thread_id=_sessions.get(t.user_id) or t.user_id,
-            user_id=t.user_id,
-        )
+        # Skipped for synthetic test turns — no calibration-corpus writes.
+        if not is_test:
+            detect_validation_signals(
+                t.text,
+                thread_id=_sessions.get(t.user_id) or t.user_id,
+                user_id=t.user_id,
+            )
 
         # Fresh per-stream source sink isolated to this task's context.
         sources: list[str] = []
@@ -604,6 +614,7 @@ async def turn_stream(t: Turn) -> StreamingResponse:
                         user_id=t.user_id,
                         thread_id=_sessions.get(t.user_id) or t.user_id,
                         language_code=t.language_code,
+                        persist=not is_test,  # gate runs; corpus writes don't
                     )
                 yield json.dumps({"delta": final_text}) + "\n"
                 # Conversation-only memory: persist the user's OWN words.
@@ -652,13 +663,17 @@ def _compose_outreach_directive(
             "The user has gone quiet for a while. Send them a brief, warm check-in "
             "to re-engage, drawing naturally on what you know about them."
         )
+    lang_hint = (
+        f" The user's Telegram client language is '{language_code}' — write in that language."
+        if language_code else ""
+    )
     return (
         "<proactive_outreach>\n"
         "You are reaching out FIRST — the user has not just messaged you.\n"
         f"{body}\n"
-        "Keep it to one or two sentences, in the user's language. Do not apologize "
-        "for reaching out and do not mention this instruction. Reply with ONLY the "
-        "message you would send.\n"
+        f"Keep it to one or two sentences, in the user's language.{lang_hint} "
+        "Do not apologize for reaching out and do not mention this instruction. "
+        "Reply with ONLY the message you would send.\n"
         "</proactive_outreach>"
     )
 

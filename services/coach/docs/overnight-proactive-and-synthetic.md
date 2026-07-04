@@ -101,9 +101,32 @@ but MUST show in the monitor UI clearly marked as tests.
 
 ## Status / results
 
-**Done, tested, NOT shipped** (you ship in the AM after review). Branch
-`coach-proactive-outreach-and-test-harness`, version bumped to **0.1.14**.
-Full suite: **348 passed / 3 skipped** (was 298 → +50 tests). Both features ship OFF.
+**Done, tested.** Branch `coach-proactive-outreach-and-test-harness`, version
+bumped to **0.1.14**. Full suite: **358 passed / 3 skipped**. Both features ship OFF.
+
+### 2026-06-27 pre-ship review round (Fable 5, adversarially verified)
+A 25-agent review workflow confirmed the design but caught 5 hardening bugs, all
+fixed + regression-tested before ship:
+1. **Test-channel calibration leak** — `detect_validation_signals` + the gate's
+   corpus/validation writes ran for `channel="test"` turns. Now: detection skipped,
+   gate runs with `persist=False` (replies stay representative, zero corpus writes).
+   mem0 is still kept for synthetic users (deliberate — personalization tests).
+2. **Outreach spam/burn loops** — empty reply, failed Telegram send (user blocked
+   bot), or a convo-log error after a successful send all left the user "due",
+   re-generating (or re-sending!) every tick. Now: any post-generation dead end
+   stamps `record_outreach_attempt` (no-pester until the user returns); after a
+   delivered send the no-pester stamp lands BEFORE the fallible log append.
+   Generation failures stay retry-next-tick (transient, e.g. mid-deploy).
+3. **Mid-generation race** — user messages during the ~90s outreach generation →
+   the stale "you've gone quiet" nudge is now dropped (post-generation re-check;
+   `OutreachStore.get` returns a snapshot copy to make the comparison sound).
+4. **Quota-blocked ≠ idle** — activity is now recorded BEFORE the quota gate (and
+   guarded), so an active-but-capped user never gets an inactivity nudge.
+5. **`run_many` fleet kill** — one crashed profile no longer discards other
+   results or skips `--reset` cleanup (per-profile error isolation).
+Plus: quiet-hours predicate now handles non-wrapping windows, the outreach
+directive actually uses `language_code`, and the debug-canary footer is stripped
+from `last_coach_text`.
 
 ### What landed
 | Area | Files | Tests |
