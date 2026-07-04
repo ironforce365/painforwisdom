@@ -22,10 +22,12 @@ from telegram_bot.coach_client import (
 
 
 def test_default_read_timeout_clears_worst_case_turn():
-    # Worst-case healthy turn measured ~56s; the read budget must comfortably
-    # exceed that so normal variance never trips a false "down".
+    # The agent's own budgets (COACH_STREAM_BUDGET_S=150 + gate/guard ≤60s)
+    # bound a worst-case honest answer at ~215s; the bot's read deadline must
+    # sit above that so TIMEOUT_REPLY is the last resort, not the common case
+    # (2026-07-04 outage: every degraded turn crossed the old 180s).
     cc = CoachClient("http://coach-agent:8800")
-    assert cc.timeout.read >= 180.0
+    assert cc.timeout.read >= 240.0
 
 
 def test_default_connect_timeout_stays_fast():

@@ -50,3 +50,37 @@ def test_call_llm_raises_on_nonzero_exit(monkeypatch):
     monkeypatch.setattr(llm.subprocess, "run", lambda cmd, **kw: FakeCompleted())
     with pytest.raises(llm.LLMError):
         llm.call_llm(system="s", user="u")
+
+
+class _FakeOk:
+    returncode = 0
+    stdout = json.dumps({"type": "result", "is_error": False, "result": "ok"})
+    stderr = ""
+
+
+def _capture_timeout(monkeypatch):
+    captured = {}
+
+    def fake_run(cmd, **kwargs):
+        captured["timeout"] = kwargs.get("timeout")
+        return _FakeOk()
+
+    monkeypatch.setattr(llm.subprocess, "run", fake_run)
+    return captured
+
+
+def test_call_llm_default_timeout_is_60s(monkeypatch):
+    # 2026-07-04 outage: with the API unreachable, each gate/guard `claude -p`
+    # call blocked for the full hardcoded 120s. Healthy classifier calls run
+    # 5–10s; 60s is generous headroom at half the worst-case cost.
+    monkeypatch.delenv("COACH_LLM_TIMEOUT_S", raising=False)
+    captured = _capture_timeout(monkeypatch)
+    llm.call_llm(system="s", user="u")
+    assert captured["timeout"] == 60.0
+
+
+def test_call_llm_timeout_env_override(monkeypatch):
+    monkeypatch.setenv("COACH_LLM_TIMEOUT_S", "25")
+    captured = _capture_timeout(monkeypatch)
+    llm.call_llm(system="s", user="u")
+    assert captured["timeout"] == 25.0
