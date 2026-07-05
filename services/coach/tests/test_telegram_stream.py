@@ -98,6 +98,43 @@ async def test_streams_placeholder_then_progressive_edits(built):
 
 
 @pytest.mark.asyncio
+async def test_story_renders_rationale_then_labeled_answer(built):
+    """R7 story UX: thinking chunks stream into a live rationale bubble, then the
+    answer arrives as a SEPARATE labeled message."""
+    built.coach.stream_turn.return_value = iter(
+        [("thinking", "Hmm, "), ("thinking", "let me think. "), "The real answer."]
+    )
+    update, msg, placeholder = _make_update()
+    ctx = _make_ctx()
+
+    await built.on_message(update, ctx)
+
+    # Two messages: the placeholder (rationale bubble) + a new answer message.
+    assert msg.reply_text.await_count == 2
+    edits = [c.kwargs.get("text") or (c.args[0] if c.args else "") for c in ctx.bot.edit_message_text.await_args_list]
+    # Rationale was shown live (under its thinking-out-loud header)...
+    assert any("Hmm, let me think." in e for e in edits)
+    # ...and the answer landed under the localized "Here's my answer:" label.
+    assert any("Here's my answer:" in e and "The real answer." in e for e in edits)
+
+
+@pytest.mark.asyncio
+async def test_answer_only_stream_uses_single_bubble(built):
+    """No rationale (legacy/gate-off) → the placeholder itself becomes the answer
+    bubble with no label, exactly as before."""
+    built.coach.stream_turn.return_value = iter(["Run ", "in the rain."])
+    update, msg, placeholder = _make_update()
+    ctx = _make_ctx()
+
+    await built.on_message(update, ctx)
+
+    assert msg.reply_text.await_count == 1  # only the placeholder
+    final_call = ctx.bot.edit_message_text.await_args_list[-1]
+    final_text = final_call.kwargs.get("text") or final_call.args[0]
+    assert final_text == "Run in the rain."  # no "Here's my answer:" label
+
+
+@pytest.mark.asyncio
 async def test_stream_failure_falls_back_to_error_reply(built, monkeypatch):
     import httpx
 

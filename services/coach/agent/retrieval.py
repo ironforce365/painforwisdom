@@ -16,12 +16,17 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from pathlib import Path
 
 log = logging.getLogger("coach.retrieval")
 
 _retriever = None  # process-wide singleton; built lazily on first turn
 _doctrine_retriever = None  # doctrine-corpus retriever (Stream 3), built lazily
+# Guards the singleton build so a boot-time warm-start (a background thread) and
+# a first user turn can't build the same reranker twice concurrently, and so a
+# concurrent turn blocks on the in-flight build instead of kicking off its own.
+_build_lock = threading.Lock()
 
 
 def _build_retriever():
@@ -45,15 +50,37 @@ def _build_doctrine_retriever():
 def _get_retriever():
     global _retriever
     if _retriever is None:
-        _retriever = _build_retriever()
+        with _build_lock:
+            if _retriever is None:  # re-check: another thread may have built it
+                _retriever = _build_retriever()
     return _retriever
 
 
 def _get_doctrine_retriever():
     global _doctrine_retriever
     if _doctrine_retriever is None:
-        _doctrine_retriever = _build_doctrine_retriever()
+        with _build_lock:
+            if _doctrine_retriever is None:
+                _doctrine_retriever = _build_doctrine_retriever()
     return _doctrine_retriever
+
+
+def warm_start() -> None:
+    """Build both retriever singletons (index load + full-corpus BM25 + cross-encoder
+    model load) ahead of the first turn.
+
+    Called from the FastAPI startup hook so the ~12–15s cold build no longer lands
+    on the first unlucky user after every deploy / watchdog restart (2026-07-04
+    turn-latency review, R4). Never raises: a missing index (e.g. no doctrine index
+    built yet, or a test host) degrades to lazy first-turn build rather than
+    crashing startup. Idempotent and safe to call repeatedly.
+    """
+    for name, getter in (("raw-vault", _get_retriever), ("doctrine", _get_doctrine_retriever)):
+        try:
+            getter()
+            log.info("warm-start: %s retriever ready", name)
+        except Exception:
+            log.exception("warm-start: %s retriever build failed; will retry lazily", name)
 
 
 def set_retriever_for_tests(retriever) -> None:

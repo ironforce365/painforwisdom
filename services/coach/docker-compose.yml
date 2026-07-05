@@ -100,6 +100,21 @@ services:
       # COACH_STREAM_BUDGET_S; each gate/guard `claude -p` call at COACH_LLM_TIMEOUT_S.
       COACH_STREAM_BUDGET_S: ${COACH_STREAM_BUDGET_S:-150}
       COACH_LLM_TIMEOUT_S: ${COACH_LLM_TIMEOUT_S:-60}
+      # Model + effort pinning (2026-07-04 turn-latency review, R1). Prod used to
+      # ride the CLI's silent default (sonnet-4-6, effort=high); the A/B showed
+      # sonnet-5 @ effort=medium beats it on every rubric dimension at ~half the
+      # generation latency. Env-tunable so an Opus A/B week is a config change, not
+      # a deploy. effort ∈ low|medium|high|xhigh|max (empty → CLI default).
+      COACH_AGENT_MODEL: ${COACH_AGENT_MODEL:-claude-sonnet-5}
+      COACH_AGENT_EFFORT: ${COACH_AGENT_EFFORT:-medium}
+      # Streaming 'story' UX (R7): stream the model's reasoning live as rationale
+      # before the answer. Kill-switch to answer-only streaming if it misbehaves.
+      COACH_STREAM_RATIONALE: ${COACH_STREAM_RATIONALE:-true}
+      # Gate/guard/judge subprocess effort (R6): OFF by default (CLI default) so it
+      # never silently shifts grounding-judge calibration. Set to `low` to shave
+      # ~2-4s off these bounded classification calls once a calibration re-check
+      # confirms it holds. ∈ low|medium|high|xhigh|max.
+      COACH_LLM_EFFORT: ${COACH_LLM_EFFORT:-}
     # CRITICAL: do NOT set ANTHROPIC_API_KEY here — it would shadow the OAuth token.
     volumes:
       - ${VAULT_HOST_PATH}:/vault
