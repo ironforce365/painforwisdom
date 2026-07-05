@@ -187,6 +187,21 @@ rubric wins don't automatically transfer to multi-turn coaching arcs.
 
 ## 6. Suggested rollout order
 
+> **Status (2026-07-05):** R1–R7 implemented in the follow-up PR (`perf-latency-impl`).
+> R1 defaults `COACH_AGENT_MODEL=claude-sonnet-5` + `COACH_AGENT_EFFORT=medium`.
+> R2 drops the `user_memory`/`mem0` MCP servers from the turn (vault_rag only) +
+> a prompt line against re-fetching pre-injected context. R3 moves memory_write
+> off the reply path (BackgroundTasks / detached task). R4 warm-starts the
+> retrievers in a lifespan hook + parallel `to_thread` compose. R5 runs
+> validation-detect concurrently with generation. R6 parallelizes doctrine∥memory
+> and adds an opt-in `COACH_LLM_EFFORT` for gate/guard. R7 streams the model's
+> thinking live as a "story" then delivers a labeled, gated answer
+> (`{"thinking":…}` / `{"delta":…}` NDJSON; bot renders two beats). R8 (per-user
+> persistent client) deferred — the arithmetic reaches target without it. New
+> perf line: `perf step=agent_roundtrips n=<k>`.
+
+
+
 1. R3 + R4 + R5 + R6 (low-risk mechanical; ~-15s and no cold first turns) —
    one small PR, verify with synthetic harness.
 2. R1 + R2 (model/effort pinning + round-trip collapse) — the big one; gate on

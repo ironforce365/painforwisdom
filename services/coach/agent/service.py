@@ -7,22 +7,27 @@ Wires together:
 """
 from __future__ import annotations
 import asyncio
+import contextlib
 import contextvars
 import json
 import logging
 import os
+import re
 import socket
 from pathlib import Path
 from typing import AsyncIterator, Tuple
 
 from claude_agent_sdk import (
+    AssistantMessage,
+    StreamEvent,
     TextBlock,
+    ThinkingBlock,
     ToolResultBlock,
     ToolUseBlock,
     create_sdk_mcp_server,
     tool,
 )
-from fastapi import FastAPI, HTTPException
+from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
@@ -34,10 +39,11 @@ from agent.retrieval import (
     retrieve_doctrine_for_turn,
     retrieve_for_turn_rich,
     search_vault_warm,
+    warm_start,
 )
 from agent.session_map import SessionMap
 from crisis.filter import check_message
-from shared.perf import perf_step
+from shared.perf import perf_count, perf_step
 
 # Per-turn slug -> retrieved chunk text, bound fresh by each endpoint and filled
 # by `_compose_turn_prompt`, so the grounding judge can verify entailment against
@@ -129,7 +135,18 @@ except Exception:  # noqa: BLE001 - never let eval-package issues break the serv
 # name).
 SEARCH_VAULT_TOOL = "mcp__vault_rag__search_vault"
 
-app = FastAPI(title="painforwisdom-coach")
+@contextlib.asynccontextmanager
+async def _lifespan(_app: "FastAPI"):
+    """Build the retriever singletons (index + BM25 + cross-encoder) at boot so the
+    ~12–15s cold build no longer lands on the first user after every deploy /
+    watchdog restart (R4). Run in a worker thread so startup — and the shallow
+    /health the watchdog polls — stays responsive while it builds; a first turn
+    that beats the warm-up just blocks on the same lock instead of racing it."""
+    _detach(asyncio.to_thread(warm_start), "warm_start")
+    yield
+
+
+app = FastAPI(title="painforwisdom-coach", lifespan=_lifespan)
 _sessions = SessionMap()
 log = logging.getLogger("coach.service")
 
@@ -140,6 +157,102 @@ def _stream_budget_s() -> float:
     per-call so ops can tune live; must stay below the bot's read timeout with
     room for gate/guard (≤ COACH_LLM_TIMEOUT_S) on top."""
     return float(os.environ.get("COACH_STREAM_BUDGET_S", "150"))
+
+
+# Model + effort pinning (2026-07-04 turn-latency review, R1). Prod ran on the
+# CLI's silent default (sonnet-4-6) with headless default effort=high; the A/B in
+# docs/2026-07-04-turn-latency-review.md showed sonnet-5 @ effort=medium beats
+# that baseline on every rubric dimension at ~half the generation latency. Both
+# env-tunable so switching model (e.g. an Opus A/B week) or bumping effort back to
+# high is a config change, never a deploy.
+_EFFORTS = {"low", "medium", "high", "xhigh", "max"}
+
+
+def _agent_model() -> str | None:
+    """Model for the coaching agent. Empty/unset → CLI default (no pin)."""
+    return os.environ.get("COACH_AGENT_MODEL", "claude-sonnet-5").strip() or None
+
+
+def _agent_effort() -> str | None:
+    """Reasoning effort for the coaching agent (low|medium|high|xhigh|max).
+
+    Trims thinking depth in every round-trip — the reply-step latency lever the
+    user was willing to pull. Invalid values fall back to the CLI default rather
+    than crashing a turn."""
+    v = os.environ.get("COACH_AGENT_EFFORT", "medium").strip().lower()
+    if v in _EFFORTS:
+        return v
+    if v not in ("", "none", "default"):
+        log.warning("ignoring invalid COACH_AGENT_EFFORT=%r (use one of %s)", v, sorted(_EFFORTS))
+    return None
+
+
+def _rationale_enabled() -> bool:
+    """Whether to stream the model's thinking as live 'rationale' to the client
+    (the 'story' UX). Default ON; a kill-switch (COACH_STREAM_RATIONALE=0) reverts
+    to answer-only streaming if the thinking channel ever misbehaves in prod."""
+    return os.environ.get("COACH_STREAM_RATIONALE", "true").strip().lower() in _DEBUG_TRUTHY
+
+
+# Fire-and-forget background work (memory write, validation bookkeeping) kept off
+# the reply path (R3/R5). A module-level set holds a strong reference so the task
+# isn't garbage-collected mid-flight (asyncio only holds a weak ref); the
+# done-callback discards it. Every detached callable already swallows its own
+# failures, so a dead task can never surface to a user.
+_bg_tasks: set[asyncio.Task] = set()
+
+
+def _detach(coro, label: str) -> None:
+    task = asyncio.create_task(coro, name=label)
+    _bg_tasks.add(task)
+    task.add_done_callback(_bg_tasks.discard)
+
+
+# Rationale sanitizer: the streamed thinking is the model's reasoning, not its
+# vetted reply, so it never passes the grounding gate. Two structural facts keep
+# this safe: (1) source slugs are never in the model's context (retrieval blocks
+# omit them), so thinking cannot leak a citation; (2) the only internal scaffolding
+# that CAN appear is the [[claim ...]] tagging protocol and the <doctrine> /
+# <about_this_user> / <vault_context> markers — which we strip here. Because
+# thinking arrives token-by-token, a tag can split across chunks, so we hold back
+# any trailing unclosed "[[" / "<" until it completes.
+_CLAIM_TAG_RE = re.compile(r"\[\[[^\]]*\]\]")
+_PROTOCOL_TAG_RE = re.compile(
+    r"</?(?:doctrine|about_this_user|vault_context|user_id|proactive_outreach)\b[^>]*>"
+)
+
+
+def _strip_protocol(text: str) -> str:
+    return _PROTOCOL_TAG_RE.sub("", _CLAIM_TAG_RE.sub("", text))
+
+
+class _RationaleSanitizer:
+    """Rolling sanitizer for streamed thinking. ``feed`` returns the portion safe
+    to emit now (holding back an incomplete trailing tag); ``flush`` returns the
+    rest at stream end."""
+
+    def __init__(self) -> None:
+        self._buf = ""
+
+    def _safe_cut(self) -> int:
+        # Hold back from the last unclosed "[[" or "<" so a tag split across
+        # chunks is never emitted half-stripped.
+        cut = len(self._buf)
+        for opener, closer in (("[[", "]]"), ("<", ">")):
+            i = self._buf.rfind(opener)
+            if i != -1 and self._buf.find(closer, i) == -1:
+                cut = min(cut, i)
+        return cut
+
+    def feed(self, chunk: str) -> str:
+        self._buf += chunk
+        cut = self._safe_cut()
+        emit, self._buf = self._buf[:cut], self._buf[cut:]
+        return _strip_protocol(emit)
+
+    def flush(self) -> str:
+        out, self._buf = _strip_protocol(self._buf), ""
+        return out
 
 # Per-stream side channel for source slugs collected during `_stream_agent`.
 # `_stream_agent` populates the list bound here; the endpoint reads it after the
@@ -263,14 +376,81 @@ async def _extract_reply_and_sources(messages: AsyncIterator) -> Tuple[str, list
     return "".join(reply_chunks), sources
 
 
-def _compose_turn_prompt(user_id: str, text: str) -> Tuple[str, list[str]]:
+async def _walk_stream(
+    messages: AsyncIterator, sources: list[str], counter: dict
+) -> AsyncIterator:
+    """Streaming walk for the 'story' UX (R7). Yields two kinds of item:
+
+    - ``("thinking", <text>)`` — the model's reasoning, streamed live as it
+      generates (from ``thinking_delta`` partial events, or a whole ThinkingBlock
+      as a fallback if the CLI didn't emit deltas). This is the rationale the user
+      watches while the answer is still forming.
+    - ``<str>`` — assistant answer text, taken from the assembled TextBlock so the
+      buffered gate always sees the authoritative reply (text_delta partials are
+      ignored to avoid double-counting).
+
+    Source slugs from search_vault tool results are appended into ``sources``;
+    ``counter['assistant_messages']`` counts model round-trips for the
+    ``agent_roundtrips`` perf line.
+    """
+    search_vault_tool_use_ids: set[str] = set()
+    saw_thinking_delta = False
+
+    async for msg in messages:
+        if isinstance(msg, StreamEvent):
+            ev = msg.event or {}
+            if ev.get("type") == "content_block_delta":
+                delta = ev.get("delta") or {}
+                if delta.get("type") == "thinking_delta":
+                    piece = delta.get("thinking") or ""
+                    if piece:
+                        saw_thinking_delta = True
+                        yield ("thinking", piece)
+            continue
+        content = getattr(msg, "content", None)
+        if not isinstance(content, list):
+            continue
+        if isinstance(msg, AssistantMessage):
+            counter["assistant_messages"] = counter.get("assistant_messages", 0) + 1
+        for block in content:
+            if isinstance(block, TextBlock):
+                yield block.text
+            elif isinstance(block, ThinkingBlock):
+                # Fallback path: no partial deltas were emitted, so surface the
+                # whole thinking block once (arrives with the answer — no latency
+                # win, but the story still renders).
+                if not saw_thinking_delta and block.thinking:
+                    yield ("thinking", block.thinking)
+            elif isinstance(block, ToolUseBlock) and block.name == SEARCH_VAULT_TOOL:
+                search_vault_tool_use_ids.add(block.id)
+            elif isinstance(block, ToolResultBlock) and block.tool_use_id in search_vault_tool_use_ids:
+                sources.extend(_extract_source_slugs(block.content))
+
+
+def _retrieve_doctrine_timed(text: str):
+    with perf_step("doctrine_retrieve"):
+        return retrieve_doctrine_for_turn(text)
+
+
+def _read_memory_timed(user_id: str, text: str):
+    with perf_step("memory_read"):
+        return read_user_memory(user_id, text)
+
+
+async def _compose_turn_prompt(user_id: str, text: str) -> Tuple[str, list[str]]:
     """Build the agent query for a turn, injecting deterministically pre-retrieved
-    vault context ahead of the user's message.
+    context ahead of the user's message.
 
     Returns (query, pre_retrieved_slugs). The slugs seed the inbox source list so
     a turn is recorded as grounded even when the model never calls search_vault.
     The context block is placed before the user's text so the model reads its
     grounding first; it is omitted entirely when retrieval found nothing.
+
+    Async so the two retrievals run in parallel worker threads (R6) and neither
+    the OpenAI embedding round-trip nor the cross-encoder rerank blocks the event
+    loop (R4). The ContextVar writes happen HERE, in the caller's task context —
+    NOT inside the worker threads (a `to_thread` copy would swallow them, the same
+    trap that forces `asyncio.timeout` over `wait_for` elsewhere in this file).
     """
     parts = [f"<user_id>{user_id}</user_id>"]
     if gate_enabled():
@@ -278,10 +458,10 @@ def _compose_turn_prompt(user_id: str, text: str) -> Tuple[str, list[str]]:
         # facts about the user ONLY on conversation-derived memory (M1). The raw
         # vault is never retrieved at coach-time here — it is only distillation
         # input. Slugs (doctrine principles) still feed the inbox + debug canary.
-        with perf_step("doctrine_retrieve"):
-            doctrine_block, slugs, doctrine_text = retrieve_doctrine_for_turn(text)
-        with perf_step("memory_read"):
-            memory_block, memory_text = read_user_memory(user_id, text)
+        (doctrine_block, slugs, doctrine_text), (memory_block, memory_text) = await asyncio.gather(
+            asyncio.to_thread(_retrieve_doctrine_timed, text),
+            asyncio.to_thread(_read_memory_timed, user_id, text),
+        )
         _turn_doctrine_text.set(doctrine_text)
         _turn_memory_text.set(memory_text)
         if doctrine_block:
@@ -291,7 +471,7 @@ def _compose_turn_prompt(user_id: str, text: str) -> Tuple[str, list[str]]:
         parts.append(text)
         return "\n\n".join(parts), slugs
     # Legacy (flag OFF): raw vault context, byte-identical to before.
-    context_block, slugs, slug_text = retrieve_for_turn_rich(text)
+    context_block, slugs, slug_text = await asyncio.to_thread(retrieve_for_turn_rich, text)
     # Stash chunk text for the grounding judge (endpoint binds a fresh dict).
     _turn_slug_text.get().update(slug_text)
     if context_block:
@@ -363,43 +543,55 @@ async def _search_vault_tool(args: dict) -> dict:
 _vault_rag_server = create_sdk_mcp_server(name="vault_rag", tools=[_search_vault_tool])
 
 
-def _build_agent_options(user_id: str):
-    """Construct ClaudeAgentOptions for a turn (resume + MCP servers + allowlist).
+def _build_agent_options(user_id: str, *, partial: bool = False):
+    """Construct ClaudeAgentOptions for a turn (model + effort + resume + vault
+    tool).
 
     Shared by `_chat_with_agent` and `_stream_agent` so both run with identical
-    session-resume and tooling configuration.
+    session-resume and tooling configuration. ``partial=True`` (streaming path)
+    turns on SDKPartialAssistantMessage events so the thinking channel can stream
+    live (R7).
+
+    Round-trip collapse (R2): only the in-process ``vault_rag`` tool is exposed.
+    The old per-turn stdio ``user_memory`` + ``mem0`` MCP servers are gone —
+    their reads are already pre-injected by `_compose_turn_prompt` (`<doctrine>` +
+    `<about_this_user>`) and their writes happen service-side (`write_user_memory`),
+    so the only thing exposing them did was cost the model deferred-schema
+    ToolSearch round-trips plus redundant mid-turn re-searches of context it
+    already had (measured: 4 of the turn's 5 inference round-trips).
     """
     from claude_agent_sdk import ClaudeAgentOptions
-    from claude_agent_sdk.types import McpStdioServerConfig
 
     # Resume an existing CLI session only if we have a real id from a prior turn.
     # Passing a fabricated id makes `claude --resume <id>` fail ("No conversation
     # found"); first turn must run with resume=None so the SDK creates the session.
     session_id = _sessions.get(user_id)
-    return ClaudeAgentOptions(
+    kwargs = dict(
         # Claim contract appended ONLY when the gate is on; flag off => prompt
         # byte-identical to before, no [[claim]] tags can ever leak.
         system_prompt=compose_system_prompt(claims=gate_enabled()),
         resume=session_id,
-        # Headless service: auto-approve the coach's own MCP tools (server-level
-        # patterns cover every tool each server exposes). Without this the SDK's
-        # permission gate denies the tool calls and the agent can't reach the
-        # vault / memory. Built-in tools stay un-allowlisted → denied.
-        allowed_tools=["mcp__vault_rag", "mcp__user_memory", "mcp__mem0"],
+        # Headless service: auto-approve the coach's own vault tool (server-level
+        # pattern covers every tool it exposes). Without this the SDK's permission
+        # gate denies the call and the agent can't reach the vault. Built-in tools
+        # stay un-allowlisted → denied.
+        allowed_tools=["mcp__vault_rag"],
         mcp_servers={
             # In-process server: no per-turn subprocess. The tool selects the
-            # doctrine vs raw-vault index by gate state internally (replacing the
-            # old per-turn COACH_INDEX_STORAGE_DIR env swap) and reuses the warm
-            # retriever singleton, so a dig-deeper never reloads the reranker cold.
+            # doctrine vs raw-vault index by gate state internally and reuses the
+            # warm retriever singleton, so a dig-deeper never reloads the reranker
+            # cold.
             "vault_rag": _vault_rag_server,
-            "user_memory": McpStdioServerConfig(
-                command="python", args=["-m", "user_memory.mcp_server"], env=dict(os.environ),
-            ),
-            "mem0": McpStdioServerConfig(
-                command="python", args=["-m", "mem0_mcp.mcp_server"], env=dict(os.environ),
-            ),
         },
+        include_partial_messages=partial,
     )
+    model = _agent_model()
+    if model:
+        kwargs["model"] = model
+    effort = _agent_effort()
+    if effort:
+        kwargs["effort"] = effort
+    return ClaudeAgentOptions(**kwargs)
 
 
 def _sniff_session(msgs: AsyncIterator, captured: dict[str, str]) -> AsyncIterator:
@@ -422,7 +614,7 @@ async def _chat_with_agent(user_id: str, text: str) -> Tuple[str, list[str]]:
 
     options = _build_agent_options(user_id)
     captured: dict[str, str] = {}
-    query, pre_slugs = _compose_turn_prompt(user_id, text)
+    query, pre_slugs = await _compose_turn_prompt(user_id, text)
 
     with perf_step("agent_query"):
         async with ClaudeSDKClient(options=options) as client:
@@ -437,35 +629,39 @@ async def _chat_with_agent(user_id: str, text: str) -> Tuple[str, list[str]]:
     return reply, _merge_sources(pre_slugs, tool_slugs)
 
 
-async def _stream_agent(user_id: str, text: str) -> AsyncIterator[str]:
+async def _stream_agent(user_id: str, text: str) -> AsyncIterator:
     """Streaming counterpart of `_chat_with_agent`: spin up ClaudeSDKClient and
-    yield assistant text chunks as they arrive.
+    yield items as they arrive — bare-`str` answer chunks and
+    ``("thinking", text)`` rationale tuples (see `_walk_stream`).
 
     Source slugs collected from search_vault tool results are appended into the
     `_stream_sources` ContextVar list so the endpoint can write them to the
     inbox once the stream completes.
 
-    Monkeypatched in tests.
+    Monkeypatched in tests (fakes yield bare strings → treated as answer chunks,
+    so they stay valid without knowing about the thinking channel).
     """
     from claude_agent_sdk import ClaudeSDKClient
 
-    options = _build_agent_options(user_id)
+    options = _build_agent_options(user_id, partial=True)
     captured: dict[str, str] = {}
     sources: list[str] = _stream_sources.get()
-    query, pre_slugs = _compose_turn_prompt(user_id, text)
+    query, pre_slugs = await _compose_turn_prompt(user_id, text)
     # Seed the inbox source sink with the deterministic pre-retrieval so the turn
     # is recorded as grounded even if the model adds no search_vault calls; the
     # endpoint dedupes before writing.
     sources.extend(pre_slugs)
+    counter: dict = {}
 
     async with ClaudeSDKClient(options=options) as client:
         await client.query(query)
-        async for chunk in _walk_messages(
-            _sniff_session(client.receive_response(), captured), sources
+        async for item in _walk_stream(
+            _sniff_session(client.receive_response(), captured), sources, counter
         ):
-            yield chunk
+            yield item
     if captured.get("sid"):
         _sessions.set(user_id, captured["sid"])
+    perf_count("agent_roundtrips", counter.get("assistant_messages", 0))
 
 
 async def _gate_and_guard(
@@ -500,23 +696,27 @@ async def _gate_and_guard(
 
 
 @app.post("/turn", response_model=Reply)
-async def turn(t: Turn) -> Reply:
+async def turn(t: Turn, background: BackgroundTasks) -> Reply:
     hit = check_message(t.text)
     if hit is not None:
         return Reply(reply=hit.canned_reply, crisis=True)
 
     is_test = t.channel == "test"
+    thread_id = _sessions.get(t.user_id) or t.user_id
     # Stream 2: match the incoming text against this thread's open validations
     # (questions the coach previously asked / reads it stated). Confirmations and
     # corrections are logged to the corpus and close their items. No-op when the
     # gate flag is off; failures are swallowed inside. Skipped entirely for
     # synthetic test turns — fabricated confirmations/corrections must never
-    # enter the calibration corpus.
+    # enter the calibration corpus. R5: it's bookkeeping, so run it CONCURRENTLY
+    # with generation (a worker thread) instead of serially before it, and join it
+    # only just before the gate (which touches the same validations store).
+    detect_task = None
     if not is_test:
-        detect_validation_signals(
-            t.text,
-            thread_id=_sessions.get(t.user_id) or t.user_id,
-            user_id=t.user_id,
+        detect_task = asyncio.create_task(
+            asyncio.to_thread(
+                detect_validation_signals, t.text, thread_id=thread_id, user_id=t.user_id
+            )
         )
 
     slug_text_token = _turn_slug_text.set({})
@@ -537,13 +737,22 @@ async def turn(t: Turn) -> Reply:
                 # or a genuine hang). Answer honestly NOW, before the bot's read
                 # deadline turns this into a "Still with you" mystery.
                 log.error("turn budget exceeded (%.0fs); failing fast", _stream_budget_s())
+                if detect_task:
+                    detect_task.cancel()
                 return Reply(reply=conn_trouble_reply(t.language_code), crisis=False)
             if is_api_error_reply(reply_text):
                 # The draft IS a CLI API error, not coaching content. It must not
                 # reach the gate/guard (two more doomed LLM calls), the inbox, or
                 # the user (2026-07-04 outage).
                 log.error("agent draft is an API error; failing fast: %s", reply_text[:200])
+                if detect_task:
+                    detect_task.cancel()
                 return Reply(reply=conn_trouble_reply(t.language_code), crisis=False)
+            # Join validation-detect before the gate: both touch the pending
+            # validations store for this thread, so they must not write it
+            # concurrently. Generation dominates, so this await is effectively free.
+            if detect_task:
+                await detect_task
             # Gate before persisting: when ON the gated text IS the reply (demotions
             # change content), so inbox and client must both see it. Footer stays last.
             with perf_step("gate_judge"):
@@ -551,15 +760,16 @@ async def turn(t: Turn) -> Reply:
                     reply_text,
                     sources=_slugs_to_sources(sources),
                     user_id=t.user_id,
-                    thread_id=_sessions.get(t.user_id) or t.user_id,
+                    thread_id=thread_id,
                     language_code=t.language_code,
                     persist=not is_test,  # gate runs; corpus/validation writes don't
                 )
             # Conversation-only memory: persist the user's OWN words (mem0 extracts
-            # durable facts). Gate-on only; swallows failures inside.
+            # durable facts). Gate-on only; swallows failures inside. R3: runs as a
+            # response background task — the reply is sent first, the write happens
+            # after, so it never sits on the user's critical path.
             if gate_enabled():
-                with perf_step("memory_write"):
-                    write_user_memory(t.user_id, t.text)
+                background.add_task(write_user_memory, t.user_id, t.text)
     finally:
         _turn_slug_text.reset(slug_text_token)
         _turn_doctrine_text.reset(doctrine_token)
@@ -582,13 +792,18 @@ async def turn(t: Turn) -> Reply:
 async def turn_stream(t: Turn) -> StreamingResponse:
     """Stream a coaching turn as newline-delimited JSON (NDJSON):
 
-        {"delta": "<text chunk>"}\n   (zero or more)
+        {"thinking": "<text chunk>"}\n   (zero or more — live rationale)
+        {"delta": "<text chunk>"}\n      (zero or more — the answer)
         {"done": true, "crisis": <bool>}\n   (always last)
 
+    The 'story' UX (2026-07-04 review, R7): the model's reasoning streams live as
+    ``thinking`` chunks within a few seconds, so the user watches the coach think
+    instead of staring at silence for the whole turn; the vetted answer then
+    arrives as ``delta`` — buffered and gated in prod, so what the user reads as
+    "the answer" is never an un-gated draft that later gets swapped.
+
     A crisis pre-filter hit short-circuits to a single canned delta + the done
-    line with crisis=true. On the happy path, assistant text streams as it
-    generates and the full concatenated reply + collected sources are written to
-    the inbox once the stream completes.
+    line with crisis=true.
     """
     inbox_root = Path(os.environ.get("COACH_INBOX_ROOT", "/vault/_inbox"))
 
@@ -600,13 +815,15 @@ async def turn_stream(t: Turn) -> StreamingResponse:
             return
 
         is_test = t.channel == "test"
+        thread_id = _sessions.get(t.user_id) or t.user_id
         # Stream 2: incoming text vs this thread's open validations (see /turn).
-        # Skipped for synthetic test turns — no calibration-corpus writes.
+        # R5: bookkeeping → run concurrently with generation, join before the gate.
+        detect_task = None
         if not is_test:
-            detect_validation_signals(
-                t.text,
-                thread_id=_sessions.get(t.user_id) or t.user_id,
-                user_id=t.user_id,
+            detect_task = asyncio.create_task(
+                asyncio.to_thread(
+                    detect_validation_signals, t.text, thread_id=thread_id, user_id=t.user_id
+                )
             )
 
         # Fresh per-stream source sink isolated to this task's context.
@@ -617,20 +834,31 @@ async def turn_stream(t: Turn) -> StreamingResponse:
         memory_token = _turn_memory_text.set("")
         chunks: list[str] = []
         failure: str | None = None
-        # When the gate OR the topic guard is ON we cannot un-send streamed
+        rationale_on = _rationale_enabled()
+        san = _RationaleSanitizer()
+        # When the gate OR the topic guard is ON we cannot un-send streamed answer
         # tokens (either may rewrite/replace the reply), so we buffer the whole
-        # draft, post-process it, then emit it as a single delta (draft ->
-        # gate+guard -> send). When both OFF, behaviour is identical: live
-        # token streaming.
+        # draft, post-process it, then emit it as a single answer delta (draft ->
+        # gate+guard -> send). The rationale (thinking) channel streams live in
+        # BOTH modes — it is the model's reasoning, never the vetted reply, so it is
+        # never gated and never buffered. When both gate+guard OFF, the answer also
+        # streams live token by token (legacy behaviour).
         buffered = gate_enabled() or guard_enabled()
         try:
             try:
-                # In buffered mode (prod) this loop does not yield to the HTTP
-                # consumer, so the timer reflects generation time only; in legacy
+                # In buffered mode (prod) the ANSWER isn't yielded until after the
+                # gate, so this timer reflects generation time only; in legacy
                 # un-buffered mode it also spans consumer back-pressure (acceptable).
                 with perf_step("agent_stream", gate=buffered):
                     async with asyncio.timeout(_stream_budget_s()):
-                        async for delta in _stream_agent(t.user_id, t.text):
+                        async for item in _stream_agent(t.user_id, t.text):
+                            if isinstance(item, tuple) and item and item[0] == "thinking":
+                                if rationale_on:
+                                    safe = san.feed(item[1])
+                                    if safe:
+                                        yield json.dumps({"thinking": safe}) + "\n"
+                                continue
+                            delta = item  # bare str => answer text
                             if is_api_error_reply(delta):
                                 # The CLI emitted its API-error text as the reply
                                 # (unreachable API). Never show or gate it.
@@ -653,11 +881,25 @@ async def turn_stream(t: Turn) -> StreamingResponse:
 
             if failure is not None:
                 log.error("stream turn failed fast (%s) for user %s", failure, t.user_id)
+                if detect_task:
+                    detect_task.cancel()
                 # No gate/guard (doomed LLM calls on error text), no memory write,
                 # no inbox entry — an error turn is not a coaching turn.
                 yield json.dumps({"delta": conn_trouble_reply(t.language_code)}) + "\n"
                 yield json.dumps({"done": True, "crisis": False, "error": failure}) + "\n"
                 return
+
+            # Rationale done → flush any held-back tail before the answer arrives.
+            if rationale_on:
+                tail = san.flush()
+                if tail:
+                    yield json.dumps({"thinking": tail}) + "\n"
+
+            # Join validation-detect before touching the pending-validations store
+            # in the gate (they must not write it concurrently). Always awaited —
+            # even gate-off, where it's a fast no-op — so no task is left dangling.
+            if detect_task:
+                await detect_task
 
             merged = _merge_sources(sources)
             final_text = "".join(chunks)
@@ -667,16 +909,16 @@ async def turn_stream(t: Turn) -> StreamingResponse:
                         final_text,
                         sources=_slugs_to_sources(merged),
                         user_id=t.user_id,
-                        thread_id=_sessions.get(t.user_id) or t.user_id,
+                        thread_id=thread_id,
                         language_code=t.language_code,
                         persist=not is_test,  # gate runs; corpus writes don't
                     )
                 yield json.dumps({"delta": final_text}) + "\n"
-                # Conversation-only memory: persist the user's OWN words.
-                # Tied to the grounding gate (Stream 3), not the topic guard.
-                if gate_enabled():
-                    with perf_step("memory_write"):
-                        write_user_memory(t.user_id, t.text)
+            # Conversation-only memory: persist the user's OWN words. R3: detached
+            # off the reply path so the `done` line (and the bot's finalize) never
+            # waits on the ~6s mem0 extraction. Gate-on only; swallows failures.
+            if gate_enabled() and not is_test:
+                _detach(asyncio.to_thread(write_user_memory, t.user_id, t.text), "memory_write")
         finally:
             _turn_slug_text.reset(slug_text_token)
             _turn_doctrine_text.reset(doctrine_token)

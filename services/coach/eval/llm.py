@@ -24,6 +24,21 @@ def _timeout_s() -> float:
     return float(os.environ.get("COACH_LLM_TIMEOUT_S", _DEFAULT_TIMEOUT_S))
 
 
+_EFFORTS = {"low", "medium", "high", "xhigh", "max"}
+
+
+def _effort() -> str | None:
+    """Reasoning effort for the gate/guard/judge subprocess calls.
+
+    OFF by default (no ``--effort`` passed → CLI default) so this never silently
+    shifts the grounding-judge calibration. The 2026-07-04 review (R6) recommends
+    ``COACH_LLM_EFFORT=low`` to shave ~2–4s off these bounded entailment/
+    classification calls once a calibration re-check confirms it holds; flip the
+    env to enable it, revert instantly if scores drift."""
+    v = os.environ.get("COACH_LLM_EFFORT", "").strip().lower()
+    return v if v in _EFFORTS else None
+
+
 class LLMError(RuntimeError):
     """Raised when the claude CLI call fails or returns an API error."""
 
@@ -36,6 +51,9 @@ def call_llm(*, system: str, user: str, model: str = DEFAULT_MODEL) -> str:
     """
     prompt = f"{system}\n\n---\n\n{user}" if system else user
     cmd = ["claude", "-p", prompt, "--output-format", "json", "--model", model]
+    effort = _effort()
+    if effort:
+        cmd += ["--effort", effort]
     try:
         # The single most diagnostic number for turn latency: each call is a full
         # `claude -p` CLI cold-start. Timing it tells us per-call cost AND how many
