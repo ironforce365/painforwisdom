@@ -19,8 +19,8 @@ the live deployment (`painforwisdom-live`, gate+guard ON).
   Sonnet 5 vs pinning Opus 4.8 for the first time. See §5 for the A/B.
 - With gate ON the turn is **buffered**: the user sees *nothing* until the
   whole ~80s finishes. Perceived latency is worse than actual latency.
-- The fix stack below gets a warm turn to **~20–27s** without touching model
-  quality (R1–R6), and first-turn-after-restart stops being special (R4).
+- The fix stack below gets a warm turn to **~20–27s** without a model
+  downgrade (R1–R6; R1's model change costs 0.2 grounding, see §5), and first-turn-after-restart stops being special (R4).
 
 ## 1. Measured breakdown
 
@@ -120,7 +120,7 @@ the Max subscription only rides the CLI/agent SDK.
 generation 12–18s (1–2 round-trips, pinned model+effort) + judge 3–5s +
 retrieval/memory-read ~2s (parallel) + write/validation off-path
 → **~20–27s**, inside target — *without* any model downgrade. Pinning Opus 4.8
-adds roughly 30–60% to the generation step (see A/B); with R2 in place even
+adds roughly 40–70% to the generation step vs sonnet-5@medium (see A/B); with R2 in place even
 that lands near ~30s.
 
 ## 4. Model & effort decision (the "keep Opus" question)
@@ -160,22 +160,25 @@ score).
 
 **Reading:**
 
-- **`sonnet-5 @ effort=medium` dominates the prod baseline**: better or equal
-  on *every* rubric dimension (voice 4.6 vs 3.6, frontal 4.3 vs 3.6, brevity
-  3.5 vs 3.0) while cutting generation API time roughly in half (16.7s vs
-  31.5s). This is the evidence the "no quality regression" requirement asked
-  for — strengthened by the fact that the comparison is against what prod
+- **`sonnet-5 @ effort=medium` beats the prod baseline on total** (26.9 vs
+  24.1) while cutting generation API time roughly in half (16.7s vs 31.5s).
+  Higher on voice (4.6 vs 3.6), frontal (4.3 vs 3.6), no-citing (5.0 vs 4.2),
+  brevity (3.5 vs 3.0); equal on probing (4.9). **Lower on grounding: 4.6 vs
+  4.8** (per item, s46-def 5,4,5,5,5,5,4,5,5,5 vs s5-med 5,3,4,5,4,5,5,5,5,5).
+  So it is *not* free of regression: grounding is the one dimension to watch,
+  and the grounding gate stays on in prod. The comparison is against what prod
   *actually* runs (Sonnet 4.6), not Opus.
 - **Opus 4.8 shows no quality edge on this rubric** (23.6–24.7 vs 26.9–27.0)
-  and is 40–70% slower than sonnet-5@medium. Its long-form replies tank the
-  brevity dimension (2.1–2.2) — for a Telegram accountability coach, Opus's
+  and is 40–70% slower than sonnet-5@medium. Its long-form replies (mean ~130
+  words vs 82–88 for the Sonnets) tank the brevity dimension (2.1–2.2), and its
+  grounding is lowest of all (4.2) — for a Telegram accountability coach, Opus's
   strengths (long-horizon agentic work, deep reasoning) aren't what the rubric
   — or the pilot users — reward.
 - Sonnet 5 at *default* effort gains ~nothing over medium (27.0 vs 26.9) at
-  2.4× the latency: **medium is the right effort for this workload.**
+  2.4× the API time (2.2× wall): **medium is the right effort for this workload.**
 
 **Caveats:** n=10, one generation per item, single LLM judge (Sonnet 4.6 —
-note it did *not* favor its own family), no vault retrieval/tools in the
+note it ranked its own model 4th of 5 on total), no vault retrieval/tools in the
 harness (identical handicap for all configs), judge variance ±0.5/dim
 plausible. Before flipping the prod default, confirm with the synthetic-user
 harness (`tests` synthetic driver) on multi-turn conversations — single-turn
