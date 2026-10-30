@@ -64,3 +64,17 @@ def perf_step(step: str, **fields):
             _LOG.info("perf step=%s ms=%d%s", step, ms, extra)
         except Exception:  # logging must never break the wrapped operation
             pass
+
+
+def perf_count(step: str, n: int, **fields) -> None:
+    """Emit ``perf step=<step> n=<n> [k=v ...]`` for a non-timing metric.
+
+    Used for the per-turn agent round-trip count (2026-07-04 review): a spike in
+    ``agent_roundtrips`` is the single grep that surfaces the model re-searching
+    pre-injected context or re-fetching deferred tool schemas.
+    """
+    extra = "".join(f" {k}={v}" for k, v in fields.items())
+    try:
+        _LOG.info("perf step=%s n=%s%s", step, n, extra)
+    except Exception:
+        pass

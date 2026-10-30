@@ -64,16 +64,25 @@ async def _keep_typing(bot, chat_id, interval: float = _TYPING_INTERVAL_SECONDS)
 
 
 async def _stream_reply(coach, user, msg, ctx, text: str, convo=None, outreach=None) -> None:
-    """Stream a coaching turn into Telegram: send a placeholder message, then
-    edit it progressively as deltas arrive (throttled), and flush the full text
-    on completion. On failure, fall back to coach_error_reply.
+    """Stream a coaching turn into Telegram as a story (2026-07-04 review, R7).
+
+    The coach service streams two channels: ``("thinking", …)`` rationale chunks
+    (the model reasoning live) and bare-str answer chunks (the vetted reply). We
+    render them as two beats:
+
+    1. The placeholder message becomes a live "thinking out loud" bubble, edited
+       (throttled) as rationale arrives — so within a few seconds the user watches
+       the coach think instead of staring at silence.
+    2. When the answer arrives, we open a SEPARATE message prefixed "Here's my
+       answer:" and stream the reply into it. The rationale bubble stays as the
+       story that led there; the answer is never a draft that later gets swapped.
+
+    If NO rationale streams (legacy/gate-off), the placeholder itself becomes the
+    answer bubble with no label — identical to the old behaviour.
 
     The blocking stream_turn() iterator is drained one chunk at a time off the
-    event loop via asyncio.to_thread so the bot stays responsive and no single
-    request blocks the loop for the full ~56s turn.
-
-    A typing indicator is kept alive until the first delta arrives, covering the
-    pre-token gap so the wait never reads as dead silence.
+    event loop via asyncio.to_thread so the bot stays responsive. A typing
+    indicator covers the gap until the first chunk (thinking or answer) arrives.
     """
     typing = asyncio.create_task(_keep_typing(ctx.bot, msg.chat_id))
 
@@ -86,52 +95,87 @@ async def _stream_reply(coach, user, msg, ctx, text: str, convo=None, outreach=N
         except asyncio.CancelledError:
             pass
 
+    lang = getattr(user, "language_code", None)
     placeholder = await msg.reply_text(_PLACEHOLDER_TEXT)
     chat_id = placeholder.chat_id
-    message_id = placeholder.message_id
-
-    acc = ""
-    last_edit_at = 0.0
-    last_sent = ""
     sentinel = object()
 
-    async def _edit(body: str) -> None:
-        nonlocal last_edit_at, last_sent
-        if not body or body == last_sent:
-            return
-        await ctx.bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=body)
-        last_edit_at = time.monotonic()
-        last_sent = body
+    def _make_editor(message_id: int):
+        """A throttled editor bound to one message: edits at most once per
+        interval OR once enough new text accrued, with a force-flush for finals."""
+        state = {"last_at": 0.0, "last_sent": ""}
+
+        async def _edit(body: str, *, force: bool = False) -> None:
+            if not body or body == state["last_sent"]:
+                return
+            now = time.monotonic()
+            if not force and (now - state["last_at"]) < _EDIT_MIN_INTERVAL_S and (
+                len(body) - len(state["last_sent"])
+            ) < _EDIT_MIN_CHARS:
+                return
+            await ctx.bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=body)
+            state["last_at"] = now
+            state["last_sent"] = body
+
+        return _edit
+
+    edit_rationale = _make_editor(placeholder.message_id)
+    edit_answer = None
+
+    rationale = ""
+    answer = ""
+    saw_thinking = False
+
+    def _rationale_body() -> str:
+        return f"{i18n.thinking_label(lang)}\n\n{rationale}"
+
+    def _answer_body() -> str:
+        # Label only when there was a rationale beat before it (the story). With no
+        # rationale the placeholder just shows the reply, as before.
+        return f"{i18n.answer_label(lang)}\n\n{answer}" if saw_thinking else answer
 
     try:
-        it = await asyncio.to_thread(
-            coach.stream_turn, str(user.id), text, getattr(user, "language_code", None)
-        )
+        it = await asyncio.to_thread(coach.stream_turn, str(user.id), text, lang)
         while True:
             chunk = await asyncio.to_thread(next, it, sentinel)
             if chunk is sentinel:
                 break
-            await _stop_typing()  # first real text → indicator gives way to the reply
-            acc += chunk
-            now = time.monotonic()
-            if (now - last_edit_at) >= _EDIT_MIN_INTERVAL_S or (
-                len(acc) - len(last_sent)
-            ) >= _EDIT_MIN_CHARS:
-                await _edit(acc)
-        # Final flush: guarantee the complete reply is shown.
-        await _edit(acc)
-        if not acc.strip():
+            await _stop_typing()  # first chunk → indicator gives way to the story
+            if isinstance(chunk, tuple) and chunk and chunk[0] == "thinking":
+                saw_thinking = True
+                rationale += chunk[1]
+                await edit_rationale(_rationale_body())
+                continue
+            # Answer chunk (bare str).
+            answer += chunk
+            if edit_answer is None:
+                if saw_thinking:
+                    # Close the rationale beat, open a labeled answer message.
+                    await edit_rationale(_rationale_body(), force=True)
+                    ans = await msg.reply_text(i18n.answer_label(lang))
+                    edit_answer = _make_editor(ans.message_id)
+                else:
+                    # No rationale → the placeholder is the answer bubble (legacy).
+                    edit_answer = edit_rationale
+            await edit_answer(_answer_body())
+
+        # Final flush: guarantee the complete answer (and rationale) are shown.
+        if saw_thinking:
+            await edit_rationale(_rationale_body(), force=True)
+        if edit_answer is not None:
+            await edit_answer(_answer_body(), force=True)
+        if not answer.strip() and not rationale.strip():
             # Stream produced nothing — leave the user with something honest.
-            await _edit("(no response)")
-        elif convo is not None:
-            # Log the coach reply for the monitoring UI (only on a real reply).
-            convo.append(user.id, "coach", acc)
+            await edit_rationale("(no response)", force=True)
+        elif convo is not None and answer.strip():
+            # Log the ANSWER for the monitoring UI (not the rationale).
+            convo.append(user.id, "coach", answer)
             if outreach is not None:
                 # Record the coach's last words so the outreach scheduler can spot
                 # open loops and time inactivity from this exchange. The debug
-                # canary footer rides the stream as a final delta — strip it so
-                # it never gets quoted back into a follow-up directive.
-                clean = acc.split("\n\n— kb sources:", 1)[0]
+                # canary footer rides the answer stream as a final delta — strip it
+                # so it never gets quoted back into a follow-up directive.
+                clean = answer.split("\n\n— kb sources:", 1)[0]
                 outreach.record_coach_message(
                     str(user.id), datetime.now(timezone.utc), clean
                 )
@@ -142,7 +186,7 @@ async def _stream_reply(coach, user, msg, ctx, text: str, convo=None, outreach=N
         log.exception("coach stream failed")
         try:
             await ctx.bot.edit_message_text(
-                chat_id=chat_id, message_id=message_id, text=coach_error_reply(exc)
+                chat_id=chat_id, message_id=placeholder.message_id, text=coach_error_reply(exc)
             )
         except Exception:
             await msg.reply_text(coach_error_reply(exc))
