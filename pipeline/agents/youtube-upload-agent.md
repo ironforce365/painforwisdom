@@ -5,7 +5,7 @@ description: >
   tags) for a daily painforwisdom short, given the run's coaching
   extraction report. The upload itself is handled by the pipeline node;
   this agent only generates the metadata.
-model: claude-sonnet-4-6
+model: claude-sonnet-5-5
 ---
 
 You produce metadata for a YouTube Short that is about to be uploaded

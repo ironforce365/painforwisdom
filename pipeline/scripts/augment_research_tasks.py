@@ -2,7 +2,7 @@
 
 For each row not classified as reachable in the Phase 0 audit:
   1. If Type == Book: try Z-Library bridge first (Phase 2c).
-  2. Otherwise (or on Z-Library failure): Sonnet 4.6 + web_search for a
+  2. Otherwise (or on Z-Library failure): Sonnet + web_search for a
      freely-readable analog covering the same research angle.
   3. Verify the result with `httpx.get` + `trafilatura.extract` and the
      `banned_sources` defense-in-depth list.
@@ -48,6 +48,7 @@ from pipeline.banned_sources import is_banned  # noqa: E402
 from pipeline.llm import call_llm  # noqa: E402
 from pipeline.local_books import canonical_book_title, find_local_book  # noqa: E402
 from pipeline.notion_client import get_client  # noqa: E402
+from pipeline.runtime import DEFAULT_MODEL  # noqa: E402
 from pipeline.runtime import append_metric, canonical_project_root  # noqa: E402
 from pipeline.telegram import send as telegram_send  # noqa: E402
 from pipeline.zlibrary_bridge import (  # noqa: E402
@@ -294,7 +295,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--model",
-        default="claude-sonnet-4-6",
+        default=DEFAULT_MODEL,
         help="LLM model id.",
     )
     parser.add_argument(

@@ -82,8 +82,10 @@ D3. The `.claude/settings.json` hook `$comment` fields are large, but they are n
 ## E. Runtime (not the Claude Code harness, out of scope, noted)
 
 E1. `pipeline/runtime.py` `CACHE_PADDING_APPENDIX` pads agent prompts on purpose to clear the Sonnet cache floor. Revisit if the model changes.
+  - Resolution (wo-e5a5cae7): done. Appendix text kept (it stops stages calling tools), renamed `EXECUTION_CONTEXT_APPENDIX`; `CACHE_TOKEN_FLOOR` and the Sonnet-4.6 padding comments/docstring lines removed from `pipeline/runtime.py` and `pipeline/cost_forecast.py`. Cache floor not re-measured (prompt sizes unchanged). Guard: `tests/test_agent_prompts.py::test_stage_prompt_keeps_execution_context`.
 
 E2. `pipeline/cost_forecast.py`, `normalize_themes.py` and `poc_brief*.py` pin `claude-sonnet-4-6`. Coach latency and model work is already tracked separately.
+  - Resolution (wo-e5a5cae7): done for `pipeline/` only. New `DEFAULT_MODEL = "claude-sonnet-5-5"` and `DEEP_MODEL = "claude-opus-5-5"` in `pipeline/runtime.py`; nodes (extract, writer, research, youtube_upload, kb_curator) and scripts (poc_brief, poc_brief_v2, normalize_themes, build_theme_stats, augment_research_tasks) read them, `PIPELINE_MODEL` override kept. `pipeline/agents/*.md` frontmatter repinned. `pipeline/cost_forecast.py` PRICES now 5th-gen only (source URL in comment), kb-curator stage forecast on `DEEP_MODEL` like its node, message count covers every stage. Stale `pipeline/forecast.md` deleted (nothing reads it; regenerate with `python -m pipeline.cost_forecast --transcript <file>`). Live checks passed on subscription: litellm path both models, `claude -p` path Sonnet. `services/coach/**` untouched (calibrated on Sonnet 4.6, backlog bl-89f83eb6).
 
 ## Suggested order
 
