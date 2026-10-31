@@ -98,14 +98,19 @@ class CoachClient:
 
     def stream_turn(
         self, user_id: str, text: str, language_code: str | None = None
-    ) -> Iterator[str]:
-        """Stream a coaching turn from /turn/stream, yielding each assistant text
-        delta as it arrives. Parses the NDJSON protocol — one JSON object per
-        line, zero or more `{"delta": ...}` followed by a terminal
-        `{"done": true, "crisis": ...}` — and stops at the done line.
+    ) -> Iterator:
+        """Stream a coaching turn from /turn/stream. Parses the NDJSON protocol —
+        one JSON object per line — and yields, in order, until the terminal
+        `{"done": true, ...}` line:
 
-        No single 56s request is held open from the bot's side beyond the read
-        deadline because deltas flush incrementally; iteration ends at `done`.
+        - `("thinking", <text>)` for a live rationale chunk (`{"thinking": ...}`)
+        - a bare `<str>` for an answer chunk (`{"delta": ...}`)
+
+        Bare-str answers keep the pre-existing contract (and every test stub that
+        yields plain strings) valid; the thinking tuples are additive.
+
+        No single ~56s request is held open beyond the read deadline because chunks
+        flush incrementally; iteration ends at `done`.
 
         Instrumented for p95 monitoring the same way as turn(): the clock spans
         the whole stream, recording "ok" once the stream completes, "timeout" on
@@ -125,7 +130,9 @@ class CoachClient:
                     obj = json.loads(line)
                     if obj.get("done"):
                         break
-                    if "delta" in obj:
+                    if "thinking" in obj:
+                        yield ("thinking", obj["thinking"])
+                    elif "delta" in obj:
                         yield obj["delta"]
         except (httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout):
             metrics.record(time.monotonic() - start, "timeout")

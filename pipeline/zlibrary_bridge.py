@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Union
 
-from pipeline.runtime import canonical_project_root
+from pipeline.runtime import STATE_ROOT
 from pipeline.local_books import canonical_book_title
 
 
@@ -51,7 +51,7 @@ ZLIBRARY_BRIDGE_SCRIPT: Path | None = (ZLIBRARY_LIB_DIR / "python_bridge.py") if
 # path is persisted to Notion's Alt Source URL, so writing it under an ephemeral
 # `.claude/worktrees/<name>/` would die with that worktree (2026-06-02
 # self-compassion `local-file missing` incident).
-PAINFORWISDOM_ROOT = canonical_project_root()
+PAINFORWISDOM_ROOT = STATE_ROOT
 BOOKS_EXTRACTED_DIR = Path(
     os.environ.get(
         "PAINFORWISDOM_BOOKS_EXTRACTED",
@@ -76,7 +76,7 @@ IMAGE_ONLY_PDF_CHAR_RATIO = 200
 # writes the cache after its one real login; we read it (TTL-gated) and
 # self-heal on a stale key. Verified live: a client built from a cached userkey
 # serves searches with zero extra logins.
-_SESSION_FILE = canonical_project_root() / "briefs" / ".cache" / "zlib-session.json"
+_SESSION_FILE = STATE_ROOT / "briefs" / ".cache" / "zlib-session.json"
 _SESSION_TTL_S = int(os.environ.get("ZLIBRARY_SESSION_TTL_S", str(3 * 24 * 3600)))
 _AUTH_ERROR_PATTERNS = (
     "user/login",
@@ -467,7 +467,7 @@ def fetch(title: str, author: str) -> Union[BookText, BookFailure]:
         return BookFailure("not-found", "First result has no id")
 
     # 2. Download — bridge needs full book_details dict + output_dir.
-    output_dir = Path(os.environ.get("ZLIBRARY_DOWNLOAD_DIR", "books/raw")).resolve()
+    output_dir = Path(os.environ.get("ZLIBRARY_DOWNLOAD_DIR", str(STATE_ROOT / "books" / "raw"))).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     rc, stdout, stderr = _bridge_call_download(
         {

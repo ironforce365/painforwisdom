@@ -33,14 +33,15 @@ except ImportError:  # pragma: no cover
 # (no inherited shell env). Mirrors augment_research_tasks.py.
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+from pipeline.runtime import STATE_ROOT
+
+load_dotenv(STATE_ROOT / ".env")
 
 from pipeline.notion_client import (
     RESEARCH_DATA_SOURCE_ID,
     extract_property,
     query_research_tasks,
 )
-from pipeline.runtime import PROJECT_ROOT
 
 
 # Reachability classes — order matters: first match wins in the classifier.
@@ -389,7 +390,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
     parser.add_argument(
         "--out-dir",
-        default=str(PROJECT_ROOT / "reports"),
+        default=str(STATE_ROOT / "reports"),
         help="Where to write the audit artifacts.",
     )
     parser.add_argument(

@@ -1,0 +1,29 @@
+# Install: pipeline/scripts/install-pipeline-units.sh
+# Code from the tag-pinned live checkout; state (.env, briefs/, books/, reports/, vault) from the dev folder.
+[Unit]
+Description=Painforwisdom daily research-task brief (Phase 4 + 6c)
+After=network-online.target
+Wants=network-online.target
+# Up to 3 starts in 2h on transient network/Notion/LLM failure. Combined with
+# RestartSec=300 below: an immediate crash retries at +5min and +10min, then
+# stops — well within the 90-min TimeoutStartSec window. Burst counter resets
+# after 2h so next day's scheduled run starts with a fresh budget.
+# (StartLimitBurst / StartLimitIntervalSec must live in [Unit] on systemd
+# 230+; placing them in [Service] is silently ignored as of systemd 255.)
+StartLimitBurst=3
+StartLimitIntervalSec=2h
+
+[Service]
+Type=oneshot
+Environment=PAINFORWISDOM_STATE_ROOT=%h/workspace/painforwisdom/painforwisdom
+WorkingDirectory=%h/workspace/painforwisdom-live
+ExecStart=/home/gonzalo/miniconda3/envs/painforwisdom-poc/bin/python -m pipeline.summarize_daily --apply --mcp-publish --max-cost-usd 1.0 --count 3
+StandardOutput=journal
+StandardError=journal
+# 3 briefs * up to ~25 min each (LLM synthesis + 15-min audio poll) = ~75 min worst case.
+TimeoutStartSec=90min
+Restart=on-failure
+RestartSec=300
+
+[Install]
+WantedBy=default.target

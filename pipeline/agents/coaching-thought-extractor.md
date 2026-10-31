@@ -5,7 +5,7 @@ description: >
   and wants to extract a coaching thought from it. The agent analyzes the raw
   transcript, filters genuine insight from pattern manifestation, and writes to a file
   a coaching thought that could be used to generated more content.
-model: claude-opus-4-6
+model: claude-opus-5-5
 tools: Bash, Write, Read
 ---
 

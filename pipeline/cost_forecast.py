@@ -10,8 +10,7 @@ Usage:
     python -m pipeline.cost_forecast --video path/to/video.mp4   # transcribes first
 
 The forecast is heuristic — real runs vary. Output tokens are estimated from
-PoC observations + agent prompt structure. Cache write/read is modelled on
-the empirical Sonnet 4.6 ~2,048-token threshold.
+PoC observations + agent prompt structure.
 """
 from __future__ import annotations
 
@@ -24,7 +23,7 @@ from typing import Dict, List, Optional
 
 import litellm
 
-from pipeline.runtime import AGENTS_DIR
+from pipeline.runtime import AGENTS_DIR, DEEP_MODEL, DEFAULT_MODEL
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -35,19 +34,19 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 PRO_MAX5_SONNET_MSGS_PER_5H = 200       # Max 5x typical
 SONNET_ITPM_PER_MINUTE = 50_000          # documented per-org default-tier ITPM (approx)
 
-# Pricing (USD per 1M tokens) — published for Sonnet 4.6 and Haiku 4.5.
+# Pricing (USD per 1M tokens), 5m cache writes: https://platform.claude.com/docs/en/about-claude/pricing (2026-10-30)
 PRICES = {
-    "claude-sonnet-4-6": {
-        "input": 3.0,
-        "output": 15.0,
-        "cache_write": 3.75,
-        "cache_read": 0.30,
-    },
-    "claude-haiku-4-5": {
-        "input": 1.0,
-        "output": 5.0,
-        "cache_write": 1.25,
+    DEFAULT_MODEL: {
+        "input": 2.0,
+        "output": 10.0,
+        "cache_write": 2.50,
         "cache_read": 0.10,
+    },
+    DEEP_MODEL: {
+        "input": 4.0,
+        "output": 20.0,
+        "cache_write": 5.0,
+        "cache_read": 0.20,
     },
 }
 
@@ -60,7 +59,7 @@ class StageForecast:
     extra_user_tokens: int       # transcript / extraction / blog content fed in user msg
     output_tokens_est: int        # heuristic
     web_search: bool = False
-    cache_engages: bool = True   # padded to >2048 tokens
+    cache_engages: bool = True
 
     def system_token_count(self) -> int:
         if not self.prompt_path or not self.prompt_path.is_file():
@@ -109,35 +108,35 @@ def _transcribe(video_path: Path) -> Path:
 
 
 def _stage_specs(transcript_text: str, extraction_report_est: str, blog_post_est: str) -> List[StageForecast]:
-    transcript_tokens = litellm.token_counter(model="claude-sonnet-4-6", text=transcript_text)
-    extraction_tokens = litellm.token_counter(model="claude-sonnet-4-6", text=extraction_report_est)
+    transcript_tokens = litellm.token_counter(model=DEFAULT_MODEL, text=transcript_text)
+    extraction_tokens = litellm.token_counter(model=DEFAULT_MODEL, text=extraction_report_est)
     _ = blog_post_est  # blog_post heuristic reserved for future per-stage chaining
 
     return [
         StageForecast(
             name="extract",
-            model="claude-sonnet-4-6",
+            model=DEFAULT_MODEL,
             prompt_path=AGENTS_DIR / "coaching-thought-extractor.md",
             extra_user_tokens=transcript_tokens,
             output_tokens_est=600,
         ),
         StageForecast(
             name="kb-curator",
-            model="claude-sonnet-4-6",
+            model=DEEP_MODEL,
             prompt_path=AGENTS_DIR / "kb-curator.md",
             extra_user_tokens=extraction_tokens + 400,  # + vault context skim
             output_tokens_est=400,
         ),
         StageForecast(
             name="writer",
-            model="claude-sonnet-4-6",
+            model=DEFAULT_MODEL,
             prompt_path=AGENTS_DIR / "painforwisdom-writer.md",
             extra_user_tokens=extraction_tokens + transcript_tokens,
             output_tokens_est=1500,
         ),
         StageForecast(
             name="research",
-            model="claude-sonnet-4-6",
+            model=DEFAULT_MODEL,
             prompt_path=AGENTS_DIR / "research-curator.md",
             extra_user_tokens=extraction_tokens + 200,
             output_tokens_est=1200,
@@ -169,7 +168,7 @@ def forecast(transcript_text: str) -> Dict:
         fresh = s.fresh_input_tokens()
         out = s.output_tokens_est
 
-        price = PRICES.get(s.model, PRICES["claude-sonnet-4-6"])
+        price = PRICES.get(s.model, PRICES[DEFAULT_MODEL])
         cost = (
             cache_writes * price["cache_write"]
             + cache_reads * price["cache_read"]
@@ -199,7 +198,7 @@ def forecast(transcript_text: str) -> Dict:
         total_cost_api += cost
 
     total_input_tokens = total_input_fresh + total_input_cached_read + total_input_cache_write
-    sonnet_msg_count = sum(1 for s in stages if s.model == "claude-sonnet-4-6")
+    sonnet_msg_count = len(stages)
     quota_share_pct = (sonnet_msg_count / PRO_MAX5_SONNET_MSGS_PER_5H) * 100
 
     # ITPM check — if we burst all stages back-to-back, do we exceed per-min input cap?

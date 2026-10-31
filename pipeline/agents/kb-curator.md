@@ -5,7 +5,7 @@ description: >
   quality. It maintains Gonzalo's Obsidian knowledge base vault by creating a dated
   entry file, updating or creating theme documents, updating the master timeline,
   and evolving the book outline as patterns emerge across entries over time.
-model: claude-opus-4-6
+model: claude-opus-5-5
 tools: Bash, Write, Read, Edit
 ---
 

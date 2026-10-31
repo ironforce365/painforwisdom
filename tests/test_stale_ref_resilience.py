@@ -55,6 +55,16 @@ class CanonicalProjectRootTests(unittest.TestCase):
         self.assertEqual(canonical_project_root(p), p)
 
 
+class StateRootTests(unittest.TestCase):
+    def test_env_override_wins(self):
+        with patch.dict("os.environ", {"PAINFORWISDOM_STATE_ROOT": "/srv/pfw-state"}):
+            self.assertEqual(runtime.state_root(), Path("/srv/pfw-state"))
+
+    def test_default_is_canonical_root(self):
+        with patch.dict("os.environ", {"PAINFORWISDOM_STATE_ROOT": ""}):
+            self.assertEqual(runtime.state_root(), canonical_project_root())
+
+
 class FetchLocalReanchorTests(unittest.TestCase):
     """A dead absolute worktree path whose basename still exists under the
     canonical `books/extracted/` must heal instead of raising."""
@@ -66,7 +76,7 @@ class FetchLocalReanchorTests(unittest.TestCase):
         (self.root / "books" / "extracted").mkdir(parents=True)
         self.live = self.root / "books" / "extracted" / "self-compassion.txt"
         self.live.write_text("EXTRACTED self-compassion text " * 50)
-        p = patch.object(fetcher, "canonical_project_root", lambda: self.root)
+        p = patch.object(fetcher, "STATE_ROOT", self.root)
         p.start()
         self.addCleanup(p.stop)
 

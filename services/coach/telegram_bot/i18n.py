@@ -41,6 +41,31 @@ def welcome_text(language_code: str | None) -> str:
     return f"{_WELCOME['en']}\n\n{_WELCOME['es']}"
 
 
+def thinking_label(language_code: str | None) -> str:
+    """Header for the live 'rationale' bubble (the coach thinking out loud).
+
+    The rationale text itself is the model's own reasoning and may be in English;
+    this localized header frames it as behind-the-scenes thinking so it never
+    reads as the answer."""
+    lang = _normalize(language_code)
+    if lang == "es":
+        return "💭 Pensando en voz alta…"
+    if lang == "pt":
+        return "💭 Pensando em voz alta…"
+    return "💭 Thinking out loud…"
+
+
+def answer_label(language_code: str | None) -> str:
+    """Prefix for the final answer message, so the story lands on a clear
+    'here is my answer' beat after the rationale."""
+    lang = _normalize(language_code)
+    if lang == "es":
+        return "Esta es mi respuesta:"
+    if lang == "pt":
+        return "Esta é a minha resposta:"
+    return "Here's my answer:"
+
+
 def quota_reached_text(language_code: str | None, limit: int) -> str:
     """Localized 'daily limit reached' notice. Resets at midnight."""
     lang = _normalize(language_code)

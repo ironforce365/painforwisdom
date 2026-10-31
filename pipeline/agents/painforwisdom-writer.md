@@ -5,7 +5,7 @@ description: >
   Writes new posts that authentically mimic Gonzalo's voice, tone, and structure.
   Use this agent whenever the user asks to write, draft, or create a blog post
   for the "painforwisdom" or "A Hero's Journey" blog.
-model: claude-opus-4-6
+model: claude-opus-5-5
 tools: Bash, Write, Read
 ---
 

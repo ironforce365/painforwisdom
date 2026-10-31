@@ -1,7 +1,7 @@
 """Stage 4b — research-curator with Anthropic native web_search tool.
 
 Loads the research-curator agent prompt, supplies the extraction report +
-existing research index, and asks Sonnet 4.6 (with web_search_20250305 tool
+existing research index, and asks Sonnet (with web_search_20250305 tool
 attached) for verified references. Output is a CSV row block; we parse it,
 write it to disk, optionally HEAD-check the URLs, and store the row count.
 
@@ -32,6 +32,7 @@ from pipeline.contracts import assert_inputs
 from pipeline.llm import call_llm
 from pipeline.local_books import find_local_book
 from pipeline.runtime import (
+    DEFAULT_MODEL,
     VAULT_PATH,
     append_metric,
     load_agent_prompt,
@@ -297,7 +298,7 @@ def node_research(state: State) -> Dict[str, Any]:
         + "Identify 2-4 research angles, then web_search to verify references "
         f"before producing the CSV block.\n"
     )
-    model = os.environ.get("PIPELINE_MODEL", "claude-sonnet-4-6")
+    model = os.environ.get("PIPELINE_MODEL", DEFAULT_MODEL)
     result = call_llm(model, system_prompt, user_msg, max_tokens=3000, web_search=True)
     text = result["text"]
 

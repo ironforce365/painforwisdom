@@ -32,6 +32,7 @@ from dotenv import load_dotenv
 load_dotenv(PROJECT_ROOT / ".env")
 
 from pipeline.llm import call_llm  # noqa: E402
+from pipeline.runtime import DEFAULT_MODEL  # noqa: E402
 from pipeline.notion_client import extract_property, query_research_tasks  # noqa: E402
 
 
@@ -52,7 +53,7 @@ Output: one canonical angle per line, no preamble, no numbering, no commentary.
 """
 
 
-def _dedupe_angles(raw_angles: list[str], model: str = "claude-sonnet-4-6") -> list[str]:
+def _dedupe_angles(raw_angles: list[str], model: str = DEFAULT_MODEL) -> list[str]:
     if not raw_angles:
         return []
     deduped = sorted(set(a.strip() for a in raw_angles if a and a.strip()))

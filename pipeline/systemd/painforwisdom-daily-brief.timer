@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily run of painforwisdom-daily-brief at 06:00 local time
+Requires=painforwisdom-daily-brief.service
+
+[Timer]
+# Fires every day at 06:00 local time. Persistent so a missed boot still runs once.
+OnCalendar=*-*-* 06:00:00
+Persistent=true
+Unit=painforwisdom-daily-brief.service
+
+[Install]
+WantedBy=timers.target

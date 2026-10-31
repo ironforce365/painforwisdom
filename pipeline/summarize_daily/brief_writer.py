@@ -11,7 +11,7 @@ import hashlib
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-from pipeline.runtime import PROJECT_ROOT
+from pipeline.runtime import STATE_ROOT
 from pipeline.scripts.poc_brief_v2 import run_cluster
 from pipeline.summarize_daily.clusterer import Cluster
 from pipeline.summarize_daily.fetcher import (
@@ -22,7 +22,7 @@ from pipeline.summarize_daily.fetcher import (
 )
 
 
-CACHE_DIR = PROJECT_ROOT / "briefs" / ".cache"
+CACHE_DIR = STATE_ROOT / "briefs" / ".cache"
 
 
 def _slug_for_source(row: Dict[str, Any]) -> str:
@@ -129,6 +129,6 @@ def write_brief(cluster: Cluster) -> Tuple[Path, List[Dict[str, str]]]:
     today = date.today().isoformat()
     sub_slug = _slug(cluster_dict["sub_angle"])
     return (
-        PROJECT_ROOT / "briefs" / cluster.theme / f"{today}--{sub_slug}",
+        STATE_ROOT / "briefs" / cluster.theme / f"{today}--{sub_slug}",
         skipped,
     )

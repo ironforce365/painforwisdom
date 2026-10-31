@@ -21,3 +21,16 @@ def test_stage_prompt_loads_without_frontmatter(filename):
 
 def test_claude_agents_dir_is_gone():
     assert not (PROJECT_ROOT / ".claude" / "agents").exists()
+
+
+@pytest.mark.parametrize("filename", STAGE_PROMPTS)
+def test_stage_prompt_keeps_execution_context(filename):
+    # Spec 2026-10-30-harness-housekeeping §6.4a: appendix survived the rename.
+    assert "EXECUTION CONTEXT" in load_agent_prompt(filename)
+
+
+def test_model_constants_are_priced():
+    from pipeline.cost_forecast import PRICES
+    from pipeline.runtime import DEEP_MODEL, DEFAULT_MODEL
+
+    assert DEFAULT_MODEL in PRICES and DEEP_MODEL in PRICES

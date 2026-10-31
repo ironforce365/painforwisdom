@@ -1,0 +1,22 @@
+# Install: pipeline/scripts/install-pipeline-units.sh
+# Code from the tag-pinned live checkout; state (.env, books/, reports/) from the dev folder.
+[Unit]
+Description=Painforwisdom research-tasks augmenter (audit + Z-Library + LLM analog)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=PAINFORWISDOM_STATE_ROOT=%h/workspace/painforwisdom/painforwisdom
+WorkingDirectory=%h/workspace/painforwisdom-live
+ExecStart=%h/workspace/painforwisdom-live/pipeline/scripts/run_augment_research.sh
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=2h
+# Single retry on transient network/Notion/LLM failure
+Restart=on-failure
+RestartSec=300
+StartLimitBurst=1
+
+[Install]
+WantedBy=default.target
