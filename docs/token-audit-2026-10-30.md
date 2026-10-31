@@ -41,6 +41,7 @@ A7. **`.claude/settings.local.json` (main checkout) sets `defaultMode: bypassPer
 ## B. Per-user auto-memory (`~/.claude/projects/.../memory/`)
 
 B1. **`MEMORY.md` is 7.2 KB (~1.8k tokens) and loads in every session.** Its lines are ~200 chars and carry detail that belongs in the linked files. Fix: cut each line to a ≤80-char hook. Target ~2.5 KB, saving ~1.2k tokens per call.
+  - Resolution (wo-013578d9): done, by a bigger cut than proposed: auto-memory retired (B3), so `MEMORY.md` no longer loads at all (saves the full ~1.8k tokens, not ~1.2k). Memory dir moved to `~/.claude/projects/-home-gonzalo-workspace-painforwisdom-painforwisdom/memory.archived-2026-10-30/`. Per-file verdicts: `docs/memory-migration-2026-10-30.md`.
 
 B2. **Stale or contradictory entries in MEMORY.md** (they mislead and cost tokens):
 - "Coach deploy state" says prod is v0.1.5. Later entries say v0.1.14 and v0.1.15 shipped.
@@ -48,8 +49,10 @@ B2. **Stale or contradictory entries in MEMORY.md** (they mislead and cost token
 - "Stream 3 ... PR #66 open (NOT deployed)": status unknown, needs a re-check.
 - "Absolute paths in chat" duplicates `~/.claude/CLAUDE.md`.
 - "blog-post-catchy-title dropped" becomes moot once A3 lands.
+  - Resolution (wo-013578d9): done. Repo/gh-verified: tags reach v0.1.15, so the v0.1.5 deploy line was dropped (release model kept in kn-447a3dad); PR 52 entry dropped as history; PR 66 and 67 are MERGED (Stream 3 shipped), recorded in kn-5278d08d; absolute-paths and catchy-title dropped. Also found stale in the KB: kn-e17e2272 and kn-f08e540c (PR 77 shown as open draft, merged 2026-10-30; CPU-only torch listed as a TODO though declined 2026-06-16), retracted and superseded by kn-a9dd6331 and kn-a9ae1b7f. New contradiction recorded, not fixed: calibration says gate temperature locked at 6, but `services/coach/eval/grounding/config.py` defaults to 5 and compose does not wire `COACH_GROUNDING_TEMPERATURE` (kn-5278d08d; prod value unverified).
 
 B3. **Two parallel memories.** Claude auto-memory (33 files) and the Jarvis KB (`jarvis learn`, 12 entries, e.g. kn-f7ffb135 project map, kn-e17e2272 status) overlap, and the Jarvis PostToolUse hook mirrors one into the other. Decide which is the source of truth for project facts and prune the other to user and feedback items only.
+  - Resolution (wo-013578d9): done + user-action. The Jarvis KB is the single source of truth; per spec 3 auto-memory is retired whole, user and feedback items included (they moved to the KB, topics `user`/`feedback`). 32 files assessed: 17 migrate, 12 merge, 3 drop; 10 new entries (kn-53702cc0, kn-4a81fb2a, kn-3e561e86, kn-7fe8150e, kn-5278d08d, kn-dd14188b, kn-91eb26ee, kn-080d54ce, kn-a9dd6331, kn-a9ae1b7f); table in `docs/memory-migration-2026-10-30.md`. Memory dir archived (B1). User-action, so workers stop loading and re-creating it (`autoMemoryEnabled`, verified in https://code.claude.com/docs/en/memory; `permissions.deny` kept verbatim): `jarvis config set painforwisdom settings_overrides '{"autoMemoryEnabled": false, "permissions": {"deny": ["Read(//home/gonzalo/workspace/production/secrets/**)", "Edit(//home/gonzalo/workspace/production/**)", "Write(//home/gonzalo/workspace/production/**)", "Bash(*git push*main*)", "Bash(*git push*master*)", "Bash(*git push*HEAD:*)"]}}' --reason "wo-013578d9: retire Claude auto-memory, Jarvis KB is the source of truth"`. Interactive non-Jarvis sessions in this repo also lose the memory (intended).
 
 ## C. Global user config (`~/.claude/settings.json`), affects every project
 
