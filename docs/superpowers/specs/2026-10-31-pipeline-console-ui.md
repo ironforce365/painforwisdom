@@ -36,8 +36,9 @@ pipeline/ui/  FastAPI app, `python -m pipeline.ui` on 127.0.0.1:8820
 - Playwright was verified on this host 2026-10-31: `@playwright/test@1.64.1` with
   chromium build 1248 passed a probe test.
 
-Dependency order: 2 and 3 first, in parallel. After 3: 4, 5, 6 in parallel.
-Then 7 (needs 5, 6), 8 (needs 4, 6), 9 (needs 6). Section 10 needs everything.
+Dependency order: 2 and 3 first, in parallel. After 3: 4 and 5 in parallel.
+6 after 5 (its live specs launch fake runs). Then 7 (needs 6), 8 (needs 4, 6),
+9 (needs 6) in parallel. Section 10 needs everything.
 
 ## 2. Run observability in the pipeline
 
@@ -71,7 +72,8 @@ for this feature.
      `profile`, `input`, `started_at`;
    - inside `_drive_graph`: `waiting_hitl` around `_ask_indefinitely`, `waiting_reply`
      around `_ask_bounded`, back to `running` after the reply;
-   - on return: `done` with `verdict`, `ended_at`, `hitl_wait_s`; on any exception
+   - on return: `done` with `verdict` (run.py's `"?"` fallback is written as
+     `null`), `ended_at`, `hitl_wait_s`; on any exception
      leaving `_process_one_video`: `failed` with `error` (same truncation), then re-raise.
    - Under `--auto-approve` the HITL path never waits, so no `waiting_*` status.
 3. **Run id from outside.** `--run-id` already exists; for `--video` and
@@ -106,8 +108,10 @@ and the shared fixtures.
    (a placeholder page until section 6 replaces it), and `GET /health`.
 3. `pipeline/ui/mapping.py`: `NODE_TO_STAGE` (graph node name to runs.jsonl
    `stage`, e.g. `extract_image`→`extract-image`, `kb_curator`→`kb-curator`,
-   `notion_blog`→`notion-blog`, `wordpress_draft`→`wordpress-draft`, `summarizer`→
-   `validator`; nodes that log nothing map to `None`), `NODE_TO_DIR` (node to its
+   `notion_blog`→`notion-blog`, `wordpress_draft`→`wordpress-draft`, `extract`→
+   `extract`, `research`→`research`, `summarizer`→`summarizer`; nodes that log
+   nothing map to `None`; plus `LEGACY_STAGE_ALIASES = {"validator": "summarizer"}`
+   because 2026-05 runs logged several `validator` rows instead), `NODE_TO_DIR` (node to its
    artifact subdir: `extract`→`coaching-thought-extractor`, `kb_curator`→`kb-curator`,
    `writer`→`painforwisdom-writer`, `research`→`research-curator`, `notion_blog`→
    `notion-blog-post-logger`, `notion_research`→`notion-research-logger`,
@@ -125,10 +129,12 @@ and the shared fixtures.
    status from run.json (`running`/`waiting_*` with a dead pid reports `crashed`,
    checked with `os.kill(pid, 0)`), and telemetry from runs.jsonl via `NODE_TO_STAGE`.
    Telemetry rules: tokens missing on a row count as 0; the `kb-curator` row has no
-   top-level tokens, sum them from `per_call`, cost from `total_cost_usd`; several
-   `validator` rows sum. `work_s` = wall time minus `hitl_wait_s`.
+   top-level tokens, sum them from `per_call` (same field names as other rows),
+   cost from `total_cost_usd`; several rows for one node sum. `work_s` = wall time
+   minus `hitl_wait_s`.
    Legacy runs (no run.json, no events.jsonl: every run before this feature) still
-   list and open: status `done`, verdict from the last `validator` row, node states
+   list and open: status `done`, verdict from the last `summarizer` or `validator`
+   row, node states
    and durations from runs.jsonl alone, `started_at`/`ended_at` from the first/last
    row `ts`.
 6. Artifacts: list every file under the run dir's agent subdirs plus every path in
@@ -173,7 +179,9 @@ Backend functionality to fetch a run's final result from the persistence layer
 5. Fixtures: `tests/fixtures/ui/notion/` matching the `done` fixture run's page ids
    (C6). Tests `tests/test_ui_result.py` (fixture source + a mocked
    `notion_client`, including the error path) and a test that the notion_research
-   metric row carries `page_ids`. Tests that need a live key skip with a reason,
+   metric row carries `page_ids` (no such node test exists yet: call
+   `node_notion_research` with `create_research_task`, `page_id` and
+   `fetch_page_blocks` monkeypatched in that module). Tests that need a live key skip with a reason,
    like the rest of the suite.
 
 Does not touch the UI static files or other routers.
@@ -189,7 +197,9 @@ test uses. Fill `pipeline/ui/routes_launch.py`; add `pipeline/ui/launcher.py`,
    rather than importing `pipeline.run`, which calls `load_dotenv` at import) or
    `.txt` (transcript). Sorted newest mtime first. Missing inbox dir means an empty
    list, not an error.
-2. `POST /api/runs` body `{"input": "<file name>", "auto_approve": false}`:
+2. `POST /api/runs` body `{"input": "<file name>", "auto_approve": false,
+   "fake": {"scenario": "ok"|"hitl"|"fail", "step_ms": <int>}}` (`fake` optional,
+   accepted only when `settings.runner == "fake"`, else 400; defaults `ok`/200):
    - `input` must equal a name returned by the listing (no paths, no `..`), else 404;
    - 409 when a run whose status is `running`/`waiting_*` and whose pid is alive
      exists (reuse `pipeline/ui/runs.py`);
@@ -219,7 +229,8 @@ test uses. Fill `pipeline/ui/routes_launch.py`; add `pipeline/ui/launcher.py`,
    `NODE_TO_DIR` subdirs, sleeping `step-ms` per node. `hitl` pauses kb_curator for
    3 steps (`waiting_hitl`) then resumes; `fail` errors at `research`. Notion page
    ids it writes match the fixture Notion files (C6). Scenario and step time come
-   from the POST in tests via env `PIPELINE_UI_FAKE_SCENARIO`/`PIPELINE_UI_FAKE_STEP_MS`.
+   from the POST body's `fake` field, passed as CLI args, so one server serves
+   every scenario in one suite.
 4. Tests `tests/test_ui_launch.py`: listing, validation (404/409), argv building for
    both kinds and both runners (assert the list, do not spawn the real pipeline),
    and one real spawn of the fake runner to completion asserting the on-disk files.
@@ -236,7 +247,11 @@ and the browser test harness with its coverage gate and CI job.
    bus), `js/api.js` (one function per C3 endpoint), `js/icons.js` (inline SVG
    icons by `NODE_ICON` key), `js/dag.js`, `js/runs.js`, and stub modules
    `js/launch.js`, `js/drawer.js`, `js/telemetry.js` each exporting a no-op
-   `mount(el, ctx)`. Module contract in C7.
+   `mount(el, ctx)`, and empty `css/launch.css`, `css/drawer.css`,
+   `css/telemetry.css` linked from `index.html`. No inline `<script>` or inline
+   event handlers in `index.html` (everything must sit under the coverage gate).
+   `app.js` owns the offline/error badge and shows it on the bus event `ui:error`.
+   Module contract in C7.
 2. DAG: SVG, columns by longest-path depth from `GET /api/graph`, nodes as icon
    discs, no visible text except a tooltip/`aria-label` with the node label.
    States (C3) map to visuals: pending dim; running a pulsing ring plus animated
@@ -259,14 +274,29 @@ and the browser test harness with its coverage gate and CI job.
    C6 fixtures to a fresh tmp dir and starts `python -m pipeline.ui` with C5 test
    env (fake runner, Notion fixtures, tmp processed root and inbox, a free port).
    `npm test` runs every spec and FAILS when any file under `pipeline/ui/static/js/`
-   is below 100% lines, functions or branches. Shared helpers in `e2e/fixtures.js`
-   (coverage + a `freshServerState()` reset). Specs live in `e2e/tests/*.spec.js`.
+   is below 100% lines, functions or branches. `workers: 1` and
+   `fullyParallel: false`: one active run at a time makes live specs serial.
+   Shared helpers in `e2e/fixtures.js`, used by every spec:
+   - coverage collection per page;
+   - fail the test on any `pageerror`, `console.error`, or failed request that the
+     spec did not intercept on purpose;
+   - `freshServerState({live = false} = {})`: kill every fake-runner pid recorded
+     in a `*_ui` run.json under the tmp processed root, wipe that root, re-copy C6
+     into it, and only when `live` rewrite the `pid` of `fx-running` and `fx-hitl`
+     to the Playwright process pid (so they are live and `POST /api/runs` returns
+     409); with `live = false` they keep pid 0 and read as `crashed`, so launch
+     specs are not blocked. The server reads disk per request, so no reset
+     endpoint is needed.
+   Specs live in `e2e/tests/*.spec.js`; `real.spec.js` (section 10) is excluded
+   from `npm test` and the gate by `testIgnore`.
 6. CI: new `ui` job in `.github/workflows/ci.yml`: Python 3.11 + `pip install -r
    pipeline/requirements.txt`, Node 22, `npm ci` and
    `npx playwright install --with-deps chromium` in `pipeline/ui/e2e`, `npm test`.
    Upload the HTML report as an artifact on failure.
 7. Specs for this section: DAG renders every node of the graph fixture; each node
-   state renders its visual (one fixture run per state); reduced motion; run list
+   state renders its visual (one fixture run per state) and sets `data-state`;
+   a `running` node's computed `animation-name` is not `none`, and is `none` under
+   `page.emulateMedia({reducedMotion: 'reduce'})`; run list
    order and selection; hash restore; polling start/stop (fake runner run via
    `POST /api/runs` from the test, through the API, since the launch UI is section 7);
    offline badge (route intercept). Screenshot of each state for the PR.
@@ -352,15 +382,23 @@ fix what breaks, and document operation.
    `VAULT_PATH` and `CHECKPOINT_DB_PATH` at sandbox paths before the first run.
    Run `bash tests/sandbox_reset.sh` before each run. Python is the conda env
    `painforwisdom-poc` (`/home/gonzalo/miniconda3/envs/painforwisdom-poc/bin/python`).
+   Before the first run confirm `youtube_upload` and `wordpress_draft` are
+   dormant or point at sandbox targets under `.env.sandbox`; if either would
+   publish publicly, stop and ask.
 2. Start `python -m pipeline.ui --profile sandbox --inbox <tmp inbox>`; put
    `tests/fixtures/transcript_2026-04-14.txt` and one short real video copied from a
    `processed/*/source/*.mp4` in the dev checkout into the inbox.
 3. `e2e/tests/real.spec.js`, tagged `@real` and excluded from `npm test` and CI
-   (opt-in `npm run test:real`): through the UI only, start the transcript run,
-   wait for done with verdict PASS or PARTIAL, open every node with artifacts and
-   assert each renders, open the result and assert the blog title matches the
-   Notion page, assert telemetry tokens > 0. Repeat for the video run (transcribe
-   must go done, not skipped). Timeouts sized for real LLM calls (minutes).
+   (opt-in `npm run test:real`, no coverage gate): through the UI only, start the
+   transcript run with the auto-approve toggle ON (a HITL approval would otherwise
+   block on Telegram), wait for done with verdict PASS (PARTIAL or FAIL fails the
+   test; dormant/skipped youtube and wordpress already count as PASS checks in
+   their branch validators), open every node with artifacts and assert each
+   renders, open the result and assert the blog title equals the title read
+   directly with `pipeline.notion_client.get_blog_page` from a small Python helper
+   (not through the UI), assert telemetry tokens > 0, and assert no browser
+   console errors. `transcribe` shows `skipped`. Repeat for the video run, where
+   `transcribe` must show `done`. Timeouts sized for real LLM calls (minutes).
 4. Fix every defect found, in the module that owns it, each with a regression test
    (pytest or a non-real Playwright spec). Do not weaken the coverage gate.
 5. Docs: a "Pipeline console" section in `OPERATIONS.md` (start command, env,
@@ -441,8 +479,10 @@ with one pull request.
     [{"title", "type", "url"}]|null}`.
   - `GET /api/inputs` → `{"inbox": "<abs>", "inputs": [{"name", "kind":
     "video"|"transcript", "bytes", "mtime"}]}`.
-  - `POST /api/runs` `{"input": "<name>", "auto_approve": false}` → 201
-    `{"run_id"}`; 404 unknown input; 409 `{"detail": "run active", "run_id"}`.
+  - `POST /api/runs` `{"input": "<name>", "auto_approve": false, "fake":
+    {"scenario", "step_ms"} (optional, fake runner only)}` → 201 `{"run_id"}`;
+    400 `fake` with the real runner; 404 unknown input; 409 `{"detail": "run
+    active", "run_id"}`.
 - **C4 `runs.jsonl`** is the existing per-stage telemetry; read it, never rewrite
   existing fields. Only section 4 adds `page_ids` to the `notion-research` row.
 - **C5 settings** (owner: section 3): CLI flags override env. `PIPELINE_UI_PORT`
@@ -469,7 +509,8 @@ with one pull request.
   no CDN at runtime. Each feature module exports `mount(el, ctx)`, where `ctx =
   {api, bus, state}`: `api` is `js/api.js`, `bus` has `on(event, fn)`/`emit(event,
   payload)` with events `run:selected` (run id), `run:updated` (C3 run detail),
-  `node:selected` (node id), `graph:loaded` (C3 graph), and `state` holds
+  `node:selected` (node id), `graph:loaded` (C3 graph), `ui:error` (a short reason;
+  `app.js` shows the error badge), and `state` holds
   `{graph, runId, run}`. A module touches only DOM under its own `el` plus
   `document.body`-level overlays it creates. Every interactive element has a
   `data-testid`; tests select by `data-testid` or role, never by CSS class or text.
@@ -501,8 +542,12 @@ with one pull request.
 - kb_curator's `interrupt()` re-runs the node from its top on resume, and the
   summarizer fires three times (two early `{}` fires); branch validators can
   re-fire. The UI must not flicker a `done` node back to `running` on a `noop`.
-- runs.jsonl stage names are hyphenated agent names, not graph node names; always
-  go through `pipeline/ui/mapping.py`.
+- runs.jsonl stage names are not graph node names (`extract-image` vs
+  `extract_image`; legacy runs log `validator` for the summarizer); always go
+  through `pipeline/ui/mapping.py`.
+- Each feature module has its own CSS file (`css/launch.css`, `css/drawer.css`,
+  `css/telemetry.css`); never edit another module's JS or CSS, or parallel PRs
+  conflict.
 - `processed/` is resolved from the code checkout (`PROJECT_ROOT`), so a worktree
   writes runs into its own `processed/`. `.env.sandbox` exists only in the dev
   checkout.
