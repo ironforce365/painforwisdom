@@ -39,14 +39,20 @@ asks Gonzalo via Telegram what to do.
 """
 from __future__ import annotations
 
+import functools
+import json
 import os
 import socket
 import sqlite3
 import subprocess
+import threading
+import time
 from pathlib import Path
+from typing import Any, Callable, Dict, Tuple
 
 import httpx
 from langgraph.checkpoint.sqlite import SqliteSaver
+from langgraph.errors import GraphInterrupt
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import RetryPolicy
 
@@ -113,6 +119,51 @@ def _is_transient(exc: Exception) -> bool:
     return False
 
 
+# Node lifecycle events (C1): docs/superpowers/specs/2026-10-31-pipeline-console-ui.md section 2.
+_EVENTS_LOCK = threading.Lock()
+_ATTEMPTS: Dict[Tuple[str, str], int] = {}
+
+
+def _error_text(exc: BaseException) -> str:
+    return f"{type(exc).__name__}: {exc}"[:500]
+
+
+def _emit(run_dir: str, row: Dict[str, Any]) -> None:
+    line = json.dumps(row) + "\n"
+    with _EVENTS_LOCK, open(Path(run_dir) / "events.jsonl", "a") as f:
+        f.write(line)
+
+
+def _instrumented(name: str, fn: Callable[[Any], Dict[str, Any]]) -> Callable[[Any], Dict[str, Any]]:
+    @functools.wraps(fn)
+    def wrapper(state):
+        run_dir = state.get("run_dir")
+        if not run_dir:
+            return fn(state)
+        with _EVENTS_LOCK:
+            attempt = _ATTEMPTS.get((run_dir, name), 0) + 1
+            _ATTEMPTS[(run_dir, name)] = attempt
+        base = {"node": name, "attempt": attempt}
+        _emit(run_dir, {"ts": time.time(), **base, "event": "start"})
+        t0 = time.time()
+        try:
+            out = fn(state)
+        except GraphInterrupt:
+            _emit(run_dir, {"ts": time.time(), **base, "event": "paused"})
+            raise
+        except Exception as exc:
+            _emit(run_dir, {"ts": time.time(), **base, "event": "error", "error": _error_text(exc)})
+            raise
+        outputs = {k: v for k, v in (out or {}).items() if k.endswith("_path") and isinstance(v, str) and v}
+        _emit(run_dir, {
+            "ts": time.time(), **base, "event": "end",
+            "duration_s": time.time() - t0, "noop": not out, "outputs": outputs,
+        })
+        return out
+
+    return wrapper
+
+
 _RETRY_POLICY = RetryPolicy(
     initial_interval=2.0,
     backoff_factor=2.0,
@@ -137,25 +188,25 @@ def build_graph(start_at: str = "transcribe"):
         raise ValueError(f"start_at must be 'transcribe' or 'extract', got {start_at!r}")
 
     g = StateGraph(State)
-    g.add_node("transcribe", node_transcribe, retry_policy=_RETRY_POLICY)
-    g.add_node("extract", node_extract, retry_policy=_RETRY_POLICY)
-    g.add_node("kb_curator", node_kb_curator, retry_policy=_RETRY_POLICY)
-    g.add_node("writer", node_writer, retry_policy=_RETRY_POLICY)
-    g.add_node("research", node_research, retry_policy=_RETRY_POLICY)
-    g.add_node("notion_blog", node_notion_blog, retry_policy=_RETRY_POLICY)
-    g.add_node("notion_research", node_notion_research, retry_policy=_RETRY_POLICY)
+    g.add_node("transcribe", _instrumented("transcribe", node_transcribe), retry_policy=_RETRY_POLICY)
+    g.add_node("extract", _instrumented("extract", node_extract), retry_policy=_RETRY_POLICY)
+    g.add_node("kb_curator", _instrumented("kb_curator", node_kb_curator), retry_policy=_RETRY_POLICY)
+    g.add_node("writer", _instrumented("writer", node_writer), retry_policy=_RETRY_POLICY)
+    g.add_node("research", _instrumented("research", node_research), retry_policy=_RETRY_POLICY)
+    g.add_node("notion_blog", _instrumented("notion_blog", node_notion_blog), retry_policy=_RETRY_POLICY)
+    g.add_node("notion_research", _instrumented("notion_research", node_notion_research), retry_policy=_RETRY_POLICY)
     # New nodes (no retry policy — they catch their own errors and degrade
     # gracefully instead of bubbling exceptions into the graph).
-    g.add_node("extract_image", node_extract_image)
-    g.add_node("youtube_upload", node_youtube_upload)
-    g.add_node("wordpress_draft", node_wordpress_draft)
+    g.add_node("extract_image", _instrumented("extract_image", node_extract_image))
+    g.add_node("youtube_upload", _instrumented("youtube_upload", node_youtube_upload))
+    g.add_node("wordpress_draft", _instrumented("wordpress_draft", node_wordpress_draft))
     # Per-branch validators + summarizer join. None need retry: they only
     # inspect state and (for summarizer) send Telegram with internal retry.
-    g.add_node("pre_validator", node_pre_validator)
-    g.add_node("bv_research", node_bv_research)
-    g.add_node("bv_wordpress", node_bv_wordpress)
-    g.add_node("bv_youtube", node_bv_youtube)
-    g.add_node("summarizer", node_summarizer)
+    g.add_node("pre_validator", _instrumented("pre_validator", node_pre_validator))
+    g.add_node("bv_research", _instrumented("bv_research", node_bv_research))
+    g.add_node("bv_wordpress", _instrumented("bv_wordpress", node_bv_wordpress))
+    g.add_node("bv_youtube", _instrumented("bv_youtube", node_bv_youtube))
+    g.add_node("summarizer", _instrumented("summarizer", node_summarizer))
 
     g.add_edge(START, start_at)
     if start_at == "transcribe":

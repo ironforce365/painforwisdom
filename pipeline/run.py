@@ -30,6 +30,7 @@ HITL handling:
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
 import sys
 import time
@@ -72,7 +73,7 @@ if _PROFILE == "sandbox":
 from langgraph.types import Command  # noqa: E402
 
 from pipeline.contracts import InputContractError  # noqa: E402
-from pipeline.graph import build_graph  # noqa: E402
+from pipeline.graph import _error_text, build_graph  # noqa: E402
 from pipeline.runtime import date_from_filename  # noqa: E402
 from pipeline.telegram import ask as telegram_ask  # noqa: E402
 from pipeline.telegram import send as telegram_send  # noqa: E402
@@ -189,6 +190,22 @@ def _last_failed_node(graph, config) -> str:
     return "?"
 
 
+# --- Run record (C2): docs/superpowers/specs/2026-10-31-pipeline-console-ui.md section 2
+
+
+def _write_run_record(run_dir: Path, **fields: Any) -> None:
+    """Merge `fields` into <run_dir>/run.json, replacing the file atomically."""
+    path = run_dir / "run.json"
+    try:
+        record = json.loads(path.read_text())
+    except (FileNotFoundError, ValueError):
+        record = {}
+    record.update(fields)
+    tmp = path.with_name("run.json.tmp")
+    tmp.write_text(json.dumps(record))
+    os.replace(tmp, path)
+
+
 # --- Per-video orchestration ------------------------------------------------
 
 
@@ -261,6 +278,7 @@ def _drive_graph(
     rounds = 0
     last_state: Dict[str, Any] = {}
     hitl_wait = 0.0
+    run_dir = Path(initial["run_dir"])
 
     while True:
         try:
@@ -290,8 +308,10 @@ def _drive_graph(
                         print(f"[run] telegram-on-error send rc={rc} (non-fatal)")
                 raise
             t_wait = time.time()
+            _write_run_record(run_dir, status="waiting_reply")
             reply_raw = _ask_bounded(prompt, args.reminder_interval, max_reminders=5)
             hitl_wait += time.time() - t_wait
+            _write_run_record(run_dir, status="running", hitl_wait_s=hitl_wait)
             if reply_raw is None:
                 print("[run] error-recovery reminder budget exhausted — aborting")
                 raise
@@ -322,8 +342,10 @@ def _drive_graph(
             print("[run] --auto-approve: bypassing Telegram, resuming with 'yes'")
         else:
             t_wait = time.time()
+            _write_run_record(run_dir, status="waiting_hitl")
             reply = _ask_indefinitely(_format_proposal(payload), args.reminder_interval)
             hitl_wait += time.time() - t_wait
+            _write_run_record(run_dir, status="running", hitl_wait_s=hitl_wait)
         print(f"[run] resume reply: {reply!r}")
         pending = Command(resume=reply)  # type: ignore[assignment]
 
@@ -343,6 +365,28 @@ def _process_one_video(
     t_start = time.time()
 
     source = "video" if video else "transcript"
+    input_path = Path(video if video else args.from_transcript).resolve()
+    _write_run_record(
+        run_dir, run_id=run_id, status="running", verdict=None, pid=os.getpid(),
+        profile=args.profile, input={"kind": source, "path": str(input_path)},
+        started_at=t_start, ended_at=None, hitl_wait_s=0.0, error=None,
+    )
+    try:
+        return _run_one(args, run_id, run_dir, video, source, label, t_start)
+    except BaseException as exc:
+        _write_run_record(run_dir, status="failed", ended_at=time.time(), error=_error_text(exc))
+        raise
+
+
+def _run_one(
+    args: argparse.Namespace,
+    run_id: str,
+    run_dir: Path,
+    video: Optional[Path],
+    source: str,
+    label: str,
+    t_start: float,
+) -> int:
     intake_msg = (
         f"📥 Pipeline intake — {source}: `{label}`\n"
         f"profile: {args.profile}\n"
@@ -360,6 +404,10 @@ def _process_one_video(
 
         total = time.time() - t_start - hitl_wait
         verdict = result.get("validator_verdict", "?")
+        _write_run_record(
+            run_dir, status="done", verdict=None if verdict == "?" else verdict,
+            ended_at=time.time(), hitl_wait_s=hitl_wait,
+        )
         print()
         print(f"[run] DONE total={total:.1f}s target={args.target_seconds}s verdict={verdict}")
         print(f"[run] run_dir={run_dir}")
