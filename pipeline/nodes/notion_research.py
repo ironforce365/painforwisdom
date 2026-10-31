@@ -221,6 +221,7 @@ def node_notion_research(state: State) -> Dict[str, Any]:
         rows_in=len(rows),
         created=len(created),
         failed=len(failed),
+        page_ids=[c["page_id"] for c in created],
     )
     print(f"[notion-research] done {duration:.1f}s created={len(created)} failed={len(failed)}")
     return {
