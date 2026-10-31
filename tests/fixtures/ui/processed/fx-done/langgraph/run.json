@@ -1,0 +1,15 @@
+{
+  "run_id": "fx-done",
+  "status": "done",
+  "verdict": "PASS",
+  "pid": 0,
+  "profile": "sandbox",
+  "input": {
+    "kind": "transcript",
+    "path": "/nonexistent/painforwisdom-fixtures/inbox/transcript_2026-10-30.txt"
+  },
+  "started_at": 1793343600.0,
+  "ended_at": 1793343898.0,
+  "hitl_wait_s": 120.0,
+  "error": null
+}

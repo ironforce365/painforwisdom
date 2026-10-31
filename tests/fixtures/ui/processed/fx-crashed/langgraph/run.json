@@ -1,0 +1,15 @@
+{
+  "run_id": "fx-crashed",
+  "status": "running",
+  "verdict": null,
+  "pid": 99999999,
+  "profile": "sandbox",
+  "input": {
+    "kind": "transcript",
+    "path": "/nonexistent/painforwisdom-fixtures/inbox/transcript_2026-10-30.txt"
+  },
+  "started_at": 1793354400.0,
+  "ended_at": null,
+  "hitl_wait_s": 0.0,
+  "error": null
+}
