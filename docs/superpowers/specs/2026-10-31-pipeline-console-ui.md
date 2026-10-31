@@ -126,8 +126,10 @@ and the shared fixtures.
    derive node states from events (last event per node wins; `noop` ends do not
    move a node out of `done`; a node never started is `pending`; when the run is
    finished, `transcribe` without events on a transcript input is `skipped`),
-   status from run.json (`running`/`waiting_*` with a dead pid reports `crashed`,
-   checked with `os.kill(pid, 0)`), and telemetry from runs.jsonl via `NODE_TO_STAGE`.
+   status from run.json (`running`/`waiting_*` with a dead pid reports `crashed`;
+   any `pid <= 0` or missing pid is dead WITHOUT calling `os.kill`, because
+   `os.kill(0, 0)` signals the caller's own process group and succeeds; pid 0 is
+   the C6 fixture placeholder for a dead run; otherwise check with `os.kill(pid, 0)`), and telemetry from runs.jsonl via `NODE_TO_STAGE`.
    Telemetry rules: tokens missing on a row count as 0; the `kb-curator` row has no
    top-level tokens, sum them from `per_call` (same field names as other rows),
    cost from `total_cost_usd`; several rows for one node sum. `work_s` = wall time
@@ -497,10 +499,12 @@ with one pull request.
   pause on kb_curator, tokens on extract/kb_curator/writer/research, notion-blog
   `page_id` `fx-blog-1`, notion-research `page_ids` `["fx-res-1","fx-res-2"]`, one
   artifact of each kind), `fx-running` (status `running`, extract running,
-  later nodes pending; its `pid` is the placeholder `0`, which section 6's harness
-  rewrites at copy time to the Playwright runner's own pid so it is alive for the
-  whole suite, and pytest rewrites to `os.getpid()` in a tmp copy), `fx-hitl`
-  (`waiting_hitl`, same pid rewrite), `fx-failed` (error at `research`), `fx-crashed` (`running` with
+  later nodes pending; its `pid` is the placeholder `0`, which always reads as dead,
+  so by default the API reports it `crashed` and it never blocks `POST /api/runs`.
+  Only a test that wants it live rewrites the pid: in Playwright,
+  `freshServerState({live: true})` sets it to the Playwright process pid; in
+  pytest, the test rewrites it to `os.getpid()` in its own tmp copy. Nothing
+  rewrites it otherwise), `fx-hitl` (`waiting_hitl`, same pid-0 rule), `fx-failed` (error at `research`), `fx-crashed` (`running` with
   a dead pid), `fx-legacy` (only runs.jsonl and agent dirs, shaped like a real
   2026-05 run); `tests/fixtures/ui/inbox/` with one `.txt` and one tiny `.mp4`;
   `tests/fixtures/ui/notion/` (section 4) with `blog/fx-blog-1.json` and
