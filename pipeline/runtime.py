@@ -47,14 +47,12 @@ PROCESSED_ROOT = PROJECT_ROOT / "processed"
 VAULT_PATH = Path(os.environ.get("VAULT_PATH") or (PROJECT_ROOT / "obsidian-vault"))
 EXTRACT_TRANSCRIPTION = PROJECT_ROOT / "extract_transcription.sh"
 
-# Single source of truth for the cache-engagement threshold on Sonnet 4.6 —
-# empirically ~2,048 tokens for the cached block (not the docs-claimed 1,024).
-CACHE_TOKEN_FLOOR = 2200
+# Pipeline model pins; PIPELINE_MODEL env overrides per node.
+DEFAULT_MODEL = "claude-sonnet-5-5"
+DEEP_MODEL = "claude-opus-5-5"
 
-# Generic execution-context appendix appended to every stage system prompt.
-# Pushes any prompt under the floor over it (writer.md is 2,046 tokens, so it
-# slips just below). Real instructional content, no filler.
-CACHE_PADDING_APPENDIX = """
+# Appended to every stage system prompt: keeps stages replying inline, never calling tools.
+EXECUTION_CONTEXT_APPENDIX = """
 
 ## EXECUTION CONTEXT (apply to every output)
 
@@ -92,9 +90,8 @@ def now_iso() -> str:
 def load_agent_prompt(agent_filename: str, *, strip_output_section: bool = True) -> str:
     """Read pipeline/agents/<file>.md, strip frontmatter, optionally strip the
     OUTPUT section (which tells the agent to write files via Bash) and append
-    the EXECUTION CONTEXT appendix so:
-      a) the prompt clears the empirical Sonnet 4.6 cache floor
-      b) the agent reliably returns inline content rather than tool calls
+    the EXECUTION CONTEXT appendix so the agent returns inline content rather
+    than tool calls.
 
     Returns the body suitable for use as a system prompt block.
     """
@@ -104,7 +101,7 @@ def load_agent_prompt(agent_filename: str, *, strip_output_section: bool = True)
     body = m.group(1) if m else raw
     if strip_output_section:
         body = re.split(r"\n##\s+OUTPUT\s*\n", body, maxsplit=1)[0]
-    body += CACHE_PADDING_APPENDIX
+    body += EXECUTION_CONTEXT_APPENDIX
     return body
 
 

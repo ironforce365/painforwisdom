@@ -7,7 +7,7 @@ Passes:
    `Theme Audit Log` rich_text property so nothing is silently lost.
 
 2. **Sub-theme split** — for each saturated canonical theme (≥30 rows), one
-   Sonnet 4.6 call produces:
+   Sonnet call produces:
      a) 3-6 sub-themes with one-line definitions
      b) per-row sub-theme assignment
    Output written to `reports/sub-theme-proposal-<date>.md` for human review.
@@ -40,6 +40,7 @@ from dotenv import load_dotenv
 load_dotenv(PROJECT_ROOT / ".env")
 
 from pipeline.llm import call_llm  # noqa: E402
+from pipeline.runtime import DEFAULT_MODEL  # noqa: E402
 from pipeline.notion_client import (  # noqa: E402
     extract_property,
     get_client,
@@ -280,7 +281,7 @@ def _run_split_for_theme(theme: str, theme_rows: List[Dict[str, Any]]) -> str:
         f"Rows ({len(theme_rows)}):\n{listing}"
     )
     result = call_llm(
-        model="claude-sonnet-4-6",
+        model=DEFAULT_MODEL,
         system_prompt=SPLIT_SYSTEM,
         user_message=user_msg,
         max_tokens=4000,

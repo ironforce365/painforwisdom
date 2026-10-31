@@ -1,7 +1,7 @@
 """Phase 1 PoC — one-shot brief generator for a single hand-picked cluster.
 
 Reads pre-fetched cleaned text from `briefs/.cache/`, runs three per-row
-summaries + one cross-source synthesis through Sonnet 4.6, and writes
+summaries + one cross-source synthesis through Sonnet, and writes
 `briefs/<date>-<theme>.md` ready to drop into NotebookLM.
 
 This is throwaway scaffolding for the manual PoC. Phase 4 replaces it with a
@@ -14,7 +14,7 @@ from datetime import date
 from typing import Any, Dict, List
 
 from pipeline.llm import call_llm
-from pipeline.runtime import PROJECT_ROOT
+from pipeline.runtime import DEFAULT_MODEL, PROJECT_ROOT
 
 
 THEME = "deliberate-discomfort"
@@ -108,7 +108,7 @@ def _per_row_summary(source: Dict[str, Any]) -> str:
         f"--- BEGIN SOURCE TEXT ---\n{text}\n--- END SOURCE TEXT ---"
     )
     resp = call_llm(
-        model="claude-sonnet-4-6",
+        model=DEFAULT_MODEL,
         system_prompt=PER_ROW_SYSTEM,
         user_message=user,
         max_tokens=1200,
@@ -122,7 +122,7 @@ def _synthesis(per_row_summaries: List[Dict[str, str]]) -> str:
         blocks.append(f"### {s['title']} — {s['author_host']}\n{s['summary']}")
     user = "\n\n---\n\n".join(blocks)
     resp = call_llm(
-        model="claude-sonnet-4-6",
+        model=DEFAULT_MODEL,
         system_prompt=SYNTHESIS_SYSTEM,
         user_message=user,
         max_tokens=1500,

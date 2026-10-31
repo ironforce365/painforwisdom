@@ -6,7 +6,7 @@ description: >
   material related to it — both for comprehensive understanding and for going
   deeper. All references are verified via web search before inclusion. Results
   are saved into the entry's Obsidian file and a dedicated research index.
-model: claude-opus-4-6
+model: claude-opus-5-5
 tools: WebSearch, Bash, Write, Read, Edit
 ---
 

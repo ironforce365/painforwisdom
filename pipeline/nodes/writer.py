@@ -1,7 +1,7 @@
 """Stage 4a — painforwisdom-writer (blog post generator).
 
 Loads the writer agent prompt, supplies the extraction report + transcript
-context, and asks Sonnet 4.6 for the full blog post in Gonzalo's voice.
+context, and asks Sonnet for the full blog post in Gonzalo's voice.
 The first non-empty line of the response is treated as the title; the rest
 is the body. We assert structural minimums (date stamp present, word count
 in [400, 2000]) before returning state.
@@ -18,6 +18,7 @@ from pipeline.blog_context import get_backend
 from pipeline.contracts import assert_inputs
 from pipeline.llm import call_llm
 from pipeline.runtime import (
+    DEFAULT_MODEL,
     append_metric,
     load_agent_prompt,
     run_telemetry_path,
@@ -187,7 +188,7 @@ def node_writer(state: State) -> Dict[str, Any]:
     sections.append(state.get("transcript_text", ""))
     sections.append("```")
     user_msg = "\n".join(sections)
-    model = os.environ.get("PIPELINE_MODEL", "claude-sonnet-4-6")
+    model = os.environ.get("PIPELINE_MODEL", DEFAULT_MODEL)
     result = call_llm(model, system_prompt, user_msg, max_tokens=3000)
     text = result["text"]
 

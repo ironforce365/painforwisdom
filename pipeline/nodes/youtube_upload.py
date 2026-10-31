@@ -24,6 +24,7 @@ from typing import Any, Dict, List
 from pipeline.contracts import assert_inputs
 from pipeline.llm import call_llm
 from pipeline.runtime import (
+    DEFAULT_MODEL,
     PROJECT_ROOT,
     append_metric,
     load_agent_prompt,
@@ -127,7 +128,7 @@ def node_youtube_upload(state: State) -> Dict[str, Any]:
         f"## EXTRACTION REPORT\n```\n{state.get('extraction_report','')}\n```\n\n"
         f"## BLOG POST SEED\n{state.get('blog_post_seed','')}\n"
     )
-    model = os.environ.get("PIPELINE_MODEL", "claude-sonnet-4-6")
+    model = os.environ.get("PIPELINE_MODEL", DEFAULT_MODEL)
     try:
         result = call_llm(model, system_prompt, user_msg, max_tokens=600)
     except Exception as exc:  # noqa: BLE001

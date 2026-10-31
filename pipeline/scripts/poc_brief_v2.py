@@ -19,13 +19,13 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from pipeline.llm import call_llm
-from pipeline.runtime import PROJECT_ROOT, VAULT_PATH
+from pipeline.runtime import DEEP_MODEL, DEFAULT_MODEL, PROJECT_ROOT, VAULT_PATH
 
 
-# All content-generation LLM calls go to Opus 4.7. Sonnet's synthesis wasn't
+# All content-generation LLM calls go to Opus. Sonnet's synthesis wasn't
 # producing dense-enough briefs; Opus is the quality bar for content gen.
 # (Subscription billing — no $ cost, only quota.)
-BRIEF_MODEL = "claude-opus-4-7"
+BRIEF_MODEL = DEEP_MODEL
 
 # Local pre-summarization via `claude -p`: bypass the Anthropic API 200k
 # per-request cap by routing long sources through the Claude Code CLI
@@ -35,7 +35,7 @@ LOCAL_SUMMARY_THRESHOLD_CHARS = 500_000  # ~125k tokens — anything larger gets
 LOCAL_SUMMARY_CHUNK_CHARS = 500_000      # chunk size when source needs splitting
 LOCAL_SUMMARY_MAX_CHUNKS = 5             # caps coverage at ~2.5MB of source text
 LOCAL_CLAUDE_TIMEOUT_S = 900             # 15 min per claude -p invocation
-LOCAL_CLAUDE_MODEL = "claude-sonnet-4-6"  # focal pre-summary doesn't need Opus quality
+LOCAL_CLAUDE_MODEL = DEFAULT_MODEL  # focal pre-summary doesn't need Opus quality
 
 # Absolute path so this works under systemd-user (which inherits a minimal
 # PATH that does NOT include `~/.local/bin`). Override with $CLAUDE_BIN.
@@ -258,7 +258,7 @@ def _claude_p_focal(prompt: str, text: str) -> str:
         minimal summarizer directive.
       * `--disallowedTools` — blocks file/web/shell tool use so the model
         can only return text.
-      * `--model claude-sonnet-4-6` — focal pre-summary doesn't need Opus.
+      * `--model LOCAL_CLAUDE_MODEL` (Sonnet) — focal pre-summary doesn't need Opus.
 
     Subscription billing — no $ cost, only quota.
     """

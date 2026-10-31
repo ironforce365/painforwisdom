@@ -23,6 +23,7 @@ from langgraph.types import interrupt
 from pipeline.contracts import assert_inputs
 from pipeline.llm import call_llm
 from pipeline.runtime import (
+    DEEP_MODEL,
     VAULT_PATH,
     append_metric,
     load_agent_prompt,
@@ -285,7 +286,7 @@ def _call_llm_for_plan(state: State, approval_history: List[Tuple[str, str]]) ->
     """
     system_prompt = _build_system_prompt()
     user_msg = _user_message(state, approval_history=approval_history)
-    model = os.environ.get("PIPELINE_MODEL", "claude-opus-4-7")
+    model = os.environ.get("PIPELINE_MODEL", DEEP_MODEL)
     result = call_llm(model, system_prompt, user_msg, max_tokens=8000)
     try:
         plan = _parse_plan(result["text"], diag=result)

@@ -1,7 +1,7 @@
 """Stage 2 — coaching-thought-extractor.
 
 Loads the existing agent prompt body (stripped of frontmatter and OUTPUT
-section), appends the EXECUTION CONTEXT block, and asks Sonnet 4.6 for the
+section), appends the EXECUTION CONTEXT block, and asks Sonnet for the
 structured extraction report. The full report goes to state and to disk;
 key fields (Content Quality, Core Insight, Story Anchor, Blog Post Seed)
 are parsed out for downstream nodes.
@@ -17,6 +17,7 @@ from typing import Any, Dict, List
 from pipeline.contracts import assert_inputs
 from pipeline.llm import call_llm
 from pipeline.runtime import (
+    DEFAULT_MODEL,
     append_metric,
     load_agent_prompt,
     parse_extraction_field,
@@ -94,7 +95,7 @@ def node_extract(state: State) -> Dict[str, Any]:
         f"Transcript file: {os.path.basename(state.get('transcript_path',''))}\n\n"
         f"Transcript:\n{state['transcript_text']}\n"
     )
-    model = os.environ.get("PIPELINE_MODEL", "claude-sonnet-4-6")
+    model = os.environ.get("PIPELINE_MODEL", DEFAULT_MODEL)
     result = call_llm(model, system_prompt, user_msg, max_tokens=2000)
 
     text = result["text"]
