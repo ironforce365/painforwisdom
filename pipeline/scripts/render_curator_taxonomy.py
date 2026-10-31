@@ -1,6 +1,6 @@
 """Render the research-curator agent prompt's theme taxonomy from themes.db.
 
-The previous version of `.claude/agents/research-curator.md` baked the
+The previous version of `pipeline/agents/research-curator.md` baked the
 sub-theme listing + priority order into the prompt text. Adding a theme
 required editing the prompt and the runtime dict in lockstep.
 
@@ -26,7 +26,7 @@ from pipeline.themes_db import Theme, connect, list_active, list_dead, list_chil
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-PROMPT_PATH = PROJECT_ROOT / ".claude" / "agents" / "research-curator.md"
+PROMPT_PATH = PROJECT_ROOT / "pipeline" / "agents" / "research-curator.md"
 
 MARKER_START = "<!-- AUTO-THEMES-START -->"
 MARKER_END = "<!-- AUTO-THEMES-END -->"

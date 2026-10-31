@@ -24,8 +24,9 @@ from typing import Dict, List, Optional
 
 import litellm
 
+from pipeline.runtime import AGENTS_DIR
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-AGENTS_DIR = PROJECT_ROOT / ".claude" / "agents"
 
 # Anthropic Pro/Max published quotas vary; use a conservative public estimate.
 # Pro: ~10-40 Sonnet messages per 5h. Max 5x: ~50-200. Max 20x: ~200-800.

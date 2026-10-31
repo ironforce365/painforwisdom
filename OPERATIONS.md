@@ -279,6 +279,6 @@ systemctl --user start        painforwisdom-daily-brief.service
 | `tests/smoke_pipeline.sh` | Sandbox driver |
 | `tests/sandbox_reset.sh` | Vault revert + Notion archive |
 | `tests/fixtures/` | Reusable transcripts |
-| `.claude/agents/*.md` | Stage prompts (loaded by `pipeline/runtime.py:load_agent_prompt`) |
+| `pipeline/agents/*.md` | Stage prompts (loaded by `pipeline/runtime.py:load_agent_prompt`) |
 | `processed/<run_id>/` | Per-run outputs (gitignored) |
 | `pipeline/checkpoints*.db` | LangGraph checkpoint state (gitignored) |

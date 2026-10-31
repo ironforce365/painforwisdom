@@ -4,7 +4,7 @@
 `pipeline/state/themes.db` is a derived index used by:
 - `pipeline.nodes.notion_research._resolve_agent` (theme → agent routing)
 - `pipeline.scripts.render_curator_taxonomy` (regenerates the
-  `.claude/agents/research-curator.md` taxonomy block)
+  `pipeline/agents/research-curator.md` taxonomy block)
 
 `pipeline/state/` is gitignored, so the DB rebuilds itself from the YAML
 on first `connect()` (auto-seed). Edit YAML, then either re-`connect()`

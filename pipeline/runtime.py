@@ -40,7 +40,7 @@ def canonical_project_root(root: Optional[Path] = None) -> Path:
     return resolved
 
 
-AGENTS_DIR = PROJECT_ROOT / ".claude" / "agents"
+AGENTS_DIR = PROJECT_ROOT / "pipeline" / "agents"
 PROCESSED_ROOT = PROJECT_ROOT / "processed"
 # VAULT_PATH is overridable via env (sandbox profile points it at a parallel
 # vault dir so test runs don't pollute the real second brain).
@@ -90,7 +90,7 @@ def now_iso() -> str:
 
 
 def load_agent_prompt(agent_filename: str, *, strip_output_section: bool = True) -> str:
-    """Read .claude/agents/<file>.md, strip frontmatter, optionally strip the
+    """Read pipeline/agents/<file>.md, strip frontmatter, optionally strip the
     OUTPUT section (which tells the agent to write files via Bash) and append
     the EXECUTION CONTEXT appendix so:
       a) the prompt clears the empirical Sonnet 4.6 cache floor
