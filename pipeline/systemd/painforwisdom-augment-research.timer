@@ -1,0 +1,14 @@
+[Unit]
+Description=Daily run of painforwisdom-augment-research at 04:00 local time
+Requires=painforwisdom-augment-research.service
+
+[Timer]
+# Fires every day at 04:00 local time — 2h before daily-brief (06:00) so
+# augmented rows are visible to the brief. Persistent so a missed boot still
+# runs once on the next available window.
+OnCalendar=*-*-* 04:00:00
+Persistent=true
+Unit=painforwisdom-augment-research.service
+
+[Install]
+WantedBy=timers.target

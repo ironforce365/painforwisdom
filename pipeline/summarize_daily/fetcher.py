@@ -21,7 +21,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from pipeline.runtime import PROJECT_ROOT, canonical_project_root
+from pipeline.runtime import PROJECT_ROOT, STATE_ROOT
 
 
 # Binary book formats need to be text-extracted before they're fed to any LLM
@@ -46,7 +46,7 @@ try:
 except ImportError:  # pragma: no cover
     PdfReader = None  # type: ignore
 
-CACHE_DIR = PROJECT_ROOT / "briefs" / ".cache"
+CACHE_DIR = STATE_ROOT / "briefs" / ".cache"
 FETCH_TIMEOUT = 30.0
 DENYLIST_FILE = PROJECT_ROOT / "config" / "fetch_denylist.txt"
 
@@ -152,7 +152,7 @@ def _reanchor_local(p: Path) -> Optional[Path]:
     augment run inside a worktree persisted that worktree's absolute path to
     Notion, which dies when the worktree is removed (2026-06-02 self-compassion
     `local-file missing` incident)."""
-    cand = canonical_project_root() / "books" / "extracted" / p.name
+    cand = STATE_ROOT / "books" / "extracted" / p.name
     return cand if cand.exists() else None
 
 
@@ -167,7 +167,7 @@ def _fetch_local(path: str) -> str:
     if not p.is_absolute():
         # Project-relative refs (the portable form producers now store) resolve
         # against the canonical checkout, not the cwd of whatever invoked us.
-        p = canonical_project_root() / p
+        p = STATE_ROOT / p
     if not p.exists():
         healed = _reanchor_local(p)
         if healed is None:

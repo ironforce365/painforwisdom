@@ -25,7 +25,9 @@ MAX_COST_USD=999999
 cd "$PROJECT_ROOT"
 
 TODAY="$(date +%F)"
-AUDIT_JSONL="$PROJECT_ROOT/reports/research-audit-${TODAY}.jsonl"
+# Same resolution the audit uses for its --out-dir default (PAINFORWISDOM_STATE_ROOT).
+STATE_ROOT="$("$PYTHON" -c 'from pipeline.runtime import STATE_ROOT; print(STATE_ROOT)')"
+AUDIT_JSONL="$STATE_ROOT/reports/research-audit-${TODAY}.jsonl"
 
 echo "[augment-timer] $(date -Iseconds) start"
 echo "[augment-timer] refreshing audit -> $AUDIT_JSONL"

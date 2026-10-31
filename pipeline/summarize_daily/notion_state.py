@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from pipeline.notion_client import get_client
-from pipeline.runtime import PROJECT_ROOT
+from pipeline.runtime import STATE_ROOT
 
 
 NOTION_PACING_S = 0.5
@@ -24,7 +24,7 @@ def mark_summarized(
 ) -> tuple[int, List[Dict[str, str]]]:
     """Returns (ok_count, errors). errors = [{'page_id': ..., 'error': ...}]."""
     client = get_client()
-    rel = cluster_dir.relative_to(PROJECT_ROOT)
+    rel = cluster_dir.relative_to(STATE_ROOT)
     errors: List[Dict[str, str]] = []
     ok = 0
     for r in rows:

@@ -40,6 +40,17 @@ def canonical_project_root(root: Optional[Path] = None) -> Path:
     return resolved
 
 
+def state_root() -> Path:
+    """Root of mutable state (.env, books/, briefs/, reports/, vault reads).
+
+    `PAINFORWISDOM_STATE_ROOT` lets the tag-pinned live checkout run code
+    while state stays in the dev folder; defaults to `canonical_project_root()`.
+    """
+    override = os.environ.get("PAINFORWISDOM_STATE_ROOT", "").strip()
+    return Path(override).expanduser().resolve() if override else canonical_project_root()
+
+
+STATE_ROOT = state_root()
 AGENTS_DIR = PROJECT_ROOT / "pipeline" / "agents"
 PROCESSED_ROOT = PROJECT_ROOT / "processed"
 # VAULT_PATH is overridable via env (sandbox profile points it at a parallel

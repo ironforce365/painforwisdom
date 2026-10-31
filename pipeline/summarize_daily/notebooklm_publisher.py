@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from pipeline.runtime import PROJECT_ROOT
+from pipeline.runtime import STATE_ROOT
 
 
 NLM_PROFILE = os.environ.get("NLM_PROFILE", "painforwisdom")
@@ -36,7 +36,7 @@ LISTENER_BIO = os.environ.get(
     "LISTENER_BIO",
     "an ultra-distance runner and father of three children whose deliberate-discomfort practice grew out of his daily life",
 )
-VAULT_DIR = PROJECT_ROOT / "obsidian-vault" / "gonzalo-book" / "entries"
+VAULT_DIR = STATE_ROOT / "obsidian-vault" / "gonzalo-book" / "entries"
 POLL_INTERVAL_S = 60
 POLL_MAX_S = 900  # 15 min — audio normally completes in ~10
 
@@ -91,7 +91,7 @@ def _run_nlm(args: List[str], timeout: int = 180) -> tuple[int, str, str]:
 
 def _read_or_create_notebook(theme: str) -> str:
     """Return notebook_id. Persists at briefs/<theme>/.notebooklm-id."""
-    theme_dir = PROJECT_ROOT / "briefs" / theme
+    theme_dir = STATE_ROOT / "briefs" / theme
     id_file = theme_dir / ".notebooklm-id"
     if id_file.exists():
         return id_file.read_text().strip()

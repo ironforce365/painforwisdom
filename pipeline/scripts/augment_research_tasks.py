@@ -42,14 +42,16 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from dotenv import load_dotenv
 
-load_dotenv(PROJECT_ROOT / ".env")
+from pipeline.runtime import STATE_ROOT  # noqa: E402
+
+load_dotenv(STATE_ROOT / ".env")
 
 from pipeline.banned_sources import is_banned  # noqa: E402
 from pipeline.llm import call_llm  # noqa: E402
 from pipeline.local_books import canonical_book_title, find_local_book  # noqa: E402
 from pipeline.notion_client import get_client  # noqa: E402
 from pipeline.runtime import DEFAULT_MODEL  # noqa: E402
-from pipeline.runtime import append_metric, canonical_project_root  # noqa: E402
+from pipeline.runtime import append_metric  # noqa: E402
 from pipeline.telegram import send as telegram_send  # noqa: E402
 from pipeline.zlibrary_bridge import (  # noqa: E402
     BookFailure,
@@ -58,8 +60,8 @@ from pipeline.zlibrary_bridge import (  # noqa: E402
     get_download_limits as zlib_get_limits,
 )
 
-AUGMENT_LOG_PATH = PROJECT_ROOT / "reports" / "augment-runs.jsonl"
-AUGMENT_FAILURES_DIR = PROJECT_ROOT / "reports"
+AUGMENT_LOG_PATH = STATE_ROOT / "reports" / "augment-runs.jsonl"
+AUGMENT_FAILURES_DIR = STATE_ROOT / "reports"
 
 
 COST_PER_ROW_FORECAST = 0.05
@@ -73,7 +75,7 @@ NOTION_PACING_S = 0.5
 EXTRACTED_BOOKS_DIR = Path(
     os.environ.get(
         "PAINFORWISDOM_BOOKS_EXTRACTED",
-        str(canonical_project_root() / "books" / "extracted"),
+        str(STATE_ROOT / "books" / "extracted"),
     )
 )
 
@@ -283,7 +285,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--audit-jsonl",
         type=Path,
-        default=PROJECT_ROOT / "reports" / "research-audit-2026-05-09.jsonl",
+        default=STATE_ROOT / "reports" / "research-audit-2026-05-09.jsonl",
         help="Path to Phase 0 audit JSONL.",
     )
     parser.add_argument("--limit", type=int, default=None, help="Process at most N rows.")
