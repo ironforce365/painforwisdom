@@ -1,0 +1,3 @@
+{"ts": 1793354401.0, "node": "extract", "event": "start", "attempt": 1}
+{"ts": 1793354413.0, "node": "extract", "event": "end", "attempt": 1, "duration_s": 12.0, "noop": false, "outputs": {}}
+{"ts": 1793354413.4, "node": "kb_curator", "event": "start", "attempt": 1}

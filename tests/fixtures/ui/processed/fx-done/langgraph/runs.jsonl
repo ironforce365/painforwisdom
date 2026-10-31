@@ -1,0 +1,10 @@
+{"ts": "2026-10-30T00:00:13", "stage": "extract", "duration_s": 12.0, "model": "claude-sonnet-5-5", "input_tokens": 2200, "output_tokens": 440, "cache_read_tokens": 0, "cache_creation_tokens": 2081, "cost_usd": 0.012, "quality": "Strong"}
+{"ts": "2026-10-30T00:00:15", "stage": "extract-image", "duration_s": 2.0, "frame": "featured.png"}
+{"ts": "2026-10-30T00:00:16", "stage": "youtube-upload", "duration_s": 2.5, "skipped": true, "reason": "dormant"}
+{"ts": "2026-10-30T00:03:15", "stage": "kb-curator", "duration_s": 62.0, "llm_calls": 2, "approvals": 1, "total_cost_usd": 0.31, "per_call": [{"duration_s": 7.0, "input_tokens": 7400, "output_tokens": 150, "cache_read_tokens": 0, "cache_creation_tokens": 4500, "cost_usd": 0.11, "phase": "initial"}, {"duration_s": 55.0, "input_tokens": 7700, "output_tokens": 3800, "cache_read_tokens": 4500, "cache_creation_tokens": 0, "cost_usd": 0.2, "phase": "resume_1"}]}
+{"ts": "2026-10-30T00:03:33", "stage": "writer", "duration_s": 17.5, "model": "claude-sonnet-5-5", "input_tokens": 4260, "output_tokens": 657, "cache_read_tokens": 0, "cache_creation_tokens": 3058, "cost_usd": 0.025, "word_count": 517, "title": "the trail that used to beat me"}
+{"ts": "2026-10-30T00:03:36", "stage": "notion-blog", "duration_s": 2.6, "page_id": "fx-blog-1", "page_url": "https://www.notion.so/fx-blog-1", "body_blocks": 12}
+{"ts": "2026-10-30T00:03:40", "stage": "wordpress-draft", "duration_s": 3.0, "skipped": true, "reason": "dormant"}
+{"ts": "2026-10-30T00:04:43", "stage": "research", "duration_s": 87.0, "model": "claude-sonnet-5-5", "input_tokens": 51000, "output_tokens": 3300, "cache_read_tokens": 38000, "cache_creation_tokens": 12500, "cost_usd": 0.4, "rows_count": 2}
+{"ts": "2026-10-30T00:04:55", "stage": "notion-research", "duration_s": 11.5, "rows_in": 2, "created": 2, "failed": 0, "page_ids": ["fx-res-1", "fx-res-2"]}
+{"ts": "2026-10-30T00:04:57", "stage": "summarizer", "duration_s": 1.1, "verdict": "PASS", "checks": 20, "failures": 0, "telegram_delivered": true}

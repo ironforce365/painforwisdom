@@ -1,0 +1,3 @@
+# Extraction
+
+**Quality:** Strong

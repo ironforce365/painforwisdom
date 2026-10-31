@@ -1,0 +1,3 @@
+{"ts": 1793430000.5, "node": "transcribe", "event": "start", "attempt": 1}
+{"ts": 1793430030.5, "node": "transcribe", "event": "end", "attempt": 1, "duration_s": 30.0, "noop": false, "outputs": {"transcript_path": "/nonexistent/painforwisdom-fixtures/bulk/transcript_2026-10-31.txt"}}
+{"ts": 1793430031.0, "node": "extract", "event": "start", "attempt": 1}

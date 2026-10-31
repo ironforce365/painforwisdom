@@ -1,0 +1,34 @@
+{"ts": 1793343601.0, "node": "extract", "event": "start", "attempt": 1}
+{"ts": 1793343613.0, "node": "extract", "event": "end", "attempt": 1, "duration_s": 12.0, "noop": false, "outputs": {"extraction_path": "/nonexistent/painforwisdom-fixtures/fx-done/extraction_report.md"}}
+{"ts": 1793343613.5, "node": "extract_image", "event": "start", "attempt": 1}
+{"ts": 1793343615.5, "node": "extract_image", "event": "end", "attempt": 1, "duration_s": 2.0, "noop": false, "outputs": {}}
+{"ts": 1793343613.6, "node": "youtube_upload", "event": "start", "attempt": 1}
+{"ts": 1793343616.1, "node": "youtube_upload", "event": "end", "attempt": 1, "duration_s": 2.5, "noop": false, "outputs": {"youtube_metadata_path": "/nonexistent/painforwisdom-fixtures/fx-done/metadata.json"}}
+{"ts": 1793343616.5, "node": "bv_youtube", "event": "start", "attempt": 1}
+{"ts": 1793343616.7, "node": "bv_youtube", "event": "end", "attempt": 1, "duration_s": 0.2, "noop": false, "outputs": {}}
+{"ts": 1793343616.8, "node": "summarizer", "event": "start", "attempt": 1}
+{"ts": 1793343616.9, "node": "summarizer", "event": "end", "attempt": 1, "duration_s": 0.1, "noop": true, "outputs": {}}
+{"ts": 1793343613.4, "node": "kb_curator", "event": "start", "attempt": 1}
+{"ts": 1793343620.0, "node": "kb_curator", "event": "paused", "attempt": 1}
+{"ts": 1793343740.0, "node": "kb_curator", "event": "start", "attempt": 2}
+{"ts": 1793343795.0, "node": "kb_curator", "event": "end", "attempt": 2, "duration_s": 55.0, "noop": false, "outputs": {"vault_entry_path": "/nonexistent/painforwisdom-fixtures/obsidian-vault/entries/2026-10-30.md"}}
+{"ts": 1793343795.5, "node": "pre_validator", "event": "start", "attempt": 1}
+{"ts": 1793343796.0, "node": "pre_validator", "event": "end", "attempt": 1, "duration_s": 0.5, "noop": false, "outputs": {}}
+{"ts": 1793343796.2, "node": "writer", "event": "start", "attempt": 1}
+{"ts": 1793343813.7, "node": "writer", "event": "end", "attempt": 1, "duration_s": 17.5, "noop": false, "outputs": {"blog_post_path": "/nonexistent/painforwisdom-fixtures/fx-done/blog_post.md"}}
+{"ts": 1793343796.3, "node": "research", "event": "start", "attempt": 1}
+{"ts": 1793343883.3, "node": "research", "event": "end", "attempt": 1, "duration_s": 87.0, "noop": false, "outputs": {"research_report_path": "/nonexistent/painforwisdom-fixtures/fx-done/research_report.csv"}}
+{"ts": 1793343814.0, "node": "notion_blog", "event": "start", "attempt": 1}
+{"ts": 1793343816.6, "node": "notion_blog", "event": "end", "attempt": 1, "duration_s": 2.6, "noop": false, "outputs": {}}
+{"ts": 1793343817.0, "node": "wordpress_draft", "event": "start", "attempt": 1}
+{"ts": 1793343820.0, "node": "wordpress_draft", "event": "end", "attempt": 1, "duration_s": 3.0, "noop": false, "outputs": {}}
+{"ts": 1793343820.5, "node": "bv_wordpress", "event": "start", "attempt": 1}
+{"ts": 1793343820.8, "node": "bv_wordpress", "event": "end", "attempt": 1, "duration_s": 0.3, "noop": false, "outputs": {}}
+{"ts": 1793343821.0, "node": "summarizer", "event": "start", "attempt": 2}
+{"ts": 1793343821.1, "node": "summarizer", "event": "end", "attempt": 2, "duration_s": 0.1, "noop": true, "outputs": {}}
+{"ts": 1793343884.0, "node": "notion_research", "event": "start", "attempt": 1}
+{"ts": 1793343895.5, "node": "notion_research", "event": "end", "attempt": 1, "duration_s": 11.5, "noop": false, "outputs": {}}
+{"ts": 1793343896.0, "node": "bv_research", "event": "start", "attempt": 1}
+{"ts": 1793343896.4, "node": "bv_research", "event": "end", "attempt": 1, "duration_s": 0.4, "noop": false, "outputs": {}}
+{"ts": 1793343896.6, "node": "summarizer", "event": "start", "attempt": 3}
+{"ts": 1793343897.7, "node": "summarizer", "event": "end", "attempt": 3, "duration_s": 1.1, "noop": false, "outputs": {}}
