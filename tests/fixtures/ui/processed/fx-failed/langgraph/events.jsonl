@@ -1,0 +1,18 @@
+{"ts": 1793350801.0, "node": "extract", "event": "start", "attempt": 1}
+{"ts": 1793350813.0, "node": "extract", "event": "end", "attempt": 1, "duration_s": 12.0, "noop": false, "outputs": {}}
+{"ts": 1793350813.4, "node": "kb_curator", "event": "start", "attempt": 1}
+{"ts": 1793350813.5, "node": "extract_image", "event": "start", "attempt": 1}
+{"ts": 1793350813.6, "node": "youtube_upload", "event": "start", "attempt": 1}
+{"ts": 1793350815.5, "node": "extract_image", "event": "end", "attempt": 1, "duration_s": 2.0, "noop": false, "outputs": {}}
+{"ts": 1793350816.1, "node": "youtube_upload", "event": "end", "attempt": 1, "duration_s": 2.5, "noop": false, "outputs": {}}
+{"ts": 1793350816.5, "node": "bv_youtube", "event": "start", "attempt": 1}
+{"ts": 1793350816.7, "node": "bv_youtube", "event": "end", "attempt": 1, "duration_s": 0.2, "noop": false, "outputs": {}}
+{"ts": 1793350863.4, "node": "kb_curator", "event": "end", "attempt": 1, "duration_s": 50.0, "noop": false, "outputs": {}}
+{"ts": 1793350864.0, "node": "pre_validator", "event": "start", "attempt": 1}
+{"ts": 1793350864.5, "node": "pre_validator", "event": "end", "attempt": 1, "duration_s": 0.5, "noop": false, "outputs": {}}
+{"ts": 1793350865.0, "node": "writer", "event": "start", "attempt": 1}
+{"ts": 1793350865.1, "node": "research", "event": "start", "attempt": 1}
+{"ts": 1793350882.0, "node": "writer", "event": "end", "attempt": 1, "duration_s": 17.0, "noop": false, "outputs": {}}
+{"ts": 1793350883.0, "node": "notion_blog", "event": "start", "attempt": 1}
+{"ts": 1793350885.5, "node": "notion_blog", "event": "end", "attempt": 1, "duration_s": 2.5, "noop": false, "outputs": {}}
+{"ts": 1793350950.0, "node": "research", "event": "error", "attempt": 1, "error": "RuntimeError: research agent returned no rows"}

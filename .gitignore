@@ -1,5 +1,7 @@
 bulk-ingestion-up-to-feb-27/
 processed/
+# Console UI fixture runs (C6) are committed.
+!tests/fixtures/ui/processed/
 .DS_Store*
 .env
 .env.sandbox

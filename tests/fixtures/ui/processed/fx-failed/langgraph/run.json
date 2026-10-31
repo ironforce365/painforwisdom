@@ -1,0 +1,15 @@
+{
+  "run_id": "fx-failed",
+  "status": "failed",
+  "verdict": null,
+  "pid": 0,
+  "profile": "sandbox",
+  "input": {
+    "kind": "transcript",
+    "path": "/nonexistent/painforwisdom-fixtures/inbox/transcript_2026-10-30.txt"
+  },
+  "started_at": 1793350800.0,
+  "ended_at": 1793350951.0,
+  "hitl_wait_s": 0.0,
+  "error": "RuntimeError: research agent returned no rows"
+}

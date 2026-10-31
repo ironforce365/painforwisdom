@@ -1,0 +1,15 @@
+{
+  "run_id": "fx-running",
+  "status": "running",
+  "verdict": null,
+  "pid": 0,
+  "profile": "sandbox",
+  "input": {
+    "kind": "video",
+    "path": "/nonexistent/painforwisdom-fixtures/inbox/PXL_20261031_070000000.mp4"
+  },
+  "started_at": 1793430000.0,
+  "ended_at": null,
+  "hitl_wait_s": 0.0,
+  "error": null
+}
