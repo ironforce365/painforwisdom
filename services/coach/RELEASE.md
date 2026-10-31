@@ -1,16 +1,18 @@
 # Coach release process
 
-Mirrors the `auto_heycrypto` model (separate release branch per minor version,
-semver tags, scripted deploy to a stable live checkout), adapted to the coach's
-docker-compose stack.
+Same model as Jarvis OS `scripts/shipit.sh`: code reaches `main` only through a
+reviewed PR; shipping cuts a release from a commit already on `origin/main`,
+bumps the version on its own release branch (main is never bumped), and deploys
+from origin.
 
 ## Concepts
 
-- **Release branch:** `release/X.Y.x`, cut from `origin/main` once per minor
-  version (e.g. `release/0.1.x`). Patches for a shipped line land here.
-- **Tag:** `vX.Y.Z` (matches `services/coach/pyproject.toml` `version`). A tag is
-  only deployable if it is reachable from its `release/X.Y.x` branch (the **G4
-  gate** in `deploy-live.sh`).
+- **Tag:** `vX.Y.Z`. The next version derives from the latest `v*` tag, not from
+  `services/coach/pyproject.toml` on main.
+- **Release branch:** `release/X.Y.Z`, one per version, cut from the shipped
+  commit. It carries a single extra commit: the pyproject version bump, which the
+  tag points at. `deploy-live.sh` refuses a tag not reachable from an
+  `origin/release/*` branch (the **G4 gate**).
 - **LIVE_DIR:** a stable checkout the prod stack runs from, decoupled from any
   dev worktree. Default `$HOME/workspace/painforwisdom-live` (override with
   `COACH_LIVE_DIR`). Holds the gitignored `services/coach/.env.coach`.
@@ -19,45 +21,34 @@ docker-compose stack.
   default `/home/gonzalo/.coach-state/access.json`) and the vault bind
   (`VAULT_HOST_PATH`). The `SessionMap` is in-memory by design — no snapshot.
 
-## Deploy a tag
+## Ship a new version
+
+Land the change on `main` via PR, then from a clean checkout of `origin/main`:
 
 ```bash
-services/coach/scripts/deploy-live.sh v0.1.2
+services/coach/scripts/ship-it.sh                  # patch bump (v0.1.15 -> v0.1.16)
+services/coach/scripts/ship-it.sh minor            # or major, or an explicit 0.2.0
+services/coach/scripts/ship-it.sh --base <40-char sha>  # ship that origin/main commit
+services/coach/scripts/ship-it.sh --dry-run        # print the plan, change nothing
+```
+
+Or the `/coach-ship-it` skill. `ship-it.sh` cuts `release/X.Y.Z`, bumps and tags
+it in a throwaway worktree, pushes branch + tag, publishes a GitHub release with
+the commits since the previous tag (best-effort), runs `deploy-live.sh vX.Y.Z`,
+and sends a Telegram COMPLETE/FAILED alert via `notify_telegram.sh` (reads
+`TELEGRAM_COACH_BOT_TOKEN` + `TELEGRAM_COACH_ALERT_CHAT_ID`; silent no-op if
+unset). Dirty `OPERATION.md`, `ASSUMPTIONS.md`, `.claude/settings.json` and
+`.serena/project.yml` do not block; any other tracked change does.
+
+## Deploy an existing tag
+
+```bash
+services/coach/scripts/deploy-live.sh v0.1.16
 ```
 
 Fetches the tag into `COACH_LIVE_DIR`, checks the G4 gate, `docker compose build
-&& up -d` (project `coach`), waits for `/health`.
+&& up -d` (project `coach`), waits for `/health`. Use this, never `ship-it.sh`,
+when a ship died after its tag was pushed.
 
 Emergency rollback to a pre-release tag: `DEPLOY_FORCE_LEGACY=1 deploy-live.sh <tag>`.
-
-## Cut a new release line (manual until cut-release.sh lands)
-
-```bash
-git fetch origin
-git branch release/0.1.x origin/main
-git push origin release/0.1.x
-# then protect the branch (require PR review) via the GitHub API / settings
-```
-
-## Ship a new version
-
-Land the change normally, then ship:
-
-1. Bump `services/coach/pyproject.toml` `version`, PR to `main`, and forward the
-   bump onto `release/X.Y.x` (the tag's V gate enforces they match).
-2. `services/coach/scripts/ship-it.sh vX.Y.Z` — or the `/coach-ship-it` skill,
-   which prompts for the tag, cuts the release branch if missing, confirms, then
-   runs the script.
-
-`ship-it.sh` tags the tip of `release/X.Y.x` (gates: G1 semver, lockfile, G2
-GitHub-remote, G3 release-branch-exists, G4 tag-reachable-from-release, V
-version==tag, T tag-not-present), pushes the tag, runs `deploy-live.sh`, and
-sends a Telegram COMPLETE/FAILED alert via `notify_telegram.sh` (reads
-`TELEGRAM_COACH_BOT_TOKEN` + `TELEGRAM_COACH_ALERT_CHAT_ID`; silent no-op if unset).
-
-Cut a new minor line with `scripts/cut-release.sh X.Y` (idempotent; prints the
-GitHub branch-protection command to run once).
-
-Test the gates without shipping: `COACH_SHIPIT_DRY_RUN=1 ship-it.sh vX.Y.Z`
-(exits after G1/G2 + lock); `COACH_NOTIFY_DRY_RUN=1` makes the notifier print
-instead of calling Telegram.
+`COACH_NOTIFY_DRY_RUN=1` makes the notifier print instead of calling Telegram.

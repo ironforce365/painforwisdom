@@ -1,172 +1,179 @@
 #!/usr/bin/env bash
-# ship-it.sh <vX.Y.Z>
+# ship-it.sh — cut a coach release from ALREADY-merged main and deploy it to the live
+# docker stack. Ports Jarvis OS scripts/shipit.sh (agentic_os); see RELEASE.md.
 #
-# Tag a coach release from the tip of its release/X.Y.x branch, push it, and
-# deploy it to the live docker stack via deploy-live.sh. Mirrors
-# auto_heycrypto/scripts/ship-it.sh, minus the trading-session snapshot/restore
-# (the coach has no durable per-user session state — see RELEASE.md).
+#   1. Clean tree; the shipped commit is on origin/main (HEAD itself without --base).
+#      Version = next after the latest vX.Y.Z tag — main's pyproject is never bumped.
+#   2. Cut release/X.Y.Z from that commit.
+#   3. Bump services/coach/pyproject.toml + commit + annotated tag vX.Y.Z ON the release
+#      branch, in a throwaway worktree so the shared checkout never moves.
+#   4. Push branch + tag to origin, then publish a GitHub release whose notes list what
+#      main gained since the previous tag (best-effort).
+#   5. deploy-live.sh vX.Y.Z: LIVE_DIR fetches the tag from origin, docker compose
+#      build + up -d, waits for /health.
+#   6. Notify Telegram (best-effort).
 #
-#   Usage: ./scripts/ship-it.sh v0.1.3
+# Usage:
+#   ship-it.sh                  # patch bump from the latest v* tag
+#   ship-it.sh X.Y.Z            # explicit version
+#   ship-it.sh patch|minor|major
+#   ship-it.sh --base <sha>     # ship THAT origin/main commit (full 40-char sha), not HEAD
+#   ship-it.sh --dry-run [...]  # print what would happen, change nothing
 #
-# Gates (refuse-by-default):
-#   G1  tag is strict semver vX.Y.Z
-#   lock  only one ship-it at a time (/tmp/coach-ship-it.lock)
-#   G2  release/ prefix requires a GitHub remote
-#   G3  release/X.Y.x must exist on the remote
-#   G4  the commit being tagged must be reachable from release/X.Y.x
-#   V   pyproject.toml version at that commit must equal the tag (minus the 'v')
-#   T   tag must not already exist (local or remote)
-#
-# Env overrides (defaults preserve production behaviour):
-#   COACH_SHIPIT_REMOTE          origin
-#   COACH_SHIPIT_RELEASE_PREFIX  release/
-#   COACH_SHIPIT_DEPLOY_OVERRIDE <scriptdir>/deploy-live.sh
-#   COACH_SHIPIT_NOTIFY_OVERRIDE <scriptdir>/notify_telegram.sh
-#   COACH_SHIPIT_LOCK_PATH       /tmp/coach-ship-it.lock
-#   COACH_SHIPIT_NOPUSH=1        keep tag local, skip push (testing)
-#   COACH_SHIPIT_DRY_RUN=1       exit cleanly after G1/G2 + lock (testing)
-
+# Env overrides (tests):
+#   COACH_SHIPIT_DEPLOY_OVERRIDE  <scriptdir>/deploy-live.sh
+#   COACH_SHIPIT_NOTIFY_OVERRIDE  <scriptdir>/notify_telegram.sh
+#   COACH_SHIPIT_LOCK_PATH        /tmp/coach-ship-it.lock
 set -euo pipefail
 
-RED='\033[0;31m'; YELLOW='\033[1;33m'; GREEN='\033[0;32m'; NC='\033[0m'
-info()  { echo -e "${GREEN}[ship-it]${NC} $*"; }
-warn()  { echo -e "${YELLOW}[warn]${NC}    $*"; }
-error() { echo -e "${RED}[error]${NC}   $*" >&2; }
+DRY_RUN=0
+BASE_SHA=""
+BUMP_OR_VERSION=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --dry-run) DRY_RUN=1 ;;
+    --base)    shift; BASE_SHA="${1:-}" ;;
+    *) BUMP_OR_VERSION="$1" ;;
+  esac
+  shift
+done
 
-TAG="${1:-}"
-if [[ -z "$TAG" ]]; then
-    error "Usage: $0 <vX.Y.Z>   (e.g. $0 v0.1.3)"
-    exit 1
+say() { printf '\033[1;36m▶ %s\033[0m\n' "$*"; }
+run() { if [ "$DRY_RUN" = 1 ]; then printf '  [dry-run] %s\n' "$*"; else eval "$*"; fi; }
+die() { printf '\033[1;31m✗ %s\033[0m\n' "$*" >&2; exit 1; }
+
+# An abbreviation names one commit today and can name another later.
+if [ -n "$BASE_SHA" ] && { [ "${#BASE_SHA}" != 40 ] || [ -n "${BASE_SHA//[0-9a-f]/}" ]; }; then
+  die "--base takes a full 40-character sha, not '$BASE_SHA'"
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"
+cd "$REPO"
 DEPLOY_SCRIPT="${COACH_SHIPIT_DEPLOY_OVERRIDE:-$SCRIPT_DIR/deploy-live.sh}"
 TELEGRAM_SCRIPT="${COACH_SHIPIT_NOTIFY_OVERRIDE:-$SCRIPT_DIR/notify_telegram.sh}"
-REMOTE="${COACH_SHIPIT_REMOTE:-origin}"
-RELEASE_PREFIX="${COACH_SHIPIT_RELEASE_PREFIX:-release/}"
-NOPUSH="${COACH_SHIPIT_NOPUSH:-0}"
 LOCK_PATH="${COACH_SHIPIT_LOCK_PATH:-/tmp/coach-ship-it.lock}"
-LOCK_STALE_MIN=30
+PYPROJECT="services/coach/pyproject.toml"
 
-notify() { [[ -x "$TELEGRAM_SCRIPT" ]] && "$TELEGRAM_SCRIPT" "$1" || true; }
+notify() { if [ "$DRY_RUN" = 1 ]; then printf '  [dry-run] notify: %s\n' "$1"; else
+           [ -x "$TELEGRAM_SCRIPT" ] && "$TELEGRAM_SCRIPT" "$1" || true; fi; }
 
-# --- G1: strict semver -----------------------------------------------------
-if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    error "G1 FAIL: tag '$TAG' is not strict semver vX.Y.Z."
-    exit 1
-fi
-
-# --- lock ------------------------------------------------------------------
-_maybe_clear_stale_lock() {
-    [[ -f "$LOCK_PATH" ]] || return 0
-    local pid; pid="$(head -n1 "$LOCK_PATH" 2>/dev/null | tr -dc '0-9' || true)"
-    [[ -z "$pid" ]] && return 0
-    kill -0 "$pid" 2>/dev/null && return 0
-    local now ts age; now="$(date +%s)"; ts="$(stat -c %Y "$LOCK_PATH" 2>/dev/null || echo "$now")"
-    age=$(( (now - ts) / 60 ))
-    if (( age >= LOCK_STALE_MIN )); then
-        warn "Clearing stale lock $LOCK_PATH (pid=$pid dead, age=${age}m)."
-        rm -f "$LOCK_PATH" || true
-    fi
-}
-_maybe_clear_stale_lock
+# --- lock: one ship at a time ---------------------------------------------------
 exec 9>"$LOCK_PATH"
-if ! flock -n 9; then
-    error "ship-it REFUSED: another ship-it holds $LOCK_PATH."
-    notify "<b>ship-it $TAG REFUSED</b>%0AAnother ship-it is already in flight (lock held)."
-    exit 99
-fi
-echo "$$" >&9
+flock -n 9 || die "another ship-it holds $LOCK_PATH"
 
-# --- G2: remote URL pin ----------------------------------------------------
-REMOTE_URL="$(git remote get-url "$REMOTE" 2>/dev/null || true)"
-if [[ "$RELEASE_PREFIX" == "release/" ]]; then
-    if [[ ! "$REMOTE_URL" =~ ^(git@github\.com:|https://github\.com/) ]]; then
-        error "G2 FAIL: release/ prefix requires \$REMOTE to point at GitHub (got '$REMOTE_URL')."
-        exit 1
-    fi
-fi
+# --- 1. preconditions -----------------------------------------------------------
+# Files Jarvis/Serena rewrite in managed checkouts: not authored edits, never a release
+# input (release is cut from a sha and deployed from origin), so they do not block.
+OS_MANAGED_PATHS=(OPERATION.md ASSUMPTIONS.md .claude/settings.json .serena/project.yml)
+BLOCKING=()
+while IFS= read -r p; do
+  [ -n "$p" ] || continue
+  listed=0
+  for m in "${OS_MANAGED_PATHS[@]}"; do [ "$p" = "$m" ] && listed=1; done
+  if [ "$listed" = 1 ]; then say "ignoring OS-managed dirty file: $p"; else BLOCKING+=("$p"); fi
+done < <({ git -c core.quotePath=false diff --ignore-submodules=dirty --name-only
+           git -c core.quotePath=false diff --ignore-submodules=dirty --cached --name-only; } | sort -u)
+[ "${#BLOCKING[@]}" -eq 0 ] || die "tracked changes present — releases are cut from a clean, already-merged main:
+$(printf '     %s\n' "${BLOCKING[@]}")"
+[ -x "$DEPLOY_SCRIPT" ] || die "deploy script not found/executable: $DEPLOY_SCRIPT"
 
-# --- test dry-run exit (after G1/G2 + lock) --------------------------------
-if [[ "${COACH_SHIPIT_DRY_RUN:-0}" == "1" ]]; then
-    info "COACH_SHIPIT_DRY_RUN_OK -- lock acquired, gates G1/G2 passed; exiting before git ops."
-    exit 0
-fi
-
-# --- G3: release branch exists ---------------------------------------------
-[[ "$TAG" =~ ^v([0-9]+)\.([0-9]+)\.[0-9]+$ ]]
-MINOR="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
-RELEASE_BRANCH="${RELEASE_PREFIX}${MINOR}.x"
-
-if [[ "$NOPUSH" != "1" ]]; then
-    info "Fetching $REMOTE (tags + branches)..."
-    git fetch --tags --prune "$REMOTE"
-fi
-
-if ! git rev-parse -q --verify "refs/remotes/$REMOTE/$RELEASE_BRANCH" >/dev/null; then
-    error "G3 FAIL: $RELEASE_BRANCH not found on $REMOTE."
-    error "  Cut it first: $SCRIPT_DIR/cut-release.sh $MINOR"
-    exit 1
-fi
-TARGET_SHA="$(git rev-parse "refs/remotes/$REMOTE/$RELEASE_BRANCH")"
-
-# --- G4: reachability ------------------------------------------------------
-if ! git branch -r --contains "$TARGET_SHA" | grep -qE "^[[:space:]]*$REMOTE/${RELEASE_PREFIX}"; then
-    error "G4 FAIL: $TARGET_SHA not reachable from any $REMOTE/${RELEASE_PREFIX}* branch."
-    exit 1
+ORIGIN_URL="$(git remote get-url origin 2>/dev/null)" \
+  || die "no 'origin' remote — git is the source of truth for releases"
+say "syncing with origin ($ORIGIN_URL)"
+git fetch origin --tags --prune --quiet || die "cannot fetch origin — releases require the remote"
+git rev-parse -q --verify refs/remotes/origin/main >/dev/null || die "origin/main not found"
+if [ -n "$BASE_SHA" ]; then
+  git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null \
+    || die "--base $BASE_SHA is not a commit in this checkout — fetch origin and pass a sha from origin/main"
+  git merge-base --is-ancestor "$BASE_SHA" origin/main \
+    || die "--base $BASE_SHA is not an ancestor of origin/main — releases are cut from already-merged main"
+elif [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
+  die "HEAD is not origin/main — land the code on main via a merged PR and pull first
+     (local $(git rev-parse --short HEAD) vs origin/main $(git rev-parse --short origin/main))"
 fi
 
-# --- V: pyproject version must equal the tag -------------------------------
-WANT_VERSION="${TAG#v}"
-GOT_VERSION="$(git show "$TARGET_SHA:services/coach/pyproject.toml" 2>/dev/null \
-    | sed -n 's/^version = "\(.*\)"/\1/p' | head -n1)"
-if [[ "$GOT_VERSION" != "$WANT_VERSION" ]]; then
-    error "V FAIL: services/coach/pyproject.toml version at $RELEASE_BRANCH is '$GOT_VERSION', tag wants '$WANT_VERSION'."
-    error "  Bump the version on $RELEASE_BRANCH (via PR to main, then forward) before tagging."
-    exit 1
-fi
+latest_tagged() {  # highest X.Y.Z among vX.Y.Z tags, empty if none
+  git tag -l 'v*' | sed -E 's/^v//' | { grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' || true; } | sort -V | tail -1
+}
+bump() {  # bump <X.Y.Z> <major|minor|patch>
+  local IFS=.; read -r ma mi pa <<<"$1"
+  case "$2" in
+    major) echo "$((ma+1)).0.0" ;;
+    minor) echo "$ma.$((mi+1)).0" ;;
+    patch) echo "$ma.$mi.$((pa+1))" ;;
+  esac
+}
+PREV="$(latest_tagged)"
+[ -n "$PREV" ] || PREV="$(sed -n 's/^version = "\(.*\)"/\1/p' "$PYPROJECT" | head -n1)"
+case "$BUMP_OR_VERSION" in
+  "")                VERSION="$(bump "$PREV" patch)" ;;
+  major|minor|patch) VERSION="$(bump "$PREV" "$BUMP_OR_VERSION")" ;;
+  *) [[ "$BUMP_OR_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+       || die "invalid version/bump: '$BUMP_OR_VERSION' (want X.Y.Z or major|minor|patch)"
+     VERSION="$BUMP_OR_VERSION" ;;
+esac
+TAG="v$VERSION"
+REL_BRANCH="release/$VERSION"
+git rev-parse -q --verify "refs/tags/$TAG" >/dev/null && die "tag $TAG already exists"
+git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1 && die "tag $TAG already exists on origin"
+git rev-parse -q --verify "refs/heads/$REL_BRANCH" >/dev/null && die "branch $REL_BRANCH already exists"
 
-# --- T: tag must not already exist -----------------------------------------
-if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
-    error "T FAIL: tag '$TAG' already exists locally. Refusing to overwrite."
-    exit 1
-fi
-if [[ "$NOPUSH" != "1" ]] && git ls-remote --exit-code --tags "$REMOTE" "refs/tags/$TAG" >/dev/null 2>&1; then
-    error "T FAIL: tag '$TAG' already exists on $REMOTE. Refusing to overwrite."
-    exit 1
-fi
+SHIP_SHA="$(git rev-parse "${BASE_SHA:-HEAD}")"
+say "Releasing coach $VERSION  (previous: v$PREV, base: ${SHIP_SHA:0:9})"
+say "  branch: $REL_BRANCH   tag: $TAG"
 
-[[ -x "$DEPLOY_SCRIPT" ]] || { error "Deploy script not found/executable: $DEPLOY_SCRIPT"; exit 1; }
+# --- 2. cut the release branch --------------------------------------------------
+run "git branch '$REL_BRANCH' '$SHIP_SHA'"
 
-cd "$REPO_DIR"
+# --- 3. bump + commit + tag on the release branch (main untouched) -------------
+if [ "$DRY_RUN" = 1 ]; then WT="<tmp-worktree>"; else WT="$(mktemp -d)"; fi
+cleanup() { [ "$DRY_RUN" != 1 ] && [ -d "${WT:-}" ] && git worktree remove --force "$WT" 2>/dev/null || true; }
+trap cleanup EXIT
+run "git worktree add --quiet '$WT' '$REL_BRANCH'"
+# awk, not GNU-only `sed -i '0,/re/…'`: replace the first version line only
+run "awk -v v='$VERSION' '!done && /^version *= *\"[^\"]+\"/ { sub(/\"[^\"]+\"/, \"\\\"\" v \"\\\"\"); done = 1 } { print }' '$WT/$PYPROJECT' > '$WT/$PYPROJECT.bumped' && mv '$WT/$PYPROJECT.bumped' '$WT/$PYPROJECT'"
+run "git -C '$WT' add '$PYPROJECT'"
+run "git -C '$WT' commit -q -m 'Release coach $TAG'"
+run "git -C '$WT' tag -a '$TAG' -m 'Coach $TAG'"
+run "git worktree remove --force '$WT'"
 
-# --- create + push tag -----------------------------------------------------
-SHORT_SHA="$(git rev-parse --short "$TARGET_SHA")"
-info "Tagging $RELEASE_BRANCH @ $SHORT_SHA as $TAG"
-git tag -a "$TAG" -m "$TAG: shipped via ship-it.sh from $RELEASE_BRANCH@$SHORT_SHA" "$TARGET_SHA"
+# --- 4. push, then publish the GitHub release ------------------------------------
+# Before deploying: LIVE_DIR fetches from origin, so an unpushed ref cannot ship.
+run "git push -q origin 'refs/heads/$REL_BRANCH:refs/heads/$REL_BRANCH'"
+run "git push -q origin 'refs/tags/$TAG'"
 
-if [[ "$NOPUSH" == "1" ]]; then
-    info "COACH_SHIPIT_NOPUSH=1: tag kept local, skipping push."
+# Tags sit on release-branch bump commits, not main, so prev-tag..ship-sha is exactly
+# what main gained since the last release.
+release_notes() {
+  local range="$SHIP_SHA"
+  git rev-parse -q --verify "refs/tags/v$PREV" >/dev/null 2>&1 && range="v$PREV..$SHIP_SHA"
+  printf "## What's changed\n\n"
+  git log --first-parent --format='- %s (%h)' "$range"
+}
+if ! command -v gh >/dev/null 2>&1; then
+  say "gh not found — $TAG gets no release page; later: gh release create $TAG --generate-notes"
 else
-    info "Pushing tag to $REMOTE..."
-    if ! git push "$REMOTE" "$TAG"; then
-        error "Push failed. Removing local tag to keep state clean."
-        git tag -d "$TAG" || true
-        exit 1
-    fi
-    info "Tag '$TAG' pushed."
+  NOTES_FILE="$(mktemp)"
+  release_notes > "$NOTES_FILE"
+  sed 's/^/    /' "$NOTES_FILE"
+  if [ "$DRY_RUN" = 1 ]; then
+    printf "  [dry-run] gh release create '%s' --title 'Coach %s' --notes-file <notes> --verify-tag\n" "$TAG" "$TAG"
+  elif timeout 60 gh release create "$TAG" --title "Coach $TAG" --notes-file "$NOTES_FILE" --verify-tag; then
+    say "release published for $TAG"
+  else
+    say "gh release create failed (non-fatal); later: gh release create $TAG --generate-notes"
+  fi
+  rm -f "$NOTES_FILE"
 fi
 
-# --- deploy ----------------------------------------------------------------
-info "Invoking deploy-live.sh $TAG..."
-if ! "$DEPLOY_SCRIPT" "$TAG"; then
-    notify "<b>ship-it $TAG FAILED</b>%0Adeploy-live.sh exited non-zero. Live coach may be down."
-    error "deploy-live.sh failed."
-    exit 1
+# --- 5. deploy (fetch from origin, build, restart, health) ----------------------
+say "deploying $TAG via $DEPLOY_SCRIPT"
+if ! run "'$DEPLOY_SCRIPT' '$TAG'"; then
+  notify "<b>ship-it $TAG FAILED</b>%0Adeploy-live.sh exited non-zero. Tag is on origin; rerun deploy-live.sh $TAG, never ship-it."
+  die "deploy-live.sh failed — rerun '$DEPLOY_SCRIPT $TAG' (the tag is already on origin)"
 fi
 
-info "--- ship-it complete ---"
-info "Tag: $TAG  ->  deployed to the live coach stack."
-notify "<b>ship-it $TAG COMPLETE</b>%0ACoach deployed from $RELEASE_BRANCH@$SHORT_SHA%0ATime: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-exit 0
+# --- 6. notify ------------------------------------------------------------------
+notify "<b>ship-it $TAG COMPLETE</b>%0ACoach deployed from $REL_BRANCH (base ${SHIP_SHA:0:9})%0ATime: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+say "shipped $TAG"

@@ -8,7 +8,7 @@
 #
 # Steps:
 #   1. Fetch + checkout the tag (detached) in COACH_LIVE_DIR.
-#   2. G4 gate: the tag must be reachable from a release/X.Y.x branch — this
+#   2. G4 gate: the tag must be reachable from a release/* branch — this
 #      blocks deploying a tag that bypassed the release line. Override with
 #      DEPLOY_FORCE_LEGACY=1 for an emergency rollback to a pre-release tag.
 #   3. docker compose build + up -d (project "coach") from
