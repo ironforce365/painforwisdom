@@ -25,8 +25,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_BOOKS_ROOT = PROJECT_ROOT / "books"
+from pipeline.runtime import STATE_ROOT
+
+DEFAULT_BOOKS_ROOT = STATE_ROOT / "books"
 
 BOOK_SUFFIXES = frozenset({".epub", ".pdf", ".txt", ".mobi", ".azw3"})
 SKIP_SUBDIRS = frozenset({"raw", "extracted"})

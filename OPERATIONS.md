@@ -200,7 +200,7 @@ The Telegram message uses the **direct audio CDN URL** (`audio_url` field return
 
 `TELEGRAM_DAILY_SUMMARY_CHAT_ID` in `.env` routes daily-summarizer messages to a dedicated channel (`daily_summary` = `-1003515954802`), so the main `content_pipeline` chat stays focused on per-transcript pipeline progress. If unset, daily messages fall back to `TELEGRAM_CHAT_ID`. The bot must be a member of the channel with post permission before this works.
 
-Unit files: `~/.config/systemd/user/painforwisdom-daily-brief.{service,timer}`.
+Unit files: source in `pipeline/systemd/`, installed to `~/.config/systemd/user/` by `pipeline/scripts/install-pipeline-units.sh`. Both units run code from the tag-pinned `~/workspace/painforwisdom-live` (moved by the coach ship, `services/coach/scripts/deploy-live.sh`) with `PAINFORWISDOM_STATE_ROOT` = dev folder, so `.env`, `books/`, `briefs/`, `reports/` and vault reads stay there.
 
 ### Inspect
 

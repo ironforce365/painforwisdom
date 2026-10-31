@@ -24,9 +24,10 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from dotenv import load_dotenv
 
-load_dotenv(PROJECT_ROOT / ".env")
+from pipeline.runtime import STATE_ROOT, append_metric  # noqa: E402
 
-from pipeline.runtime import append_metric  # noqa: E402
+load_dotenv(STATE_ROOT / ".env")
+
 from pipeline.summarize_daily.brief_writer import write_brief  # noqa: E402
 from pipeline.summarize_daily.clusterer import (  # noqa: E402
     Cluster,
@@ -38,7 +39,7 @@ from pipeline.summarize_daily.fetcher import FetchError  # noqa: E402
 from pipeline.summarize_daily.notion_state import mark_summarized  # noqa: E402
 
 
-DAILY_LOG = PROJECT_ROOT / "reports" / "daily-summarizer-runs.jsonl"
+DAILY_LOG = STATE_ROOT / "reports" / "daily-summarizer-runs.jsonl"
 
 
 def _daily_chat_id() -> str | None:
@@ -165,7 +166,7 @@ def _run_one_brief(
     sub_slug_for_vault = cluster_dir.name.split("--", 1)[-1] if "--" in cluster_dir.name else cluster_dir.name
     today_for_vault = cluster_dir.name.split("--", 1)[0] if "--" in cluster_dir.name else ""
     vault_brief_dir = (
-        PROJECT_ROOT / "obsidian-vault" / "gonzalo-book" / "deep-dive"
+        STATE_ROOT / "obsidian-vault" / "gonzalo-book" / "deep-dive"
         / cluster.theme / f"{today_for_vault}--{sub_slug_for_vault}"
         if today_for_vault else None
     )
@@ -204,7 +205,7 @@ def _run_one_brief(
         slide_deck_path=visuals.get("slide_deck", ""),
         mindmap_path=visuals.get("mind_map", ""),
         infographic_path=visuals.get("infographic", ""),
-        cluster_dir=str(cluster_dir.relative_to(PROJECT_ROOT)),
+        cluster_dir=str(cluster_dir.relative_to(STATE_ROOT)),
     )
     return 0, consumed_page_ids
 
@@ -364,7 +365,7 @@ def _send_telegram(
     if notebooklm_url:
         lines.append(f'🎧 <a href="{notebooklm_url}">Listen</a>')
     else:
-        lines.append(f"Cluster dir: <code>{_esc(str(cluster_dir.relative_to(PROJECT_ROOT)))}</code>")
+        lines.append(f"Cluster dir: <code>{_esc(str(cluster_dir.relative_to(STATE_ROOT)))}</code>")
     # Companion visuals live in the same NotebookLM studio panel as the audio,
     # so a single tap on Listen surfaces all of them. The line below is a status
     # indicator — it tells Gonzalo which artifacts to expect when he opens the
@@ -381,7 +382,7 @@ def _send_telegram(
         lines.append(" + ".join(visual_indicators) + " in the same notebook")
     if vault_dir is not None:
         try:
-            vault_rel = vault_dir.relative_to(PROJECT_ROOT)
+            vault_rel = vault_dir.relative_to(STATE_ROOT)
         except ValueError:
             vault_rel = vault_dir
         lines.append(f"📁 Vault: <code>{_esc(str(vault_rel))}</code>")
