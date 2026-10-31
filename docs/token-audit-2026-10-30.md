@@ -60,10 +60,13 @@ C4. **`autoMode.environment` block** (~3 KB) is stale ("no remotes configured", 
 ## D. Jarvis OS (separate project, report only)
 
 D1. Per-WO prompt plus house style plus Serena/navigation sections are ~3-4k tokens per session. The prompt duplicates parts of the contract that `jarvis brief` already serves on demand.
+  - Resolution (wo-81acd622): filed https://github.com/gonandrap/agentic_os/issues/1368 (no duplicate found). Measured: worker prompt 11,448 chars, of which 7,380 (64%) restate `jarvis brief` contract/navigation/knowledge; house-style block ~2.7k chars more (estimated).
 
 D2. The "say in a few words what you're doing" nudge forces extra assistant turns. Each one re-reads the full context.
+  - Resolution (wo-81acd622): filed https://github.com/gonandrap/agentic_os/issues/1369 (no duplicate found). Measured over 11 recent WO transcripts: ~3 nudges per session; 4 of 17 replies were separate text-only calls, the rest rode on the next tool call; ~73k-token mean context at nudged turns. Partly wrong: string is absent from Jarvis source, likely Claude Code's own reminder; issue asks Jarvis to suppress it for workers.
 
 D3. The `.claude/settings.json` hook `$comment` fields are large, but they are not sent to the model. No cost.
+  - Resolution (wo-81acd622): skipped, not sent to the model.
 
 ## E. Runtime (not the Claude Code harness, out of scope, noted)
 
