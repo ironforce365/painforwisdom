@@ -1,0 +1,207 @@
+/* Console shell and DAG (spec 2026-10-31-pipeline-console-ui §6). Each state has a static cue besides colour and motion. */
+:root {
+  --bg: #0f1218;
+  --surface: #171b23;
+  --surface-2: #202633;
+  --line: #2c3341;
+  --muted: #6b7486;
+  --text: #d9dee8;
+  --run: #5aa9ff;
+  --pause: #f2b33d;
+  --done: #3ecf8e;
+  --error: #ff5d5d;
+  --crash: #b07cff;
+  --r: 24px;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; margin: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.4 system-ui, sans-serif;
+  display: flex;
+  flex-direction: column;
+}
+
+.icon {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ---- header ---- */
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 48px;
+  padding: 0 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+.logo { display: inline-flex; color: var(--run); }
+.logo .icon { width: 26px; height: 26px; }
+.slot-launch { margin-left: auto; display: flex; align-items: center; }
+.badge-error {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--error) 18%, transparent);
+  color: var(--error);
+  border: 1px solid var(--error);
+}
+.badge-error[hidden] { display: none; }
+
+/* ---- layout ---- */
+.layout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr);
+}
+
+/* ---- run list ---- */
+.runs {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 0;
+  overflow-y: auto;
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+}
+.run {
+  --c: var(--muted);
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 2px solid var(--c);
+  background: color-mix(in srgb, var(--c) 22%, var(--surface));
+  color: var(--c);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  cursor: pointer;
+  transition: transform .2s, box-shadow .2s, border-color .3s, background .3s;
+}
+.run:hover { transform: scale(1.08); }
+.run:focus-visible { outline: 2px solid var(--text); outline-offset: 3px; }
+.run[aria-pressed="true"] { box-shadow: 0 0 0 3px var(--bg), 0 0 0 5px var(--text); }
+.run[data-status="done"] { --c: var(--done); }
+.run[data-status="done"][data-verdict="PARTIAL"] { --c: var(--pause); }
+.run[data-status="done"][data-verdict="FAIL"],
+.run[data-status="failed"] { --c: var(--error); }
+.run[data-status="crashed"] { --c: var(--crash); }
+.run[data-status="running"] { --c: var(--run); }
+.run[data-status^="waiting_"] { --c: var(--pause); }
+.run .glyph { display: none; width: 16px; height: 16px; stroke-width: 2.6; }
+.run[data-status="done"] .glyph-done,
+.run[data-status="failed"] .glyph-failed,
+.run[data-status="crashed"] .glyph-crashed,
+.run[data-status="running"] .glyph-running,
+.run[data-status="waiting_hitl"] .glyph-waiting_hitl,
+.run[data-status="waiting_reply"] .glyph-waiting_reply { display: block; }
+.run .glyph-running { animation: spin 1s linear infinite; }
+.runs-empty { color: var(--muted); padding-top: 8px; }
+.runs-empty .icon { width: 28px; height: 28px; }
+
+/* ---- DAG ---- */
+.dag {
+  display: flex;
+  align-items: center;
+  padding: 24px;
+  overflow: auto;
+}
+/* margin:auto, not justify-content:center, so an overflowing graph scrolls from its left edge. */
+.dag-svg { margin: auto; width: 100%; min-width: 560px; max-width: 1200px; height: auto; max-height: 100%; overflow: visible; }
+
+.edge {
+  fill: none;
+  stroke: var(--line);
+  stroke-width: 2;
+  transition: stroke .4s;
+}
+.edge[data-state="done"] { stroke: color-mix(in srgb, var(--done) 45%, var(--line)); }
+.edge[data-state="error"] { stroke: color-mix(in srgb, var(--error) 55%, var(--line)); }
+.edge[data-state="paused"] { stroke: color-mix(in srgb, var(--pause) 55%, var(--line)); }
+.edge[data-state="running"] {
+  stroke: var(--run);
+  stroke-dasharray: 6 6;
+  animation: flow .6s linear infinite;
+}
+
+.node { --c: var(--muted); cursor: pointer; outline: none; }
+.node .disc {
+  fill: var(--surface-2);
+  stroke: var(--c);
+  stroke-width: 2.5;
+  transition: fill .4s, stroke .4s, opacity .4s;
+}
+.node .ring {
+  fill: none;
+  stroke: var(--c);
+  stroke-width: 2;
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: opacity .4s, stroke .4s;
+}
+.node > .icon { color: var(--c); transition: color .4s; }
+.node:hover .disc { fill: color-mix(in srgb, var(--c) 18%, var(--surface-2)); }
+.node:focus-visible .disc,
+.node[aria-pressed="true"] .disc { stroke: var(--text); stroke-width: 3.5; }
+
+.node[data-state="pending"] { opacity: .45; }
+.node[data-state="running"] { --c: var(--run); }
+.node[data-state="running"] .ring { opacity: 1; stroke-dasharray: 5 4; animation: pulse 1.4s ease-out infinite; }
+.node[data-state="paused"] { --c: var(--pause); }
+.node[data-state="paused"] .ring { opacity: 1; animation: breathe 2.4s ease-in-out infinite; }
+.node[data-state="done"] { --c: var(--done); }
+.node[data-state="done"] .disc { fill: color-mix(in srgb, var(--done) 16%, var(--surface-2)); }
+.node[data-state="error"] { --c: var(--error); }
+.node[data-state="error"] .disc { fill: color-mix(in srgb, var(--error) 18%, var(--surface-2)); }
+.node[data-state="error"] > * { animation: shake .45s ease-in-out 1; }
+.node[data-state="skipped"] .disc { fill: none; stroke-dasharray: 3 4; }
+.node[data-state="skipped"] { opacity: .6; }
+
+.cue { display: none; }
+.cue circle { fill: var(--c); stroke: var(--bg); stroke-width: 2; }
+.cue .icon { color: var(--bg); stroke-width: 3; }
+.node[data-state="pending"] .cue-pending,
+.node[data-state="running"] .cue-running,
+.node[data-state="paused"] .cue-paused,
+.node[data-state="done"] .cue-done,
+.node[data-state="error"] .cue-error,
+.node[data-state="skipped"] .cue-skipped { display: inline; }
+.node[data-state="pending"] .cue circle,
+.node[data-state="skipped"] .cue circle { fill: var(--surface-2); stroke: var(--muted); }
+.node[data-state="pending"] .cue .icon,
+.node[data-state="skipped"] .cue .icon { color: var(--muted); }
+
+@keyframes flow { to { stroke-dashoffset: -12; } }
+@keyframes pulse { 0% { transform: scale(.9); opacity: 1; } 100% { transform: scale(1.35); opacity: 0; } }
+@keyframes breathe { 50% { opacity: .25; } }
+@keyframes shake { 20%, 60% { transform: translateX(-4px); } 40%, 80% { transform: translateX(4px); } }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+@media (max-width: 640px) {
+  .layout { grid-template-columns: 52px minmax(0, 1fr); grid-auto-rows: auto; }
+  .slot-telemetry { grid-column: 1 / -1; }
+  .dag { padding: 8px; }
+}
