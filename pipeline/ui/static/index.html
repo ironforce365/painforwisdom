@@ -4,9 +4,23 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Pipeline console</title>
+  <link rel="stylesheet" href="/static/css/app.css">
+  <link rel="stylesheet" href="/static/css/launch.css">
+  <link rel="stylesheet" href="/static/css/drawer.css">
+  <link rel="stylesheet" href="/static/css/telemetry.css">
+  <script type="module" src="/static/js/app.js"></script>
 </head>
 <body>
-  <!-- Placeholder; replaced by spec 2026-10-31-pipeline-console-ui §6. -->
-  <main data-testid="placeholder">pipeline console</main>
+  <header class="bar">
+    <span class="logo" data-testid="logo" role="img" aria-label="pipeline console"></span>
+    <div id="launch" class="slot-launch"></div>
+    <span class="badge-error" data-testid="error-badge" role="status" aria-label="backend error" hidden></span>
+  </header>
+  <main class="layout">
+    <nav id="runs" class="runs" data-testid="run-list" aria-label="runs"></nav>
+    <section id="dag" class="dag" data-testid="dag" aria-label="pipeline graph"></section>
+    <aside id="telemetry" class="slot-telemetry"></aside>
+  </main>
+  <div id="drawer"></div>
 </body>
 </html>
