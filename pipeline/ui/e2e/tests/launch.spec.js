@@ -56,6 +56,25 @@ test('opens on click; closes on the close button, Esc and the backdrop, returnin
   await expect(modal(page)).toBeHidden();
 });
 
+test('closing before the inputs arrive keeps focus on the play button', async ({ page }) => {
+  freshServerState();
+  let release;
+  const held = new Promise((r) => { release = r; });
+  await page.route('**/api/inputs', async (route) => {
+    await held;
+    await route.continue();
+  });
+  await page.goto('/#/runs/fx-done');
+  await openModal(page);
+  const loaded = page.waitForResponse((r) => r.url().endsWith('/api/inputs'));
+  await page.keyboard.press('Escape');
+  await expect(modal(page)).toBeHidden();
+  release();
+  await loaded;
+  await expect(tile(page, TXT)).toBeAttached();
+  await expect(button(page)).toBeFocused();
+});
+
 test('tiles show file name and relative age', async ({ page }) => {
   freshServerState();
   const now = Date.now() / 1000;

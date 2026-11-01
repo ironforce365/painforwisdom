@@ -111,7 +111,8 @@ export function mount(root, ctx) {
     const empty = el('div', { class: 'launch-empty', 'data-testid': 'launch-empty', role: 'img', 'aria-label': 'inbox is empty' },
       svgIcon('inbox'), el('span', { class: 'launch-path' }, body.inbox));
     tiles.replaceChildren(...(body.inputs.length ? body.inputs.map((input) => tileEl(input, start)) : [empty]));
-    (tiles.querySelector('.tile') ?? close).focus();
+    // Closed (or focus moved) while inputs loaded: do not pull focus back into the popup.
+    if (document.activeElement === close) (tiles.querySelector('.tile') ?? close).focus();
   }
 
   async function start(tile, name) {
