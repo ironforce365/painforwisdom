@@ -1,0 +1,114 @@
+/* Telemetry strip and timeline (spec 2026-10-31-pipeline-console-ui §9). Bar states carry a pattern besides colour. */
+
+/* Place the slot under the DAG (spec §9.2) without editing app.css. */
+.layout { grid-template-rows: minmax(0, 1fr) auto; }
+.layout > .runs { grid-row: 1 / -1; }
+.slot-telemetry { grid-column: 2; grid-row: 2; min-width: 0; }
+
+.telemetry {
+  --seg-input: var(--run);
+  --seg-output: var(--done);
+  --seg-cache_read: var(--crash);
+  --seg-cache_creation: var(--pause);
+  position: relative;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+  padding: 8px 16px 12px;
+  max-height: 38vh;
+  overflow-y: auto;
+}
+
+/* ---- strip ---- */
+.tele-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 22px; margin-bottom: 8px; }
+.tele-metric { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+.tele-metric[hidden] { display: none; }
+.tele-metric .icon { width: 16px; height: 16px; }
+.tele-val { color: var(--text); font-variant-numeric: tabular-nums; font-weight: 600; }
+.tele-total .icon { transform-origin: center; }
+/* live: spinning clock plus a static live dot */
+.tele-total:has([data-live="true"]) { color: var(--run); }
+.tele-total:has([data-live="true"]) .icon { animation: spin 4s linear infinite; }
+.tele-total:has([data-live="true"])::after {
+  content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--run);
+}
+.tele-stack {
+  display: inline-flex;
+  width: 120px;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--surface-2);
+}
+.tele-seg { height: 100%; flex: 0 0 0; }
+.tele-seg + .tele-seg { box-shadow: inset 1px 0 0 var(--surface); }
+.seg-input { background: var(--seg-input); }
+.seg-output { background: var(--seg-output); }
+.seg-cache_read { background: repeating-linear-gradient(90deg, var(--seg-cache_read) 0 3px, transparent 3px 5px); }
+.seg-cache_creation { background: repeating-linear-gradient(90deg, var(--seg-cache_creation) 0 3px, transparent 3px 5px); }
+
+/* ---- timeline ---- */
+.tele-timeline { display: grid; gap: 3px; }
+.tl-row { display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: center; gap: 8px; height: 14px; }
+.tl-row > .icon { width: 14px; height: 14px; color: var(--muted); }
+.tl-track { position: relative; height: 10px; border-radius: 3px; background: color-mix(in srgb, var(--surface-2) 60%, transparent); }
+.tl-bar {
+  --c: var(--muted);
+  position: absolute;
+  top: 0;
+  height: 100%;
+  min-width: 3px;
+  border-radius: 3px;
+  background: var(--c);
+  cursor: default;
+  outline: none;
+  transition: width .6s linear, left .6s linear;
+}
+.tl-bar[hidden] { display: none; }
+.tl-bar:hover, .tl-bar:focus-visible { box-shadow: 0 0 0 2px var(--text); }
+.tl-bar[data-state="done"] { --c: var(--done); }
+.tl-bar[data-state="error"] { --c: var(--error); border-right: 3px solid var(--text); }
+.tl-bar[data-state="running"] {
+  --c: var(--run);
+  background: repeating-linear-gradient(-45deg, var(--c) 0 5px, color-mix(in srgb, var(--c) 55%, var(--surface)) 5px 10px);
+  background-size: 14px 14px;
+  border-right: 2px dashed var(--text);
+  animation: tl-march .8s linear infinite;
+}
+.tl-bar[data-state="paused"] {
+  --c: var(--pause);
+  background:
+    repeating-linear-gradient(45deg, var(--c) 0 2px, transparent 2px 6px),
+    repeating-linear-gradient(-45deg, var(--c) 0 2px, transparent 2px 6px);
+  border: 1px solid var(--c);
+}
+
+.tele-tip {
+  position: absolute;
+  top: 14px;
+  left: var(--x);
+  transform: translateX(calc(-1 * var(--x))); /* stays inside the track at both ends */
+  z-index: 2;
+  padding: 6px 9px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  white-space: nowrap;
+  pointer-events: none;
+  font-size: 12px;
+}
+.tele-tip[hidden] { display: none; }
+.tele-tip-line:first-child { font-weight: 600; }
+.tele-tip-line + .tele-tip-line { color: var(--muted); }
+
+/* hover link: the DAG node of the hovered bar */
+.node[data-highlight] .ring { opacity: 1; stroke: var(--text); }
+.node[data-highlight] .disc { stroke: var(--text); stroke-width: 3.5; }
+
+@keyframes tl-march { to { background-position: 14px 0; } }
+
+@media (max-width: 640px) {
+  .layout > .runs { grid-row: auto; }
+  .slot-telemetry { grid-column: 1 / -1; grid-row: auto; }
+  .telemetry { max-height: none; }
+}
