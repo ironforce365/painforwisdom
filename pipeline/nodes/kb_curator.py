@@ -79,13 +79,18 @@ entry_body: |
   *Entry created by kb-curator. Do not edit.*
 timeline_row: "| YYYY-MM-DD | [[YYYY-MM-DD-slug]] | [[theme-1]], [[theme-2]] | Strong | one-sentence insight |"
 theme_updates:
+  # EXISTING theme file: append-style. Never send new_body for it.
   - slug: theme-slug-1
+    entries_row: "| YYYY-MM-DD | [[YYYY-MM-DD-slug]] | one sentence |"
+    key_insight: |
+      ...optional: FULL new body of the "## Key insight so far" section...
+    patterns_emerging: |
+      ...optional: FULL new body of the "## Patterns emerging" section...
+  # NEW theme (approved this run, no file yet): full body.
+  - slug: new-theme-slug
     new_body: |
       # <Theme Name>
-      ...full updated theme file body...
-  - slug: theme-slug-2
-    new_body: |
-      ...
+      ...full theme file body per the theme file format...
 framework_updates: []
 book_outline_body: |
   # Book Outline — In Formation
@@ -162,14 +167,23 @@ Rules:
   approval for it.
 - Date in entry_slug and entry_body must match the input video_date.
 - Entry body must be the FULL markdown for entries/YYYY-MM-DD-slug.md, ready
-  to write byte-for-byte. Same for theme_updates[*].new_body and
-  book_outline_body.
+  to write byte-for-byte. Same for theme_updates[*].new_body (new themes
+  only) and book_outline_body.
+- Every theme in themes_attached gets a theme_updates item. For an existing
+  theme give `entries_row` (one row for its `## Entries` table); the
+  pipeline inserts it and sets `**Last updated:**` and `**Entry count:**`.
+  `key_insight` / `patterns_emerging`, when given, REPLACE that whole
+  section, so carry forward what the current body (in the snapshot) says.
+- book_outline_body is the full current outline from the snapshot, updated.
+  Omit it rather than send a shortened outline.
 - For any free-text field that may contain colons, quotes, or special
   characters (`reason`, `core_tension`, `definition`, `curator_summary`),
   ALWAYS use a YAML block scalar (`|` or `>-`) — never a quoted single-line
   string. Block scalars handle punctuation safely.
 """
 
+
+_MAX_TOKENS = 16000
 
 _PLAN_PATTERN = re.compile(r"---kb-plan---\s*\n(.*?)\n---kb-plan---", re.DOTALL)
 
@@ -228,8 +242,12 @@ def _vault_snapshot() -> str:
         idx_tail = "\n".join(idx.splitlines()[-15:])
         parts.append(f"\n_index.md (tail):\n```\n{idx_tail}\n```")
 
+    # Full bodies, never truncated: the plan updates themes and rewrites the outline from them.
+    for t in themes:
+        parts.append(f"\nthemes/{t}.md (current):\n```\n{(themes_dir / f'{t}.md').read_text()}\n```")
+
     if book_outline.is_file():
-        parts.append(f"\nbook-outline.md (current):\n```\n{book_outline.read_text()[:3000]}\n```")
+        parts.append(f"\nbook-outline.md (current):\n```\n{book_outline.read_text()}\n```")
 
     return "\n".join(parts)
 
@@ -287,7 +305,7 @@ def _call_llm_for_plan(state: State, approval_history: List[Tuple[str, str]]) ->
     system_prompt = _build_system_prompt()
     user_msg = _user_message(state, approval_history=approval_history)
     model = os.environ.get("PIPELINE_MODEL", DEEP_MODEL)
-    result = call_llm(model, system_prompt, user_msg, max_tokens=8000)
+    result = call_llm(model, system_prompt, user_msg, max_tokens=_MAX_TOKENS)
     try:
         plan = _parse_plan(result["text"], diag=result)
         return plan, result
@@ -303,7 +321,7 @@ def _call_llm_for_plan(state: State, approval_history: List[Tuple[str, str]]) ->
         else:
             print("[kb-curator] YAML parse error, retrying once with block-scalar guidance")
             retry_msg = user_msg + "\n\n" + _retry_prompt_for_yaml(result["text"], msg)
-        result2 = call_llm(model, system_prompt, retry_msg, max_tokens=8000)
+        result2 = call_llm(model, system_prompt, retry_msg, max_tokens=_MAX_TOKENS)
         plan = _parse_plan(result2["text"], diag=result2)
         # Sum cost / tokens conservatively across both calls
         for k in ("input_tokens", "output_tokens", "cache_read_tokens", "cache_creation_tokens", "cost_usd", "duration_s"):
@@ -311,19 +329,81 @@ def _call_llm_for_plan(state: State, approval_history: List[Tuple[str, str]]) ->
         return plan, result2
 
 
-def _validate_plan(plan: Dict[str, Any]) -> None:
-    """Raise before any vault write, so a bad plan never leaves a half-written entry behind."""
+def _replace_section(body: str, heading: str, text: str) -> str:
+    """Replace the body of `## <heading>` up to the next `## ` heading; append the section if absent."""
+    m = re.search(rf"^## {re.escape(heading)}[ \t]*\n(.*?)(?=^## |\Z)", body, re.DOTALL | re.MULTILINE)
+    new = f"## {heading}\n{text.strip()}\n"
+    if not m:
+        return body.rstrip("\n") + f"\n\n{new}"
+    tail = "\n" if m.end() < len(body) else ""
+    return body[:m.start()] + new + tail + body[m.end():]
+
+
+def _append_theme(body: str, upd: Dict[str, Any], date: str) -> str:
+    """Append-style update of an existing theme file (wo-60b5fec1): insert the entries row, refresh header fields."""
+    lines = body.split("\n")
+    try:
+        head = next(i for i, l in enumerate(lines) if l.strip() == "## Entries")
+    except StopIteration:
+        raise RuntimeError("no '## Entries' section")
+    start = head + 1
+    while start < len(lines) and not lines[start].strip():
+        start += 1
+    end = start
+    while end < len(lines) and lines[end].lstrip().startswith("|"):
+        end += 1
+    if end - start < 2:  # header + separator at minimum
+        raise RuntimeError("no table under '## Entries'")
+    lines.insert(end, upd["entries_row"].strip())
+    body = "\n".join(lines)
+    # Rows after insert: table lines minus header and separator, plus the new one.
+    body = re.sub(r"^\*\*Entry count:\*\*.*$", f"**Entry count:** {end - start - 1}", body, flags=re.MULTILINE)
+    if date:
+        body = re.sub(r"^\*\*Last updated:\*\*.*$", f"**Last updated:** {date}", body, flags=re.MULTILINE)
+    if isinstance(upd.get("key_insight"), str):
+        body = _replace_section(body, "Key insight so far", upd["key_insight"])
+    if isinstance(upd.get("patterns_emerging"), str):
+        body = _replace_section(body, "Patterns emerging", upd["patterns_emerging"])
+    return body
+
+
+def _validate_plan(plan: Dict[str, Any], date: str = "") -> Dict[Path, str]:
+    """Raise before any vault write, so a bad plan never leaves a half-written entry behind.
+
+    Returns the theme file bodies to write.
+    """
     bad = [k for k in ("entry_slug", "entry_body", "timeline_row") if not isinstance(plan.get(k), str)]
-    for key in ("theme_updates", "framework_updates"):
-        bad += [f"{key}[{i}]" for i, u in enumerate(plan.get(key) or [])
-                if not (isinstance(u, dict) and isinstance(u.get("slug"), str) and isinstance(u.get("new_body"), str))]
+    bad += [f"framework_updates[{i}]" for i, u in enumerate(plan.get("framework_updates") or [])
+            if not (isinstance(u, dict) and isinstance(u.get("slug"), str) and isinstance(u.get("new_body"), str))]
+    theme_writes: Dict[Path, str] = {}
+    for i, u in enumerate(plan.get("theme_updates") or []):
+        name = f"theme_updates[{i}]"
+        if not (isinstance(u, dict) and isinstance(u.get("slug"), str)):
+            bad.append(name)
+            continue
+        path = VAULT_ROOT / "themes" / f"{u['slug']}.md"
+        if not path.is_file():
+            if isinstance(u.get("new_body"), str):
+                theme_writes[path] = u["new_body"]
+            else:
+                bad.append(f"{name}.new_body (new theme)")
+        elif "new_body" in u:
+            bad.append(f"{name}.new_body not allowed for existing theme {u['slug']}")
+        elif not isinstance(u.get("entries_row"), str):
+            bad.append(f"{name}.entries_row")
+        else:
+            try:
+                theme_writes[path] = _append_theme(path.read_text(), u, date)
+            except RuntimeError as exc:
+                bad.append(f"{name} ({u['slug']}: {exc})")
     if bad:
         raise RuntimeError(f"kb-curator: invalid plan, missing or non-string: {', '.join(bad)}")
+    return theme_writes
 
 
 def _apply_proceed(state: State, plan: Dict[str, Any]) -> Dict[str, Any]:
     """Write all vault files described by a PROCEED plan."""
-    _validate_plan(plan)
+    theme_writes = _validate_plan(plan, str(state.get("video_date", "") or ""))
     entries_dir = VAULT_ROOT / "entries"
     themes_dir = VAULT_ROOT / "themes"
     frameworks_dir = VAULT_ROOT / "frameworks"
@@ -338,9 +418,8 @@ def _apply_proceed(state: State, plan: Dict[str, Any]) -> Dict[str, Any]:
         raise RuntimeError(f"kb-curator: entry already exists, refusing overwrite: {entry_path}")
     entry_path.write_text(plan["entry_body"])
 
-    for tu in plan.get("theme_updates", []) or []:
-        tpath = themes_dir / f"{tu['slug']}.md"
-        tpath.write_text(tu["new_body"])
+    for tpath, tbody in theme_writes.items():
+        tpath.write_text(tbody)
 
     for fu in plan.get("framework_updates", []) or []:
         fpath = frameworks_dir / f"{fu['slug']}.md"
