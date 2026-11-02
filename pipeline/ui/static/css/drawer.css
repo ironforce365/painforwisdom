@@ -1,0 +1,177 @@
+/* Step inspector and final result (spec 2026-10-31-pipeline-console-ui §8). Tokens from css/app.css. */
+.drawer [hidden] { display: none !important; }
+.drawer button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+}
+.drawer button:focus-visible, .drawer a:focus-visible { outline: 2px solid var(--run); outline-offset: 2px; }
+.drawer a { color: var(--run); }
+
+/* trophy: lives in #drawer, placed over the header next to the logo */
+.drawer .result-open {
+  position: fixed;
+  top: 8px;
+  left: 56px;
+  z-index: 20;
+  color: var(--pause);
+}
+
+/* ---- side panel ---- */
+.drawer .panel {
+  position: fixed;
+  top: 48px;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  width: min(400px, 100vw);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-left: 1px solid var(--line);
+  box-shadow: -8px 0 24px rgb(0 0 0 / 35%);
+}
+.drawer .panel > header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.drawer .panel > header > button { margin-left: auto; }
+.drawer .node-icon { display: inline-flex; color: var(--text); }
+.drawer .node-icon .icon { width: 26px; height: 26px; }
+.drawer .state-cue {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  color: var(--muted);
+}
+.drawer .state-cue .icon { width: 14px; height: 14px; }
+.drawer .panel[data-state="running"] .state-cue { color: var(--run); }
+.drawer .panel[data-state="paused"] .state-cue { color: var(--pause); }
+.drawer .panel[data-state="done"] .state-cue { color: var(--done); }
+.drawer .panel[data-state="error"] .state-cue { color: var(--error); }
+.drawer .panel[data-state="running"] .state-cue .icon { animation: drawer-spin 1s linear infinite; }
+.drawer small { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.drawer .arts {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+/* empty: a dashed placeholder instead of words */
+.drawer .arts:empty::after {
+  content: "";
+  height: 64px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+}
+.drawer .art {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+  overflow: hidden;
+}
+.drawer .art .art-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+}
+.drawer .art .art-head .icon { width: 14px; height: 14px; }
+.drawer .art[data-state="loading"] h3 .icon { animation: drawer-fade 1s ease-in-out infinite alternate; }
+.drawer .art[data-state="error"] { border-color: var(--error); }
+.drawer .art[data-state="error"] > .icon { margin: 10px; color: var(--error); }
+.drawer .art > [data-testid="artifact-body"] { display: block; margin: 0; padding: 10px; max-height: 360px; overflow: auto; }
+.drawer .art pre { font: 12px/1.45 ui-monospace, monospace; white-space: pre-wrap; word-break: break-word; }
+.drawer .art img { max-width: 100%; height: auto; image-rendering: pixelated; }
+.drawer .art table { border-collapse: collapse; font-size: 12px; }
+.drawer .art th, .drawer .art td { border: 1px solid var(--line); padding: 3px 6px; text-align: left; vertical-align: top; }
+.drawer .art th { background: var(--surface-2); }
+
+.drawer .md { line-height: 1.55; }
+.drawer .md h1, .drawer .md h2, .drawer .md h3, .drawer .md h4, .drawer .md h5, .drawer .md h6 { margin: 0.6em 0 0.3em; line-height: 1.25; }
+.drawer .md h1 { font-size: 18px; }
+.drawer .md h2 { font-size: 16px; }
+.drawer .md h3, .drawer .md h4, .drawer .md h5, .drawer .md h6 { font-size: 14px; }
+.drawer .md p { margin: 0.4em 0; }
+.drawer .md ul, .drawer .md ol { margin: 0.4em 0; padding-left: 1.4em; }
+
+/* ---- final result modal ---- */
+.drawer .result {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgb(0 0 0 / 55%);
+}
+.drawer .sheet {
+  position: relative;
+  width: min(720px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 20px 22px;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+.drawer .result-close { position: absolute; top: 12px; right: 12px; }
+.drawer .content > header { display: flex; align-items: center; gap: 10px; padding-right: 44px; }
+.drawer .content h1[data-testid="result-title"] { margin: 0; font-size: 20px; }
+.drawer .content > .md { margin-top: 8px; }
+.drawer .cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+.drawer .cards:empty { display: none; }
+.drawer .card {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  text-decoration: none;
+}
+.drawer .card:hover { border-color: var(--run); }
+.drawer .card .icon { flex: none; color: var(--run); }
+.drawer .pending, .drawer .unavailable {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 40px 0;
+}
+.drawer .pending .icon, .drawer .unavailable .icon { width: 44px; height: 44px; }
+.drawer .pending .icon { color: var(--pause); animation: drawer-flip 1.6s ease-in-out infinite; }
+.drawer .unavailable .icon { color: var(--muted); }
+
+@keyframes drawer-spin { to { transform: rotate(360deg); } }
+@keyframes drawer-fade { from { opacity: 1; } to { opacity: 0.3; } }
+@keyframes drawer-flip { 0%, 40% { transform: rotate(0); } 60%, 100% { transform: rotate(180deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .drawer .icon { animation: none !important; }
+}
