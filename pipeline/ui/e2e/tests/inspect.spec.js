@@ -282,6 +282,19 @@ test.describe('inspect shots', () => {
     });
   }
 
+  test('shot result with non-http(s) urls beside an http(s) card', async ({ page }) => {
+    await page.route('**/api/runs/fx-done/result', (route) => route.fulfill({ json: {
+      status: 'ready', reason: null, blog: { title: 'hostile urls', url: 'javascript:alert(1)', markdown: 'x' },
+      research: [{ title: 'http card (link)', type: 'Book', url: 'https://e.org/r' },
+        { title: 'javascript: card (no link)', type: 'Article', url: 'javascript:alert(2)' }],
+    } }));
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto('/#/runs/fx-done');
+    await page.getByTestId('result-open').click();
+    await expect(result(page).getByTestId('research-card')).toHaveCount(2);
+    await shoot(page, 'result-hostile-urls');
+  });
+
   test('shot drawer phone width', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 720 });
     await page.emulateMedia({ reducedMotion: 'reduce' });
