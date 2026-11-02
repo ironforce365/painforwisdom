@@ -43,10 +43,11 @@ _CLIENT: Optional[Client] = None
 _BLOG_SCHEMA_CACHE: Optional[set[str]] = None
 
 
-def get_client() -> Client:
+def get_client(token: Optional[str] = None) -> Client:
+    """`token` primes the cached client (pipeline/ui reads it from the profile env file); default is env."""
     global _CLIENT
     if _CLIENT is None:
-        token = os.getenv("NOTION_API_KEY")
+        token = token or os.getenv("NOTION_API_KEY")
         if not token:
             raise RuntimeError(
                 "NOTION_API_KEY not set. Create a Notion internal integration "
