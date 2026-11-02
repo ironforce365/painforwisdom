@@ -1,6 +1,7 @@
 // @real sandbox runs through the console (spec 2026-10-31-pipeline-console-ui §10.3). Opt-in: `npm run test:real`.
 import { test, expect } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -35,6 +36,9 @@ for (const r of RUNS) {
 
     const item = page.getByTestId(`run-${runId}`);
     await expect(item).toHaveAttribute('data-status', 'done', { timeout: RUN_MS });
+    const runJson = JSON.parse(fs.readFileSync(path.join(REPO, 'processed', runId, 'langgraph', 'run.json'), 'utf8'));
+    console.log(`[real] ${r.kind} run.json status=${runJson.status} verdict=${runJson.verdict}`);
+    expect({ status: runJson.status, verdict: runJson.verdict }).toEqual({ status: 'done', verdict: 'PASS' });
     await page.reload(); // fresh run list item carries the final verdict
     await expect(page.getByTestId(`run-${runId}`)).toHaveAttribute('data-verdict', 'PASS');
     await expect(page.getByTestId('node-transcribe')).toHaveAttribute('data-state', r.transcribe);
