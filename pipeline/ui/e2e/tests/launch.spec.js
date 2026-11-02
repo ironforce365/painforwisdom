@@ -1,7 +1,7 @@
 // Launch popup (spec 2026-10-31-pipeline-console-ui §7.5).
 import fs from 'node:fs';
 import path from 'node:path';
-import { test, expect, freshServerState, PROCESSED } from '../fixtures.js';
+import { test, expect, freshServerState, PROCESSED, INBOX } from '../fixtures.js';
 
 const TXT = 'transcript_2026-10-30.txt';
 const MP4 = 'PXL_20261030_070000000.mp4';
@@ -231,6 +231,60 @@ test('auto-approve toggle is off by default and is sent in the body', async ({ p
   await expect(button(page)).toHaveAttribute('data-state', 'idle'); // fx-done is not active
 });
 
+/** A DataTransfer in the page holding text files, for synthetic drag events. */
+const transfer = (page, names) => page.evaluateHandle((list) => {
+  const dt = new DataTransfer();
+  for (const n of list) dt.items.add(new File([`dropped ${n}`], n, { type: 'text/plain' }));
+  return dt;
+}, names);
+
+test('the upload button picks a file into the inbox and its tile comes first, focused', async ({ page }) => {
+  freshServerState();
+  await page.goto('/#/runs/fx-done');
+  await openModal(page);
+  await expect(page.getByTestId('launch-file')).toBeHidden();
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByTestId('launch-upload').click();
+  await (await chooser).setFiles({ name: 'picked.txt', mimeType: 'text/plain', buffer: Buffer.from('a transcript') });
+  await expect(tile(page, 'picked.txt')).toBeFocused();
+  await expect(page.locator('.tile').first()).toHaveAttribute('data-testid', 'input-picked.txt');
+  await expect(page.getByTestId('launch-upload')).toHaveAttribute('data-state', 'idle');
+  await expect(page.getByTestId('launch-upload')).toBeEnabled();
+  expect(fs.readFileSync(path.join(INBOX, 'picked.txt'), 'utf8')).toBe('a transcript');
+});
+
+test('dropping files uploads them; an existing name is refused and flags the button', async ({ page, errors }) => {
+  freshServerState();
+  errors.allow(/status of 409/);
+  await page.goto('/#/runs/fx-done');
+  await openModal(page);
+  const dt = await transfer(page, [TXT, 'dropped.txt']);
+  await modal(page).dispatchEvent('dragover', { dataTransfer: dt });
+  await expect(modal(page)).toHaveAttribute('data-drop', 'true');
+  await modal(page).dispatchEvent('dragleave', { dataTransfer: dt });
+  await expect(modal(page)).toHaveAttribute('data-drop', 'false');
+  await modal(page).dispatchEvent('drop', { dataTransfer: dt });
+  await expect(tile(page, 'dropped.txt')).toBeFocused();
+  await expect(page.getByTestId('launch-upload')).toHaveAttribute('data-state', 'error');
+  await expect(page.getByTestId('error-badge')).toBeVisible();
+  expect(fs.readFileSync(path.join(INBOX, 'dropped.txt'), 'utf8')).toBe('dropped dropped.txt');
+  expect(fs.readFileSync(path.join(INBOX, TXT), 'utf8')).not.toBe(`dropped ${TXT}`); // never overwritten
+});
+
+test('a drop where every upload fails leaves the tiles alone', async ({ page, errors }) => {
+  freshServerState();
+  errors.allow(/status of 400/);
+  await page.goto('/#/runs/fx-done');
+  await openModal(page);
+  const listed = [];
+  page.on('request', (r) => r.url().endsWith('/api/inputs') && listed.push(r));
+  await modal(page).dispatchEvent('drop', { dataTransfer: await transfer(page, ['notes.md']) });
+  await expect(page.getByTestId('launch-upload')).toHaveAttribute('data-state', 'error');
+  await expect(page.getByTestId('error-badge')).toBeVisible();
+  expect(listed).toHaveLength(0);
+  expect(fs.existsSync(path.join(INBOX, 'notes.md'))).toBe(false);
+});
+
 // PR screenshots, opt-in: PFW_SHOTS=<dir> npm test -- launch
 test.describe('shots', () => {
   const DIR = process.env.PFW_SHOTS;
@@ -276,6 +330,26 @@ test.describe('shots', () => {
     await openModal(page);
     await expect(page.getByTestId('launch-empty')).toBeVisible();
     await shoot(page, 'empty');
+  });
+
+  test('shot upload drop target', async ({ page }) => {
+    freshServerState();
+    await page.goto('/#/runs/fx-done');
+    await openModal(page);
+    await modal(page).dispatchEvent('dragover', { dataTransfer: await transfer(page, ['x.txt']) });
+    await expect(modal(page)).toHaveAttribute('data-drop', 'true');
+    await shoot(page, 'upload-drop');
+  });
+
+  test('shot upload refused', async ({ page, errors }) => {
+    freshServerState();
+    errors.allow(/status of 409/);
+    await page.goto('/#/runs/fx-done');
+    await openModal(page);
+    await modal(page).dispatchEvent('drop', { dataTransfer: await transfer(page, [TXT, 'new_upload.txt']) });
+    await expect(tile(page, 'new_upload.txt')).toBeFocused();
+    await expect(page.getByTestId('launch-upload')).toHaveAttribute('data-state', 'error');
+    await shoot(page, 'upload-refused');
   });
 
   test('shot busy button', async ({ page }) => {

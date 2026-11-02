@@ -49,6 +49,23 @@ def list_inputs(inbox: Path) -> list[dict]:
     return out
 
 
+def upload_target(inbox: Path, name: str) -> Path:
+    """Inbox path for an uploaded file; 400 unless `name` is a plain basename list_inputs would show."""
+    if name != Path(name).name or any(c in name for c in "\\\0") or name.startswith(".") or input_kind(name) is None:
+        raise LaunchError(400, "bad input name")
+    return inbox / name
+
+
+def publish_upload(part: Path, target: Path) -> None:
+    """Move a finished upload into place; 409 if the name exists (link never overwrites, unlike replace)."""
+    try:
+        os.link(part, target)
+    except FileExistsError:
+        raise LaunchError(409, "input exists") from None
+    finally:
+        part.unlink()
+
+
 def new_run_id(root: Path, stamp: Optional[str] = None) -> str:
     base = f"{stamp or time.strftime('%Y-%m-%d_%H%M%S')}_ui"
     rid, n = base, 1
