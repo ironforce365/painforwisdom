@@ -267,7 +267,41 @@ systemctl --user start        painforwisdom-daily-brief.service
 
 ---
 
-## 9. File / directory reference
+## 9. Pipeline console
+
+Local web UI to start runs, watch the DAG live, inspect each step's artifacts and open the final Notion result.
+Design: `docs/superpowers/specs/2026-10-31-pipeline-console-ui.md`.
+
+```bash
+# Sandbox (default profile). No env to export: runs load .env.sandbox themselves, and the
+# server reads only NOTION_API_KEY from .env.sandbox for the result view.
+python -m pipeline.ui --profile sandbox --inbox /path/to/inbox
+# open http://127.0.0.1:8820
+```
+
+- Host is always `127.0.0.1`; port `--port` / `PIPELINE_UI_PORT` (default `8820`).
+- Inbox: `--inbox` / `PIPELINE_UI_INBOX` (default `$STATE_ROOT/inbox`). Drop `.txt` transcripts or videos
+  (`.mp4 .mov .mkv .webm .m4v .avi`) there; they appear in the play-button popup.
+- Runs write to `processed/<run_id>/` of the checkout the server runs from. `--processed-root` /
+  `PIPELINE_UI_PROCESSED_ROOT` only changes where the UI reads.
+- Prod is never the default: `--profile prod` (or `PIPELINE_UI_PROFILE=prod`) must be chosen explicitly; it reads `.env`.
+- HITL approvals still go through Telegram. The popup's auto-approve toggle passes `--auto-approve` instead.
+- One active run at a time (a second launch returns 409 and shows the live run).
+
+Tests (from `pipeline/ui/e2e/`):
+
+```bash
+npm ci && npx playwright install chromium
+npm test        # fake runner + fixtures, 100% browser coverage gate; what CI runs
+# Real sandbox runs through the UI (transcript, then video). Minutes per run; never in CI.
+# Needs .env.sandbox at the repo root; resets the sandbox before each run.
+PYTHON=/home/gonzalo/miniconda3/envs/painforwisdom-poc/bin/python \
+  PFW_REAL_VIDEO=/path/to/short.mp4 PFW_SHOTS=/tmp/shots npm run test:real
+```
+
+---
+
+## 10. File / directory reference
 
 | Path | Notes |
 |------|-------|
@@ -276,6 +310,7 @@ systemctl --user start        painforwisdom-daily-brief.service
 | `pipeline/nodes/*.py` | Per-stage logic — start here when something breaks |
 | `pipeline/llm.py` | LiteLLM wrapper, OAuth refresh, retry on 401/429 |
 | `pipeline/notion_client.py` | Notion REST helpers |
+| `pipeline/ui/` | Pipeline console server + static UI; browser tests in `pipeline/ui/e2e/` |
 | `tests/smoke_pipeline.sh` | Sandbox driver |
 | `tests/sandbox_reset.sh` | Vault revert + Notion archive |
 | `tests/fixtures/` | Reusable transcripts |

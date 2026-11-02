@@ -5,6 +5,7 @@ Pointers only. Detail lives in the docs named below; do not copy it here.
 ## Components
 - `pipeline/`: LangGraph content DAG (`pipeline/graph.py`), plain Python, conda env `painforwisdom-poc`.
 - `pipeline/agents/`: stage system prompts, read by `pipeline/runtime.py:load_agent_prompt`. Not Claude Code subagents.
+- `pipeline/ui/`: local pipeline console (FastAPI + plain JS). Ops: `OPERATIONS.md` §9; design: `docs/superpowers/specs/2026-10-31-pipeline-console-ui.md`.
 - `services/coach/`: Telegram coach, docker compose, Claude Agent SDK. Own `pyproject.toml` and tests.
 - `obsidian-vault/`: git submodule (branch `draft`). Never commit inside it.
 - `docs/superpowers/specs/`: design specs; `docs/superpowers/plans/`: implementation plans (large, read targeted).
@@ -16,6 +17,7 @@ Pointers only. Detail lives in the docs named below; do not copy it here.
 
 ## Tests (`.github/workflows/ci.yml` is the reference)
 - Pipeline: `python -m pytest tests -q -rs` from repo root.
+- Console browser tests: `cd pipeline/ui/e2e && npm test` (CI); `npm run test:real` is opt-in, sandbox only (`OPERATIONS.md` §9).
 - Coach: on host, from repo root `PYTHONPATH=services/coach python -m pytest services/coach/tests -q`
   (CI runs it from `services/coach/` in four groups: grounding, agent, telegram+vault_rag, rest).
 - Voice test (`services/coach/tests/test_telegram_voice.py`) needs `CUDA_VISIBLE_DEVICES=`.

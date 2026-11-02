@@ -91,6 +91,8 @@ python -m pipeline.run --from-transcript path/to/transcript.txt --auto-approve
 
 For the full command reference (sandbox, smoke, retries, debugging) see **[`OPERATIONS.md`](OPERATIONS.md)**.
 
+Visual console to start runs and watch them live: `python -m pipeline.ui --profile sandbox`, see [`OPERATIONS.md`](OPERATIONS.md#9-pipeline-console).
+
 ---
 
 ## Branch workflow
