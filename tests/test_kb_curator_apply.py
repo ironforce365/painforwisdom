@@ -57,3 +57,64 @@ def test_missing_book_outline_keeps_current(vault, tmp_path, over):
 def test_book_outline_written_when_present(vault, tmp_path):
     kb_curator._apply_proceed({"run_dir": str(tmp_path / "run")}, _plan())
     assert (vault / "book-outline.md").read_text() == "# outline new\n"
+
+
+THEME = """# T
+
+**First appeared:** 2026-01-01
+**Last updated:** 2026-01-01
+**Entry count:** 1
+
+## Core tension
+tension
+
+## Key insight so far
+old insight
+
+## Entries
+| Date | Entry | Core Insight |
+|------|-------|--------------|
+| 2026-01-01 | [[2026-01-01-a]] | a |
+
+## Patterns emerging
+old patterns
+
+## Possible chapter angle
+angle
+"""
+
+ROW = "| 2026-04-14 | [[2026-04-14-x]] | x |"
+
+
+@pytest.fixture
+def themed(vault):
+    (vault / "themes").mkdir()
+    (vault / "themes" / "t.md").write_text(THEME)
+    return vault
+
+
+def test_existing_theme_append_style(themed, tmp_path):
+    upd = {"slug": "t", "entries_row": ROW, "patterns_emerging": "new patterns\n"}
+    kb_curator._apply_proceed({"run_dir": str(tmp_path / "run"), "video_date": "2026-04-14"},
+                              _plan(theme_updates=[upd]))
+    body = (themed / "themes" / "t.md").read_text()
+    assert f"| 2026-01-01 | [[2026-01-01-a]] | a |\n{ROW}\n\n## Patterns emerging\nnew patterns\n\n## Possible" in body
+    assert "**Entry count:** 2" in body and "**Last updated:** 2026-04-14" in body
+    assert "old insight" in body and "angle" in body
+
+
+@pytest.mark.parametrize("upd", [
+    {"slug": "t", "new_body": "# t\n"},  # full rewrite of an existing theme
+    {"slug": "t"},  # no entries_row
+])
+def test_existing_theme_rejects_rewrite_or_missing_row(themed, tmp_path, upd):
+    with pytest.raises(RuntimeError, match="kb-curator: invalid plan"):
+        kb_curator._apply_proceed({"run_dir": str(tmp_path / "run")}, _plan(theme_updates=[upd]))
+    assert (themed / "themes" / "t.md").read_text() == THEME
+    assert not (themed / "entries").exists()
+
+
+def test_snapshot_has_full_theme_and_outline(themed):
+    (themed / "book-outline.md").write_text("# outline\n" + "x" * 5000 + "END")
+    snap = kb_curator._vault_snapshot()
+    assert "themes/t.md (current)" in snap and "old patterns" in snap and "xEND" in snap
