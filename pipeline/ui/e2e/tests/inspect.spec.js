@@ -227,6 +227,19 @@ test.describe('final result', () => {
     await expect(result(page).getByTestId('research-card')).toHaveAttribute('data-type', 'Zine');
     await expect(result(page).getByTestId('research-card').getByTestId('type-icon')).toHaveAttribute('data-icon', 'globe');
   });
+
+  test('non-http(s) blog and research urls render without an href', async ({ page }) => {
+    await page.route('**/api/runs/fx-done/result', (route) => route.fulfill({ json: {
+      status: 'ready', reason: null, blog: { title: 't', url: 'javascript:alert(1)', markdown: 'x' },
+      research: [{ title: 'r', type: 'Book', url: 'JavaScript:alert(2)' }],
+    } }));
+    await page.goto('/#/runs/fx-done');
+    await page.getByTestId('result-open').click();
+    await expect(result(page).getByTestId('research-card')).toHaveText('r');
+    await expect(result(page).getByTestId('result-link')).toBeVisible();
+    await expect(result(page).locator('[href]')).toHaveCount(0);
+    expect(await result(page).getByTestId('research-card').evaluate((n) => n.tagName)).toBe('DIV');
+  });
 });
 
 // PR screenshots, opt-in like screenshots.spec.js: PFW_SHOTS=<dir> npm test
@@ -268,6 +281,19 @@ test.describe('inspect shots', () => {
       await shoot(page, name);
     });
   }
+
+  test('shot result with non-http(s) urls beside an http(s) card', async ({ page }) => {
+    await page.route('**/api/runs/fx-done/result', (route) => route.fulfill({ json: {
+      status: 'ready', reason: null, blog: { title: 'hostile urls', url: 'javascript:alert(1)', markdown: 'x' },
+      research: [{ title: 'http card (link)', type: 'Book', url: 'https://e.org/r' },
+        { title: 'javascript: card (no link)', type: 'Article', url: 'javascript:alert(2)' }],
+    } }));
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto('/#/runs/fx-done');
+    await page.getByTestId('result-open').click();
+    await expect(result(page).getByTestId('research-card')).toHaveCount(2);
+    await shoot(page, 'result-hostile-urls');
+  });
 
   test('shot drawer phone width', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 720 });
