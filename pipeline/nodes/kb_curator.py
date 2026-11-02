@@ -290,6 +290,7 @@ def _call_llm_for_plan(state: State, approval_history: List[Tuple[str, str]]) ->
     result = call_llm(model, system_prompt, user_msg, max_tokens=8000)
     try:
         plan = _parse_plan(result["text"], diag=result)
+        return plan, result
     except RuntimeError as exc:
         msg = str(exc)
         is_format = "---kb-plan---" in msg
@@ -303,48 +304,11 @@ def _call_llm_for_plan(state: State, approval_history: List[Tuple[str, str]]) ->
             print("[kb-curator] YAML parse error, retrying once with block-scalar guidance")
             retry_msg = user_msg + "\n\n" + _retry_prompt_for_yaml(result["text"], msg)
         result2 = call_llm(model, system_prompt, retry_msg, max_tokens=8000)
-        return _parse_plan(result2["text"], diag=result2), _sum_usage(result, result2)
-    missing = _missing_fields(plan)
-    if not missing:
-        return plan, result
-    print(f"[kb-curator] PROCEED plan incomplete ({', '.join(missing)}), retrying once")
-    result2 = call_llm(model, system_prompt, user_msg + "\n\n" + _retry_prompt_for_missing(result["text"], missing),
-                       max_tokens=8000)
-    try:
-        plan2 = _parse_plan(result2["text"], diag=result2)
-    except RuntimeError:
-        plan2 = {}
-    # Retry unusable: keep the first plan (outline unchanged, validator flags themes).
-    return (plan2 if plan2.get("action") == "PROCEED" else plan), _sum_usage(result, result2)
-
-
-def _sum_usage(first: Dict[str, Any], second: Dict[str, Any]) -> Dict[str, Any]:
-    """Sum cost / tokens conservatively across both calls."""
-    for k in ("input_tokens", "output_tokens", "cache_read_tokens", "cache_creation_tokens", "cost_usd", "duration_s"):
-        second[k] = (first.get(k, 0) or 0) + (second.get(k, 0) or 0)
-    return second
-
-
-def _missing_fields(plan: Dict[str, Any]) -> List[str]:
-    """Fields a PROCEED plan must carry but claude-sonnet-5-5 sometimes omits."""
-    if not isinstance(plan, dict) or plan.get("action") != "PROCEED":
-        return []
-    updated = {u.get("slug") for u in plan.get("theme_updates") or [] if isinstance(u, dict)}
-    missing = [f"theme_updates for {s}" for s in plan.get("themes_attached") or [] if s not in updated]
-    if not isinstance(plan.get("book_outline_body"), str):
-        missing.append("book_outline_body")
-    return missing
-
-
-def _retry_prompt_for_missing(text: str, missing: List[str]) -> str:
-    return (
-        "Your previous PROCEED plan is incomplete. Missing: "
-        + ", ".join(missing)
-        + ". Every attached theme needs a theme_updates entry with its full new_body, and "
-        "book_outline_body is the full updated book-outline.md. Re-emit the COMPLETE plan — "
-        "ONLY the YAML inside `---kb-plan---` markers, no apology, no prose outside.\n\n"
-        f"Previous reply (for reference):\n```\n{text[:2000]}\n```"
-    )
+        plan = _parse_plan(result2["text"], diag=result2)
+        # Sum cost / tokens conservatively across both calls
+        for k in ("input_tokens", "output_tokens", "cache_read_tokens", "cache_creation_tokens", "cost_usd", "duration_s"):
+            result2[k] = (result.get(k, 0) or 0) + (result2.get(k, 0) or 0)
+        return plan, result2
 
 
 def _validate_plan(plan: Dict[str, Any]) -> None:
