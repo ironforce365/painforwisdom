@@ -311,8 +311,19 @@ def _call_llm_for_plan(state: State, approval_history: List[Tuple[str, str]]) ->
         return plan, result2
 
 
+def _validate_plan(plan: Dict[str, Any]) -> None:
+    """Raise before any vault write, so a bad plan never leaves a half-written entry behind."""
+    bad = [k for k in ("entry_slug", "entry_body", "timeline_row") if not isinstance(plan.get(k), str)]
+    for key in ("theme_updates", "framework_updates"):
+        bad += [f"{key}[{i}]" for i, u in enumerate(plan.get(key) or [])
+                if not (isinstance(u, dict) and isinstance(u.get("slug"), str) and isinstance(u.get("new_body"), str))]
+    if bad:
+        raise RuntimeError(f"kb-curator: invalid plan, missing or non-string: {', '.join(bad)}")
+
+
 def _apply_proceed(state: State, plan: Dict[str, Any]) -> Dict[str, Any]:
     """Write all vault files described by a PROCEED plan."""
+    _validate_plan(plan)
     entries_dir = VAULT_ROOT / "entries"
     themes_dir = VAULT_ROOT / "themes"
     frameworks_dir = VAULT_ROOT / "frameworks"
@@ -346,7 +357,11 @@ def _apply_proceed(state: State, plan: Dict[str, Any]) -> Dict[str, Any]:
         f.write(plan["timeline_row"].rstrip() + "\n")
 
     book_outline_file = VAULT_ROOT / "book-outline.md"
-    book_outline_file.write_text(plan["book_outline_body"])
+    outline = plan.get("book_outline_body")
+    if isinstance(outline, str):
+        book_outline_file.write_text(outline)
+    else:
+        print("[kb-curator] plan has no book_outline_body; book-outline.md left unchanged")
 
     run_dir = Path(state["run_dir"])
     summary_dir = run_dir / "kb-curator"

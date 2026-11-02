@@ -126,7 +126,7 @@ def _fake_notion(pages: dict, fail: Exception | None = None) -> types.SimpleName
 
     client = types.SimpleNamespace(pages=types.SimpleNamespace(retrieve=retrieve))
     return types.SimpleNamespace(
-        get_client=lambda: client, get_blog_page=retrieve, get_blog_page_markdown=lambda pid: f"# body of {pid}\n",
+        get_client=lambda token=None: client, get_blog_page=retrieve, get_blog_page_markdown=lambda pid: f"# body of {pid}\n",
         page_url=lambda page: page.get("url", "") or "", extract_property=extract_property)
 
 
@@ -178,3 +178,19 @@ def test_result_module_imports_notion_client_lazily(tmp_path):
     proc = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True,
                           env={"PATH": "/usr/bin:/bin", "PYTHONPATH": str(root), "HOME": str(tmp_path)})
     assert proc.returncode == 0, proc.stderr[-2000:]
+
+
+def test_notion_source_reads_profile_env_file_not_environ(tmp_path, monkeypatch):
+    # Spec §10.2: `python -m pipeline.ui --profile sandbox` must read Notion with no pre-exported shell env.
+    import os
+
+    import pipeline.notion_client as nc
+
+    monkeypatch.delenv("NOTION_API_KEY", raising=False)
+    monkeypatch.setattr(nc, "_CLIENT", None)
+    monkeypatch.setattr(result, "PROJECT_ROOT", tmp_path)
+    (tmp_path / ".env").write_text("NOTION_API_KEY=prod-key\n")
+    (tmp_path / ".env.sandbox").write_text("NOTION_API_KEY=sandbox-key\n")
+    src = result.source_for(Settings(processed_root=tmp_path, inbox=tmp_path, profile="sandbox"))
+    assert src._nc().get_client().options.auth == "sandbox-key"
+    assert "NOTION_API_KEY" not in os.environ

@@ -6,6 +6,9 @@ import json
 from pathlib import Path
 from typing import Any, Optional, Protocol
 
+from dotenv import dotenv_values
+
+from pipeline.runtime import PROJECT_ROOT
 from pipeline.ui.runs import ACTIVE
 from pipeline.ui.settings import Settings
 
@@ -19,8 +22,16 @@ class ResultSource(Protocol):
 
 
 class NotionResultSource:
+    def __init__(self, env_file: Optional[Path] = None) -> None:
+        self.env_file = env_file
+
     def _nc(self) -> Any:
-        return importlib.import_module("pipeline.notion_client")
+        nc = importlib.import_module("pipeline.notion_client")
+        # Key from the profile's env file, never os.environ: spawned runs inherit the server env (spec §5.2, §10).
+        key = dotenv_values(self.env_file).get("NOTION_API_KEY") if self.env_file else None
+        if key:
+            nc.get_client(token=key)
+        return nc
 
     def blog(self, page_id: str) -> dict:
         nc = self._nc()
@@ -51,7 +62,9 @@ class FixtureResultSource:
 
 
 def source_for(settings: Settings) -> ResultSource:
-    return FixtureResultSource(settings.notion_fixtures) if settings.notion_fixtures else NotionResultSource()
+    if settings.notion_fixtures:
+        return FixtureResultSource(settings.notion_fixtures)
+    return NotionResultSource(PROJECT_ROOT / (".env.sandbox" if settings.profile == "sandbox" else ".env"))
 
 
 def _payload(status: str, reason: Optional[str] = None, blog: Optional[dict] = None,
