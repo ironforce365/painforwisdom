@@ -282,8 +282,8 @@ python -m pipeline.ui --profile sandbox --inbox /path/to/inbox
 - Host is always `127.0.0.1`; port `--port` / `PIPELINE_UI_PORT` (default `8820`).
 - Inbox: `--inbox` / `PIPELINE_UI_INBOX` (default `$STATE_ROOT/inbox`). Drop `.txt` transcripts or videos
   (`.mp4 .mov .mkv .webm .m4v .avi`) there; they appear in the play-button popup.
-- Runs write to `processed/<run_id>/` of the checkout the server runs from. `--processed-root` /
-  `PIPELINE_UI_PROCESSED_ROOT` only changes where the UI reads.
+- Runs write to `--processed-root` / `PIPELINE_UI_PROCESSED_ROOT` (default `processed/` of the checkout the
+  server runs from); the UI reads the same root.
 - Prod is never the default: `--profile prod` (or `PIPELINE_UI_PROFILE=prod`) must be chosen explicitly; it reads `.env`.
 - HITL approvals still go through Telegram. The popup's auto-approve toggle passes `--auto-approve` instead.
 - One active run at a time (a second launch returns 409 and shows the live run).

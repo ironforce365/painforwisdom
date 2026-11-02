@@ -357,7 +357,7 @@ def _process_one_video(
     video: Optional[Path] = None,
 ) -> int:
     """Returns exit code: 0 on PASS or PARTIAL, 2 on FAIL."""
-    run_dir = PROJECT_ROOT / "processed" / run_id / args.run_suffix
+    run_dir = Path(args.processed_root) / run_id / args.run_suffix
     run_dir.mkdir(parents=True, exist_ok=True)
 
     label = video.name if video else Path(args.from_transcript).name
@@ -458,7 +458,7 @@ def _run_batch(args: argparse.Namespace) -> int:
         if rc == 0:
             # Archive the source video alongside the run's agent outputs so
             # everything that produced one result lives in one folder.
-            archive_dir = PROJECT_ROOT / "processed" / run_id / "source"
+            archive_dir = Path(args.processed_root) / run_id / "source"
             moved = _move_into(video, archive_dir)
             successes.append(video.name)
             print(f"[batch] OK → {moved}")
@@ -497,6 +497,10 @@ def main() -> int:
     ap.add_argument("--run-id", default=None, help="Override run id base (default: timestamp)")
     ap.add_argument(
         "--run-suffix", default="langgraph", help="Subdir under processed/<run_id>/ (default: langgraph)"
+    )
+    ap.add_argument(
+        "--processed-root", type=Path, default=PROJECT_ROOT / "processed",
+        help="Root of per-run output dirs (default: <project>/processed)",
     )
     ap.add_argument("--target-seconds", type=int, default=600, help="Soft target wall-clock (default 600 = 10 min)")
     ap.add_argument(

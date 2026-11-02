@@ -82,9 +82,9 @@ def build_argv(settings: Settings, run_id: str, path: Path, kind: str, auto_appr
         return [sys.executable, "-m", "pipeline.ui.fake_runner", "--run-id", run_id,
                 "--processed-root", str(settings.processed_root), "--input", str(path),
                 "--scenario", f["scenario"], "--step-ms", str(f["step_ms"])]
-    # run.py writes to PROJECT_ROOT/processed, the default processed_root; --processed-root only steers reads.
     flag = "--video" if kind == "video" else "--from-transcript"
-    argv = [sys.executable, "-m", "pipeline.run", "--profile", settings.profile, "--run-id", run_id, flag, str(path)]
+    argv = [sys.executable, "-m", "pipeline.run", "--profile", settings.profile, "--run-id", run_id,
+            "--processed-root", str(settings.processed_root), flag, str(path)]
     return argv + ["--auto-approve"] if auto_approve else argv
 
 

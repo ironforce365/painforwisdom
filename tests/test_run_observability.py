@@ -183,6 +183,7 @@ def _args(tmp_path: Path, **kw) -> argparse.Namespace:
     base = dict(
         from_transcript=str(transcript), profile="sandbox", run_suffix="langgraph",
         auto_approve=False, telegram_on_error=False, reminder_interval=1, target_seconds=600,
+        processed_root=tmp_path / "processed",
     )
     base.update(kw)
     return argparse.Namespace(**base)
@@ -305,3 +306,39 @@ def test_run_id_used_verbatim(tmp_path, monkeypatch, flag):
     monkeypatch.setattr(sys, "argv", ["run.py", flag, str(src), "--profile", "sandbox", "--run-id", "ui-2026-10-31_abc"])
     assert run.main() == 0
     assert got["run_id"] == "ui-2026-10-31_abc"
+
+
+# --- processed root from outside -------------------------------------------
+
+
+def test_processed_root_flag_default_and_override(tmp_path, monkeypatch):
+    src = tmp_path / "in.txt"
+    src.write_text("x")
+    got = []
+    monkeypatch.setattr(run, "_process_one_video", lambda args, run_id, *, video=None: got.append(args.processed_root) or 0)
+    monkeypatch.setattr(sys, "argv", ["run.py", "--from-transcript", str(src), "--profile", "sandbox"])
+    run.main()
+    monkeypatch.setattr(sys, "argv", ["run.py", "--from-transcript", str(src), "--profile", "sandbox",
+                                      "--processed-root", str(tmp_path / "elsewhere")])
+    run.main()
+    assert got == [run.PROJECT_ROOT / "processed", tmp_path / "elsewhere"]
+
+
+def test_run_dir_under_processed_root(tmp_path, harness):
+    harness(lambda state: {"validator_verdict": "PASS"})
+    root = tmp_path / "custom"
+    assert run._process_one_video(_args(tmp_path, processed_root=root), "rid") == 0
+    assert json.loads((root / "rid" / "langgraph" / "run.json").read_text())["status"] == "done"
+    assert not (tmp_path / "processed").exists()
+
+
+def test_batch_archives_under_processed_root(tmp_path, monkeypatch):
+    videos = tmp_path / "videos"
+    videos.mkdir()
+    (videos / "a.mp4").write_text("x")
+    monkeypatch.setattr(run, "_process_one_video", lambda args, run_id, *, video=None: 0)
+    monkeypatch.setattr(run, "telegram_send", lambda msg: 0)
+    root = tmp_path / "custom"
+    args = argparse.Namespace(dir=str(videos), run_id="b", processed_root=root)
+    assert run._run_batch(args) == 0
+    assert (root / "b_001" / "source" / "a.mp4").is_file()
