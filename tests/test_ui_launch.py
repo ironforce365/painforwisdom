@@ -93,10 +93,11 @@ def _settings(runner="real", profile="sandbox", root=Path("/p")) -> Settings:
 def test_argv_real_video_and_transcript():
     s = _settings()
     assert launcher.build_argv(s, "r1", Path("/in/v.mp4"), "video", False, None) == [
-        sys.executable, "-m", "pipeline.run", "--profile", "sandbox", "--run-id", "r1", "--video", "/in/v.mp4"]
+        sys.executable, "-m", "pipeline.run", "--profile", "sandbox", "--run-id", "r1",
+        "--processed-root", "/p", "--video", "/in/v.mp4"]
     assert launcher.build_argv(_settings(profile="prod"), "r2", Path("/in/t.txt"), "transcript", True, None) == [
         sys.executable, "-m", "pipeline.run", "--profile", "prod", "--run-id", "r2",
-        "--from-transcript", "/in/t.txt", "--auto-approve"]
+        "--processed-root", "/p", "--from-transcript", "/in/t.txt", "--auto-approve"]
 
 
 def test_argv_fake_defaults_and_explicit():
