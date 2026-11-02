@@ -35,11 +35,16 @@ function el(tag, props = {}, ...children) {
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 const escapeHtml = (s) => s.replace(/[&<>"']/g, (c) => ESC[c]);
 
+// Only http(s) targets become hrefs: Notion rows and LLM output can carry javascript: and other schemes.
+const isHttp = (url) => /^https?:\/\//i.test(url);
+// Outbound-link props, or none for a non-http(s) target.
+const outLink = (url) => (isHttp(url) ? { href: url, target: '_blank', rel: 'noopener' } : {});
+
 /** Inline markdown on already-escaped text: bold and http(s) links only. */
 function inline(s) {
   return s
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, text, url) => (/^https?:\/\//i.test(url)
+    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, text, url) => (isHttp(url)
       ? `<a href="${url}" target="_blank" rel="noopener">${text}</a>` : text));
 }
 
@@ -176,11 +181,11 @@ function resultBody(res) {
       icon('cloudOff', { role: 'img', 'aria-label': 'result unavailable' }),
       el('small', { 'data-testid': 'result-reason' }, res.reason))];
   }
-  const link = el('a', { href: res.blog.url, target: '_blank', rel: 'noopener', 'data-testid': 'result-link', 'aria-label': 'open in Notion' },
+  const link = el(isHttp(res.blog.url) ? 'a' : 'span', { ...outLink(res.blog.url), 'data-testid': 'result-link', 'aria-label': 'open in Notion' },
     icon('link'));
   const md = RENDER.markdown(res.blog.markdown);
-  const cards = (res.research || []).map((r) => el('a', {
-    class: 'card', href: r.url, target: '_blank', rel: 'noopener', 'data-testid': 'research-card', 'data-type': r.type, title: r.type,
+  const cards = (res.research || []).map((r) => el(isHttp(r.url) ? 'a' : 'div', {
+    ...outLink(r.url), class: 'card', 'data-testid': 'research-card', 'data-type': r.type, title: r.type,
   }, icon(TYPE_ICONS[r.type] || 'globe', { 'data-testid': 'type-icon', role: 'img', 'aria-label': r.type }), el('span', {}, r.title)));
   return [
     el('header', {}, el('h1', { 'data-testid': 'result-title' }, res.blog.title), link),
