@@ -272,3 +272,50 @@ def test_fake_runner_spawned_to_completion(processed):
     assert kinds >= {"markdown", "csv", "json", "text", "image"}
     # The run is finished, so the next launch is not blocked.
     assert launcher.active_run(processed) is None
+
+
+# --- upload ------------------------------------------------------------------
+
+def test_upload_201_lands_in_inbox_and_lists_first(processed, tmp_path):
+    inbox = tmp_path / "new-inbox"  # missing: created on first upload
+    client = _client(processed, inbox=inbox)
+    res = client.put("/api/inputs/run.MP4", content=b"x" * 2048)
+    assert res.status_code == 201
+    assert {k: res.json()[k] for k in ("name", "kind", "bytes")} == {"name": "run.MP4", "kind": "video", "bytes": 2048}
+    assert (inbox / "run.MP4").read_bytes() == b"x" * 2048
+    assert [p.name for p in inbox.iterdir()] == ["run.MP4"]  # no .part left behind
+    assert client.get("/api/inputs").json()["inputs"][0]["name"] == "run.MP4"
+
+
+def test_upload_409_never_overwrites(processed, tmp_path):
+    inbox = tmp_path / "inbox"
+    inbox.mkdir()
+    (inbox / "t.txt").write_text("keep")
+    res = _client(processed, inbox=inbox).put("/api/inputs/t.txt", content=b"new")
+    assert res.status_code == 409
+    assert (inbox / "t.txt").read_text() == "keep"
+    assert [p.name for p in inbox.iterdir()] == ["t.txt"]
+
+
+def test_publish_upload_race_is_409_and_drops_part(tmp_path):
+    part, target = tmp_path / ".t.txt.part", tmp_path / "t.txt"
+    part.write_text("new")
+    target.write_text("keep")
+    with pytest.raises(launcher.LaunchError) as e:
+        launcher.publish_upload(part, target)
+    assert e.value.status == 409 and target.read_text() == "keep" and not part.exists()
+
+
+@pytest.mark.parametrize("name", [".hidden.txt", "notes.md", "a\\b.txt", "noext"])
+def test_upload_bad_name_is_400(processed, tmp_path, name):
+    inbox = tmp_path / "inbox"
+    res = _client(processed, inbox=inbox).put(f"/api/inputs/{name}", content=b"x")
+    assert res.status_code == 400
+    assert not inbox.exists()
+
+
+def test_upload_target_rejects_paths(tmp_path):
+    for name in ["..", "../x.txt", "sub/x.txt", "/etc/x.txt", "x\0.txt"]:
+        with pytest.raises(launcher.LaunchError):
+            launcher.upload_target(tmp_path, name)
+    assert launcher.upload_target(tmp_path, "x.txt") == tmp_path / "x.txt"

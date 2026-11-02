@@ -1,6 +1,7 @@
 """C3 inputs and launch routes (spec 2026-10-31-pipeline-console-ui §5)."""
 from __future__ import annotations
 
+import uuid
 from typing import Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Request
@@ -27,6 +28,33 @@ class LaunchBody(BaseModel):
 def list_inputs(request: Request) -> dict:
     inbox = request.app.state.settings.inbox
     return {"inbox": str(inbox.resolve()), "inputs": launcher.list_inputs(inbox)}
+
+
+@router.put("/api/inputs/{name}", status_code=201)
+async def put_input(request: Request, name: str) -> dict:
+    """Raw-body upload into the inbox; no python-multipart (spec Conventions: no new runtime deps)."""
+    inbox = request.app.state.settings.inbox
+    try:
+        target = launcher.upload_target(inbox, name)
+    except launcher.LaunchError as e:
+        raise HTTPException(e.status, e.detail) from e
+    if target.exists():
+        raise HTTPException(409, "input exists")
+    inbox.mkdir(parents=True, exist_ok=True)
+    part = inbox / f".{name}.{uuid.uuid4().hex}.part"  # dot prefix: hidden from list_inputs while streaming
+    try:
+        with open(part, "wb") as f:
+            async for chunk in request.stream():
+                f.write(chunk)
+    except BaseException:
+        part.unlink(missing_ok=True)
+        raise
+    try:
+        launcher.publish_upload(part, target)
+    except launcher.LaunchError as e:
+        raise HTTPException(e.status, e.detail) from e
+    st = target.stat()
+    return {"name": name, "kind": launcher.input_kind(name), "bytes": st.st_size, "mtime": st.st_mtime}
 
 
 @router.post("/api/runs", status_code=201)

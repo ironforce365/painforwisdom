@@ -54,7 +54,7 @@
 }
 .launch-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .launch-close { margin-left: auto; }
-.launch-close, .launch-auto {
+.launch-close, .launch-auto, .launch-upload {
   display: inline-grid;
   place-items: center;
   width: 36px;
@@ -65,7 +65,16 @@
   color: var(--muted);
   cursor: pointer;
 }
-.launch-close:focus-visible, .launch-auto:focus-visible, .tile:focus-visible { outline: 2px solid var(--run); outline-offset: 2px; }
+/* Upload: busy = dashed ring + spinner, error = red border + red icon. */
+.launch-upload .icon { grid-area: 1 / 1; }
+.launch-upload:hover:not(:disabled) { color: var(--run); border-color: var(--run); }
+.launch-upload[data-state="busy"] { border: 1px dashed var(--run); color: var(--run); cursor: progress; }
+.launch-upload[data-state="busy"] .launch-up { display: none; }
+.launch-upload[data-state="busy"] .launch-spin { display: block; animation: spin 1s linear infinite; }
+.launch-upload[data-state="error"] { border-color: var(--error); color: var(--error); }
+/* Drop target: a dashed run-blue outline round the panel while a file hovers. */
+.launch-overlay[data-drop="true"] .launch-panel { outline: 2px dashed var(--run); outline-offset: 4px; }
+.launch-close:focus-visible, .launch-auto:focus-visible, .launch-upload:focus-visible, .tile:focus-visible { outline: 2px solid var(--run); outline-offset: 2px; }
 /* Switch: off = muted outline, on = filled amber with a solid track. */
 .launch-auto { width: 52px; border-radius: 999px; justify-items: start; padding: 0 6px; }
 .launch-auto[aria-checked="true"] {

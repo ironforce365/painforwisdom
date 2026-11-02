@@ -8,7 +8,10 @@ const PATHS = {
   play: 'M8 5v14l11-7z',
   transcript: 'M6 3h9l4 4v14H6z M14 3v5h5 M9 12h7 M9 16h7',
   lock: 'M6 11h12v10H6z M8 11V8a4 4 0 0 1 8 0v3',
+  upload: 'M12 16V4 M7 9l5-5 5 5 M4 15v5h16v-5',
 };
+// Mirrors launcher.VIDEO_EXTENSIONS plus transcripts; the server re-checks.
+const ACCEPT = 'video/*,.mp4,.mov,.mkv,.webm,.m4v,.avi,.txt';
 const STEPS = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 };
 const AGE_UNITS = [['d', 86400], ['h', 3600], ['m', 60], ['s', 1]];
 const motion = matchMedia('(prefers-reduced-motion: no-preference)');
@@ -62,8 +65,14 @@ export function mount(root, ctx) {
   const close = el('button', {
     type: 'button', class: 'launch-close', 'data-testid': 'launch-close', 'aria-label': 'close', title: 'close',
   }, svgIcon('cross'));
+  const upload = el('button', {
+    type: 'button', class: 'launch-upload', 'data-testid': 'launch-upload', 'data-state': 'idle',
+    'aria-label': 'upload into the inbox', title: 'upload a video or transcript (or drop files here)',
+  }, ownIcon('upload', 'icon launch-up'), svgIcon('arc', { class: 'icon launch-spin' }));
+  const picker = el('input', { type: 'file', multiple: '', accept: ACCEPT, hidden: '', 'data-testid': 'launch-file' });
   const tiles = el('div', { class: 'launch-tiles', 'data-testid': 'launch-tiles' });
-  const panel = el('div', { class: 'launch-panel' }, el('div', { class: 'launch-head' }, auto, lock, close), tiles);
+  const panel = el('div', { class: 'launch-panel' },
+    el('div', { class: 'launch-head' }, auto, upload, picker, lock, close), tiles);
   const modal = el('div', {
     class: 'launch-overlay', 'data-testid': 'launch-modal', role: 'dialog', 'aria-modal': 'true',
     'aria-label': 'choose an input', 'data-locked': 'false',
@@ -100,6 +109,11 @@ export function mount(root, ctx) {
     closing.cancel();
     modal.hidden = false;
     close.focus();
+    await load(false);
+  }
+
+  /** Render the inbox; `fresh` (after an upload) focuses the newest tile. */
+  async function load(fresh) {
     let body;
     try {
       body = await ctx.api.listInputs();
@@ -112,7 +126,26 @@ export function mount(root, ctx) {
       svgIcon('inbox'), el('span', { class: 'launch-path' }, body.inbox));
     tiles.replaceChildren(...(body.inputs.length ? body.inputs.map((input) => tileEl(input, start)) : [empty]));
     // Closed (or focus moved) while inputs loaded: do not pull focus back into the popup.
-    if (document.activeElement === close) (tiles.querySelector('.tile') ?? close).focus();
+    if (fresh || document.activeElement === close) (tiles.querySelector('.tile') ?? close).focus();
+  }
+
+  // Sequential PUTs; a failure (409 exists, 400 bad name) flags the button and the badge, the rest still go.
+  async function send(files) {
+    upload.disabled = true;
+    upload.dataset.state = 'busy';
+    let sent = 0;
+    for (const file of files) {
+      try {
+        await ctx.api.uploadInput(file);
+        sent += 1;
+      } catch (e) {
+        ctx.bus.emit('ui:error', `upload failed: ${file.name} ${e.message}`);
+      }
+    }
+    picker.value = '';
+    upload.disabled = false;
+    upload.dataset.state = sent === files.length ? 'idle' : 'error';
+    if (sent) await load(true);
   }
 
   async function start(tile, name) {
@@ -149,6 +182,18 @@ export function mount(root, ctx) {
   }
 
   button.addEventListener('click', show);
+  upload.addEventListener('click', () => picker.click());
+  picker.addEventListener('change', () => send([...picker.files]));
+  modal.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    modal.dataset.drop = 'true';
+  });
+  modal.addEventListener('dragleave', () => { modal.dataset.drop = 'false'; });
+  modal.addEventListener('drop', (e) => {
+    e.preventDefault();
+    modal.dataset.drop = 'false';
+    send([...e.dataTransfer.files]);
+  });
   close.addEventListener('click', hide);
   auto.addEventListener('click', () => auto.setAttribute('aria-checked', String(auto.getAttribute('aria-checked') !== 'true')));
   modal.addEventListener('click', (e) => {

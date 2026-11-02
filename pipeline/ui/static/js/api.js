@@ -38,6 +38,7 @@ export const listArtifacts = (id) => request(`/api/runs/${enc(id)}/artifacts`);
 export const artifactUrl = (id, artifactId) => `/api/runs/${enc(id)}/artifacts/${enc(artifactId)}`;
 export const getResult = (id) => request(`/api/runs/${enc(id)}/result`);
 export const listInputs = () => request('/api/inputs');
+export const uploadInput = (file) => request(`/api/inputs/${enc(file.name)}`, { method: 'PUT', body: file });
 export const launchRun = (body) => request('/api/runs', {
   method: 'POST',
   headers: { 'content-type': 'application/json' },

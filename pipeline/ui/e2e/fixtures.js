@@ -9,6 +9,7 @@ import { coverageOptions } from './coverage.js';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURES = path.resolve(HERE, '../../../tests/fixtures/ui');
 export const PROCESSED = path.join(process.env.PFW_UI_TMP, 'processed');
+export const INBOX = path.join(process.env.PFW_UI_TMP, 'inbox');
 const UI_RUN = /_ui(_\d+)?$/;
 
 function alive(pid) {
@@ -47,11 +48,13 @@ function setPid(runId, pid) {
   fs.writeFileSync(file, JSON.stringify({ ...rec, pid }, null, 2));
 }
 
-/** Reset the server's processed root to C6. `live` makes fx-running/fx-hitl alive (pid of this process). */
+/** Reset the server's processed root to C6 and its inbox to the fixture inbox. `live` makes fx-running/fx-hitl alive (pid of this process). */
 export function freshServerState({ live = false } = {}) {
   killRunners();
   fs.rmSync(PROCESSED, { recursive: true, force: true });
   fs.cpSync(path.join(FIXTURES, 'processed'), PROCESSED, { recursive: true });
+  fs.rmSync(INBOX, { recursive: true, force: true });
+  fs.cpSync(path.join(FIXTURES, 'inbox'), INBOX, { recursive: true });
   if (live) {
     setPid('fx-running', process.pid);
     setPid('fx-hitl', process.pid);
