@@ -113,13 +113,16 @@ def _coerce_csv_value(v: Any) -> str:
 def _parse_csv(text: str) -> List[Dict[str, str]]:
     m = _CSV_FENCE.search(text)
     if not m:
-        # Some models drop the fence — try to read whole response as CSV
-        body = text.strip()
+        # Some models drop the fence, and a max_tokens cut leaves it unclosed: strip an opening fence line.
+        body = re.sub(r"\A\s*```csv\s*\n", "", text).strip()
     else:
         body = m.group(1).strip()
     reader = csv.DictReader(io.StringIO(body))
     rows: List[Dict[str, str]] = []
     for row in reader:
+        # DictReader fills missing trailing fields with None: a truncated row, so drop it.
+        if not row.get("Title") or any(v is None for k, v in row.items() if k is not None):
+            continue
         # Drop the None bucket DictReader uses for extra fields, otherwise
         # downstream code sees a key=None mapped to a list.
         rows.append({k: _coerce_csv_value(v) for k, v in row.items() if k is not None})
@@ -299,7 +302,7 @@ def node_research(state: State) -> Dict[str, Any]:
         f"before producing the CSV block.\n"
     )
     model = os.environ.get("PIPELINE_MODEL", DEFAULT_MODEL)
-    result = call_llm(model, system_prompt, user_msg, max_tokens=3000, web_search=True)
+    result = call_llm(model, system_prompt, user_msg, max_tokens=8000, web_search=True)
     text = result["text"]
 
     rows = _parse_csv(text)
