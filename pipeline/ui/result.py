@@ -8,7 +8,7 @@ from typing import Any, Optional, Protocol
 
 from dotenv import dotenv_values
 
-from pipeline.runtime import PROJECT_ROOT
+from pipeline import runtime
 from pipeline.ui.runs import ACTIVE
 from pipeline.ui.settings import Settings
 
@@ -64,7 +64,8 @@ class FixtureResultSource:
 def source_for(settings: Settings) -> ResultSource:
     if settings.notion_fixtures:
         return FixtureResultSource(settings.notion_fixtures)
-    return NotionResultSource(PROJECT_ROOT / (".env.sandbox" if settings.profile == "sandbox" else ".env"))
+    # .env lives in STATE_ROOT, not the tag-pinned live checkout (io-ab244036).
+    return NotionResultSource(runtime.STATE_ROOT / (".env.sandbox" if settings.profile == "sandbox" else ".env"))
 
 
 def _payload(status: str, reason: Optional[str] = None, blog: Optional[dict] = None,
