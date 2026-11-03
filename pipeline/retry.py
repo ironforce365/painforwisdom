@@ -56,7 +56,17 @@ _ENV_FILE = ".env.sandbox" if _PROFILE == "sandbox" else ".env"
 
 from dotenv import load_dotenv  # noqa: E402
 
-load_dotenv(PROJECT_ROOT / _ENV_FILE)
+# .env lives in the state root (PAINFORWISDOM_STATE_ROOT): the tag-pinned live
+# checkout has none. Mirrors pipeline.runtime.state_root(), which cannot be
+# imported yet because it reads VAULT_PATH at import time.
+import os as _os  # noqa: E402
+
+_STATE_ROOT = (
+    Path(_os.environ["PAINFORWISDOM_STATE_ROOT"].strip()).expanduser().resolve()
+    if _os.environ.get("PAINFORWISDOM_STATE_ROOT", "").strip()
+    else PROJECT_ROOT
+)
+load_dotenv(_STATE_ROOT / _ENV_FILE)
 
 import os  # noqa: E402
 

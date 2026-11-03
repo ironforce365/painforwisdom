@@ -55,7 +55,7 @@ AGENTS_DIR = PROJECT_ROOT / "pipeline" / "agents"
 PROCESSED_ROOT = PROJECT_ROOT / "processed"
 # VAULT_PATH is overridable via env (sandbox profile points it at a parallel
 # vault dir so test runs don't pollute the real second brain).
-VAULT_PATH = Path(os.environ.get("VAULT_PATH") or (PROJECT_ROOT / "obsidian-vault"))
+VAULT_PATH = Path(os.environ.get("VAULT_PATH") or (STATE_ROOT / "obsidian-vault"))
 EXTRACT_TRANSCRIPTION = PROJECT_ROOT / "extract_transcription.sh"
 
 # Pipeline model pins; PIPELINE_MODEL env overrides per node.
