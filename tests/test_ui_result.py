@@ -188,9 +188,19 @@ def test_notion_source_reads_profile_env_file_not_environ(tmp_path, monkeypatch)
 
     monkeypatch.delenv("NOTION_API_KEY", raising=False)
     monkeypatch.setattr(nc, "_CLIENT", None)
-    monkeypatch.setattr(result, "PROJECT_ROOT", tmp_path)
-    (tmp_path / ".env").write_text("NOTION_API_KEY=prod-key\n")
-    (tmp_path / ".env.sandbox").write_text("NOTION_API_KEY=sandbox-key\n")
+    # Live checkout: code under PROJECT_ROOT, .env under STATE_ROOT (io-ab244036).
+    code, state = tmp_path / "code", tmp_path / "state"
+    code.mkdir()
+    state.mkdir()
+    monkeypatch.setattr(result.runtime, "PROJECT_ROOT", code)
+    monkeypatch.setattr(result.runtime, "STATE_ROOT", state)
+    (code / ".env").write_text("NOTION_API_KEY=wrong-root\n")
+    (code / ".env.sandbox").write_text("NOTION_API_KEY=wrong-root\n")
+    (state / ".env").write_text("NOTION_API_KEY=prod-key\n")
+    (state / ".env.sandbox").write_text("NOTION_API_KEY=sandbox-key\n")
     src = result.source_for(Settings(processed_root=tmp_path, inbox=tmp_path, profile="sandbox"))
     assert src._nc().get_client().options.auth == "sandbox-key"
+    monkeypatch.setattr(nc, "_CLIENT", None)
+    src = result.source_for(Settings(processed_root=tmp_path, inbox=tmp_path, profile="prod"))
+    assert src._nc().get_client().options.auth == "prod-key"
     assert "NOTION_API_KEY" not in os.environ
