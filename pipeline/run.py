@@ -61,7 +61,17 @@ _ENV_FILE = ".env.sandbox" if _PROFILE == "sandbox" else ".env"
 
 from dotenv import load_dotenv  # noqa: E402
 
-load_dotenv(PROJECT_ROOT / _ENV_FILE)
+# .env lives in the state root (PAINFORWISDOM_STATE_ROOT): the tag-pinned live
+# checkout has none. Mirrors pipeline.runtime.state_root(), which cannot be
+# imported yet because it reads VAULT_PATH at import time.
+import os as _os  # noqa: E402
+
+_STATE_ROOT = (
+    Path(_os.environ["PAINFORWISDOM_STATE_ROOT"].strip()).expanduser().resolve()
+    if _os.environ.get("PAINFORWISDOM_STATE_ROOT", "").strip()
+    else PROJECT_ROOT
+)
+load_dotenv(_STATE_ROOT / _ENV_FILE)
 
 # Sandbox messages get tagged so the user can mute / ignore them.
 import os  # noqa: E402
@@ -149,9 +159,16 @@ def _ask_indefinitely(prompt: str, reminder_interval: int) -> str:
     `reminder_interval` seconds (the re-post serves as the reminder)."""
     waited = 0
     while True:
+        started = time.monotonic()
         reply = telegram_ask(prompt, timeout_seconds=reminder_interval)
         if reply:
             return reply
+        # ask() also returns None when telegram_io.sh fails instantly (no token,
+        # network down); sleep out the interval so that cannot become a busy loop.
+        remaining = reminder_interval - (time.monotonic() - started)
+        if remaining > 1:
+            print(f"[run] telegram ask failed fast — waiting {int(remaining)}s before retrying")
+            time.sleep(remaining)
         waited += reminder_interval
         print(f"[run] no reply after {waited // 60} min — re-posting prompt as reminder")
 

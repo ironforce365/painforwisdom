@@ -18,12 +18,19 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _caller_bot_token="${TELEGRAM_BOT_TOKEN:-}"
 _caller_chat_id="${TELEGRAM_CHAT_ID:-}"
 _caller_parse_mode="${TELEGRAM_PARSE_MODE:-}"
-if [ -f "$SCRIPT_DIR/.env" ]; then
-    # shellcheck disable=SC1091
+# The tag-pinned live checkout has no .env; state (incl. .env) lives under
+# PAINFORWISDOM_STATE_ROOT.
+_env_file="$SCRIPT_DIR/.env"
+if [ ! -f "$_env_file" ] && [ -n "${PAINFORWISDOM_STATE_ROOT:-}" ]; then
+    _env_file="$PAINFORWISDOM_STATE_ROOT/.env"
+fi
+if [ -f "$_env_file" ]; then
+    # shellcheck disable=SC1090
     set -a
-    source "$SCRIPT_DIR/.env"
+    source "$_env_file"
     set +a
 fi
+unset _env_file
 [ -n "$_caller_bot_token" ] && TELEGRAM_BOT_TOKEN="$_caller_bot_token"
 [ -n "$_caller_chat_id" ] && TELEGRAM_CHAT_ID="$_caller_chat_id"
 [ -n "$_caller_parse_mode" ] && TELEGRAM_PARSE_MODE="$_caller_parse_mode"
