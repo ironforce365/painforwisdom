@@ -141,7 +141,7 @@ class BvWordpressTest(unittest.TestCase):
         self.assertEqual(out["branch_verdict_wordpress"], "FAIL")
         self.assertEqual(out["branch_validations_done"], ["wordpress"])
 
-    def test_dormant_wordpress_is_not_a_failure(self):
+    def test_manual_wordpress_is_not_a_failure(self):
         with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as fh:
             fh.write("# blog\n")
             bp = fh.name
@@ -149,7 +149,8 @@ class BvWordpressTest(unittest.TestCase):
             out = node_bv_wordpress({
                 "blog_post_path": bp,
                 "notion_blog_url": "https://www.notion.so/foo-abc123",
-                "wordpress_dormant": True,
+                "wordpress_skipped": True,
+                "wordpress_skip_reason": "manual",
                 "image_extraction_failed": True,
             })
         self.assertEqual(out["branch_verdict_wordpress"], "PASS")

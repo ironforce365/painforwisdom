@@ -1,5 +1,5 @@
 """Scrape the latest YouTube Shorts metadata from @painforwisdom and refresh
-``config/youtube_metadata.json`` with the union of their tags.
+``youtube.default_tags`` in ``config/publishing.json`` with the union of their tags.
 
 Requires ``yt-dlp`` on PATH. Install via ``pipx install yt-dlp``.
 
@@ -22,7 +22,9 @@ from typing import Dict, List, Set
 DEFAULT_CHANNEL = "@painforwisdom"
 DEFAULT_LIMIT = 20
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-CONFIG_PATH = PROJECT_ROOT / "config" / "youtube_metadata.json"
+sys.path.insert(0, str(PROJECT_ROOT))
+
+from pipeline.publishing_config import CONFIG_PATH  # noqa: E402
 
 
 def _which_yt_dlp() -> str:
@@ -115,22 +117,13 @@ def main(argv: List[str] | None = None) -> int:
         print("--dry-run: not writing config.")
         return 0
 
-    if not CONFIG_PATH.is_file():
-        config: Dict = {
-            "default_tags": [],
-            "default_description_suffix": "",
-            "default_category_id": "22",
-            "default_privacy_status": "private",
-            "scraped_at": None,
-            "scraped_from_channel": args.channel,
-        }
-    else:
-        config = json.loads(CONFIG_PATH.read_text())
-
-    config["default_tags"] = tags
-    config["scraped_at"] = datetime.now(timezone.utc).isoformat()
-    config["scraped_from_channel"] = args.channel
-    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    # The raw file, not publishing_config.load: a merged view would write the profile overlay into the base.
+    config = json.loads(CONFIG_PATH.read_text())
+    config["youtube"].update(
+        default_tags=tags,
+        scraped_at=datetime.now(timezone.utc).isoformat(),
+        scraped_from_channel=args.channel,
+    )
     CONFIG_PATH.write_text(json.dumps(config, indent=2) + "\n")
     print(f"✓ Wrote {len(tags)} tags to {CONFIG_PATH}")
     return 0

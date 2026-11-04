@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "youtube": {
+    "mode": "manual",
+    "kind": "short",
+    "privacy_status": "private",
+    "category_id": "22",
+    "made_for_kids": false,
+    "default_tags": [
+      "painforwisdom",
+      "ultra running",
+      "discipline",
+      "mental toughness",
+      "self improvement",
+      "daily reflection",
+      "endurance",
+      "growth mindset"
+    ],
+    "description_suffix": "",
+    "scraped_at": null,
+    "scraped_from_channel": "@painforwisdom"
+  },
+  "wordpress": {
+    "mode": "manual",
+    "site": "painforwisdom.wordpress.com",
+    "status": "draft",
+    "auth_mode": "app_password",
+    "categories": [],
+    "default_tags": []
+  },
+  "profiles": {
+    "sandbox": {
+      "youtube": {"mode": "off"},
+      "wordpress": {"mode": "off"}
+    }
+  }
+}

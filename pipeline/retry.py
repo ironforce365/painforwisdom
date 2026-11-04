@@ -70,6 +70,7 @@ load_dotenv(_STATE_ROOT / _ENV_FILE)
 
 import os  # noqa: E402
 
+os.environ["PIPELINE_PROFILE"] = _PROFILE  # nodes read it through pipeline.publishing_config
 if _PROFILE == "sandbox":
     os.environ["TELEGRAM_MESSAGE_PREFIX"] = "[SANDBOX] "
 

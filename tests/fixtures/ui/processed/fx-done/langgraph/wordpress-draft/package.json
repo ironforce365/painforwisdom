@@ -1,0 +1,86 @@
+{
+  "schema": 1,
+  "target": "wordpress",
+  "mode": "manual",
+  "status": "pending",
+  "fields": {
+    "title": "The hill does not care",
+    "body": "*10/30/26.*\n\nThe hill does not care how you feel.\n\n**Keep walking.**\n",
+    "excerpt": "The hill does not care how you feel.",
+    "tags": [
+      "painforwisdom",
+      "discipline"
+    ],
+    "categories": [],
+    "status": "draft",
+    "youtube_url": ""
+  },
+  "field_specs": {
+    "title": {
+      "type": "string",
+      "label": "Title",
+      "max": 200,
+      "options": null,
+      "required": true
+    },
+    "body": {
+      "type": "markdown",
+      "label": "Body",
+      "max": null,
+      "options": null,
+      "required": true
+    },
+    "excerpt": {
+      "type": "text",
+      "label": "Excerpt",
+      "max": 300,
+      "options": null,
+      "required": false
+    },
+    "tags": {
+      "type": "tags",
+      "label": "Tags",
+      "max": null,
+      "options": null,
+      "required": false
+    },
+    "categories": {
+      "type": "tags",
+      "label": "Categories",
+      "max": null,
+      "options": null,
+      "required": false
+    },
+    "status": {
+      "type": "enum",
+      "label": "Status",
+      "max": null,
+      "options": [
+        "draft",
+        "publish"
+      ],
+      "required": false
+    },
+    "youtube_url": {
+      "type": "url",
+      "label": "YouTube URL",
+      "max": null,
+      "options": null,
+      "required": false
+    }
+  },
+  "readonly": {
+    "date_mmddyy": "10/30/26",
+    "notion_blog_url": "https://www.notion.so/fx-blog-1",
+    "notion_blog_page_id": "fx-blog-1"
+  },
+  "assets": [
+    {
+      "role": "featured_image",
+      "path": "/nonexistent/painforwisdom-fixtures/processed/fx-done/langgraph/wordpress-draft/featured.png"
+    }
+  ],
+  "result": null,
+  "error": null,
+  "updated_at": 1793343900.0
+}

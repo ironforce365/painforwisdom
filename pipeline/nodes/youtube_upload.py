@@ -2,7 +2,7 @@
 
 Calls the ``youtube-upload-agent`` to produce title/description/extra tags
 from the extraction report, merges the extras with the channel default
-tag set in ``config/youtube_metadata.json``, then uploads the source
+tag set in ``config/publishing.json``, then uploads the source
 video as a draft (privacy=private) via the YouTube Data API v3.
 
 Skip rules:
@@ -23,17 +23,14 @@ from typing import Any, Dict, List
 
 from pipeline.contracts import assert_inputs
 from pipeline.llm import call_llm
+from pipeline.publishing_config import CONFIG_PATH, current_profile, load
 from pipeline.runtime import (
     DEFAULT_MODEL,
-    PROJECT_ROOT,
     append_metric,
     load_agent_prompt,
     run_telemetry_path,
 )
 from pipeline.state import State
-
-
-CONFIG_PATH = PROJECT_ROOT / "config" / "youtube_metadata.json"
 
 
 def _write_marker(out_dir: Path, name: str, body: str) -> None:
@@ -44,7 +41,7 @@ def _write_marker(out_dir: Path, name: str, body: str) -> None:
 def _load_defaults() -> Dict[str, Any]:
     if CONFIG_PATH.is_file():
         try:
-            return json.loads(CONFIG_PATH.read_text())
+            return load(current_profile()).get("youtube", {})
         except json.JSONDecodeError:
             print(f"[youtube-upload] WARN failed to parse {CONFIG_PATH}; using empty defaults")
     return {}
@@ -116,9 +113,9 @@ def node_youtube_upload(state: State) -> Dict[str, Any]:
 
     defaults = _load_defaults()
     default_tags = list(defaults.get("default_tags") or [])
-    default_description_suffix = str(defaults.get("default_description_suffix") or "").strip()
-    category_id = str(defaults.get("default_category_id") or "22")
-    privacy_status = str(defaults.get("default_privacy_status") or "private")
+    default_description_suffix = str(defaults.get("description_suffix") or "").strip()
+    category_id = str(defaults.get("category_id") or "22")
+    privacy_status = str(defaults.get("privacy_status") or "private")
 
     # Always run the metadata agent — even in dormant mode we want the JSON
     # bundle on disk so Gonzalo can paste it into Studio manually.

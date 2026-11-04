@@ -72,7 +72,6 @@ class State(TypedDict, total=False):
     # Stage 5c — wordpress_draft (joins notion_blog + extract_image)
     wordpress_post_id: Optional[int]
     wordpress_url: str
-    wordpress_dormant: bool
     wordpress_skipped: bool
     wordpress_skip_reason: str
     wordpress_bundle_path: str

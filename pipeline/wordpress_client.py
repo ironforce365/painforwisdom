@@ -11,8 +11,8 @@ Auth modes (set via ``WORDPRESS_AUTH_MODE``):
   - ``oauth2``: Bearer with ``WORDPRESS_OAUTH_TOKEN``.
 
 Heads-up: WordPress.com **free plan blocks write operations**. The
-pipeline therefore defaults to dormant mode (``WORDPRESS_ENABLED!=true``)
-and never calls this client until Gonzalo upgrades to Personal.
+pipeline therefore defaults to ``manual`` mode (``config/publishing.json``)
+and calls this client only on a confirm from the console, or in ``auto`` mode.
 """
 from __future__ import annotations
 
@@ -163,18 +163,22 @@ class WordPressClient:
         html: str,
         excerpt: str = "",
         tags: Optional[List[str]] = None,
+        categories: Optional[List[str]] = None,
+        status: str = "draft",
         featured_media_id: Optional[int] = None,
         slug: Optional[str] = None,
     ) -> PostResult:
-        """POST /wp/v2/posts with status="draft"."""
+        """POST /wp/v2/posts; `status` is "draft" unless the caller asks to publish."""
         body: Dict[str, Any] = {
             "title": title,
             "content": html,
-            "status": "draft",
+            "status": status,
             "excerpt": excerpt,
         }
         if tags:
-            body["tags"] = self._resolve_tag_ids(tags)
+            body["tags"] = self._resolve_term_ids("/tags", tags)
+        if categories:
+            body["categories"] = self._resolve_term_ids("/categories", categories)
         if featured_media_id:
             body["featured_media"] = featured_media_id
         if slug:
@@ -188,16 +192,16 @@ class WordPressClient:
         """PATCH /wp/v2/posts/<id> for backfill amendments."""
         return self._request("POST", f"/posts/{post_id}", json=fields)
 
-    # ---- Tag helpers ---------------------------------------------------
+    # ---- Term helpers --------------------------------------------------
 
-    def _resolve_tag_ids(self, names: List[str]) -> List[int]:
-        """For each tag name, look it up; create if missing. Returns the int IDs."""
+    def _resolve_term_ids(self, path: str, names: List[str]) -> List[int]:
+        """For each tag or category name, look it up; create if missing. Returns the int IDs."""
         ids: List[int] = []
         for name in names:
             name = name.strip()
             if not name:
                 continue
-            existing = self._request("GET", "/tags", params={"search": name, "per_page": 5})
+            existing = self._request("GET", path, params={"search": name, "per_page": 5})
             tag_id: Optional[int] = None
             if isinstance(existing, list):
                 for tag in existing:
@@ -206,10 +210,10 @@ class WordPressClient:
                         break
             if tag_id is None:
                 try:
-                    created = self._request("POST", "/tags", json={"name": name})
+                    created = self._request("POST", path, json={"name": name})
                     tag_id = int(created.get("id") or 0)
                 except WordPressClientError as exc:
-                    print(f"[wordpress] WARN failed to create tag {name!r}: {exc}")
+                    print(f"[wordpress] WARN failed to create {path} term {name!r}: {exc}")
                     continue
             if tag_id:
                 ids.append(tag_id)

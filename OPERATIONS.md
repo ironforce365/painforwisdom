@@ -289,6 +289,22 @@ python -m pipeline.ui --profile sandbox --inbox /path/to/inbox
 - HITL approvals still go through Telegram. The popup's auto-approve toggle passes `--auto-approve` instead.
 - One active run at a time (a second launch returns 409 and shows the live run).
 
+### Publishing
+
+`config/publishing.json` (committed, no secrets) sets each target's `mode`, per profile. Credentials stay in the profile env file (`.env` / `.env.sandbox` under `$STATE_ROOT`).
+
+| `mode` | The node writes | DAG |
+|---|---|---|
+| `off` (sandbox default) | bundle only | skipped |
+| `manual` (prod default) | bundle and `package.json`, status `pending` | skipped |
+| `auto` | bundle and `package.json`, then publishes in-process | done |
+
+- A package lives at `processed/<run>/langgraph/{wordpress-draft,youtube-upload}/package.json`.
+- `GET /api/runs/<run>/publish` lists a run's packages; `POST /api/runs/<run>/publish/<target>` with `{"fields": {...}}` publishes one. The server never loads secrets: it spawns the CLI, which reads the profile env file itself.
+- By hand: `python -m pipeline.publish --profile prod --run-dir processed/<run>/langgraph --target wordpress`. Output goes to `publish.log` next to the package when the console spawns it.
+- `publish.lock` next to the package marks a publish in progress. The console clears it, and marks the package `failed`, when its publisher died.
+- WordPress.com's free plan blocks writes: a publish on it ends `failed` with a 403 in `error`.
+
 Tests (from `pipeline/ui/e2e/`):
 
 ```bash

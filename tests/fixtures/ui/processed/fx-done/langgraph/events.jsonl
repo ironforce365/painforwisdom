@@ -21,7 +21,7 @@
 {"ts": 1793343814.0, "node": "notion_blog", "event": "start", "attempt": 1}
 {"ts": 1793343816.6, "node": "notion_blog", "event": "end", "attempt": 1, "duration_s": 2.6, "noop": false, "outputs": {}, "result": {"notion_blog_page_id": "fx-blog-1"}}
 {"ts": 1793343817.0, "node": "wordpress_draft", "event": "start", "attempt": 1}
-{"ts": 1793343820.0, "node": "wordpress_draft", "event": "end", "attempt": 1, "duration_s": 3.0, "noop": false, "outputs": {}, "result": {"wordpress_skipped": true, "wordpress_skip_reason": "off"}}
+{"ts": 1793343820.0, "node": "wordpress_draft", "event": "end", "attempt": 1, "duration_s": 3.0, "noop": false, "outputs": {}, "result": {"wordpress_skipped": true, "wordpress_skip_reason": "manual"}}
 {"ts": 1793343820.5, "node": "bv_wordpress", "event": "start", "attempt": 1}
 {"ts": 1793343820.8, "node": "bv_wordpress", "event": "end", "attempt": 1, "duration_s": 0.3, "noop": false, "outputs": {}, "result": {"branch_findings_wordpress": ["{\"name\": \"featured image present or explicitly skipped\", \"ok\": true, \"detail\": \"skipped\", \"severity\": \"secondary\"}"], "branch_verdict_wordpress": "PASS"}}
 {"ts": 1793343821.0, "node": "summarizer", "event": "start", "attempt": 2}
