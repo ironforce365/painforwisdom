@@ -19,7 +19,7 @@ have them in ``.env``) into your ``.env``:
     YOUTUBE_CLIENT_SECRET=<from JSON>
     YOUTUBE_REFRESH_TOKEN=<printed by this script>
 
-After that, ``YOUTUBE_ENABLED=true`` activates the pipeline upload node.
+After that, ``youtube.mode`` in ``config/publishing.json`` decides when the pipeline uploads.
 """
 from __future__ import annotations
 

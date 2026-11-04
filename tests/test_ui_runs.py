@@ -13,7 +13,7 @@ from pipeline.ui import artifacts, mapping, runs
 FIXTURES = Path(__file__).parent / "fixtures" / "ui" / "processed"
 NODES = [
     "transcribe", "extract", "kb_curator", "writer", "research", "notion_blog",
-    "notion_research", "extract_image", "youtube_upload", "wordpress_draft",
+    "notion_research", "extract_image", "youtube_metadata", "youtube_upload", "wordpress_draft",
     "pre_validator", "bv_research", "bv_wordpress", "bv_youtube", "summarizer",
 ]
 
@@ -190,9 +190,9 @@ def test_fx_done_telemetry(root):
     assert kb["cost_usd"] == pytest.approx(0.31)
     assert t["per_node"]["extract"]["model"] == "claude-sonnet-5-5"
     assert t["per_node"]["extract_image"]["input_tokens"] == 0
-    assert t["tokens"] == {"input": 2200 + 15100 + 4260 + 51000, "output": 440 + 3950 + 657 + 3300,
+    assert t["tokens"] == {"input": 2200 + 15100 + 4260 + 1200 + 51000, "output": 440 + 3950 + 657 + 100 + 3300,
                            "cache_read": 4500 + 38000, "cache_creation": 2081 + 4500 + 3058 + 12500}
-    assert t["cost_usd"] == pytest.approx(0.012 + 0.31 + 0.025 + 0.4)
+    assert t["cost_usd"] == pytest.approx(0.012 + 0.31 + 0.025 + 0.005 + 0.4)
     assert "pre_validator" not in t["per_node"]
 
 

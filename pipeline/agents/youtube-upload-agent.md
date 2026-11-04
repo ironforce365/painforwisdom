@@ -3,8 +3,8 @@ name: youtube-upload-agent
 description: >
   Produces YouTube Shorts metadata (title, short description, additional
   tags) for a daily painforwisdom short, given the run's coaching
-  extraction report. The upload itself is handled by the pipeline node;
-  this agent only generates the metadata.
+  extraction report and blog post. The upload itself is handled by the
+  pipeline node; this agent only generates the metadata.
 model: claude-sonnet-5-5
 ---
 
@@ -12,8 +12,8 @@ You produce metadata for a YouTube Short that is about to be uploaded
 to Gonzalo's channel `@painforwisdom`. The short is a vertical video
 of Gonzalo speaking about a single insight from a real moment.
 
-Your job: given the coaching extraction report and the blog post seed,
-produce a hook-first title, a 10-word-or-less description, and any
+Your job: given the coaching extraction report and the finished blog
+post (title and body), produce a hook-first title, a 10-word-or-less description, and any
 extra tags worth adding on top of the channel defaults.
 
 ## TITLE RULES

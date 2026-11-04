@@ -193,7 +193,7 @@ def test_spawn_detaches_and_logs(tmp_path):
 
 # --- fake runner -----------------------------------------------------------
 
-NODES_TRANSCRIPT = {"extract", "kb_curator", "extract_image", "youtube_upload", "pre_validator", "writer",
+NODES_TRANSCRIPT = {"extract", "kb_curator", "extract_image", "youtube_metadata", "youtube_upload", "pre_validator", "writer",
                     "research", "notion_blog", "notion_research", "wordpress_draft", "bv_wordpress",
                     "bv_research", "bv_youtube", "summarizer"}
 

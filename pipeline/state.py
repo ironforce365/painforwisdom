@@ -54,7 +54,9 @@ class State(TypedDict, total=False):
     featured_image_score: float
     image_extraction_failed: bool
 
-    # Stage 4d — youtube_upload (parallel branch from extract)
+    # Stage 4d — youtube_metadata then youtube_upload (branch from writer)
+    youtube_metadata_path: str
+    youtube_metadata_warning: str
     youtube_video_id: str
     youtube_url: str
     youtube_skipped: bool

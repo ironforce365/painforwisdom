@@ -2,20 +2,17 @@
 
 Topology (per-branch validators + summarizer join):
 
-    START → transcribe → extract ─┬─▶ kb_curator → pre_validator ─┬─▶ writer ─▶ notion_blog ─┐
-                                  │                               └─▶ research ─▶ notion_research ─▶ bv_research ──┐
-                                  ├─▶ extract_image ──────────────────────────────────────────┐                    │
-                                  └─▶ youtube_upload ─▶ bv_youtube ────────────────────────────┼────────────────────┤
-                                                                                               ▼                    │
-                                                                                       wordpress_draft ─▶ bv_wordpress ─▶ summarizer → END
-                                                                                                                          ▲
-                                                                                                                          │
-                                                                                                                bv_research ┘
+    START → transcribe → extract ─┬─▶ kb_curator → pre_validator ─┬─▶ writer ─┬─▶ notion_blog ─┐
+                                  │                               │           └─▶ youtube_metadata ─▶ youtube_upload ─▶ bv_youtube ─┐
+                                  │                               └─▶ research ─▶ notion_research ─▶ bv_research ───────────────────┤
+                                  └─▶ extract_image ───────────────────────────────────────────┐                                    │
+                                                                                               ▼                                    ▼
+                                                                                       wordpress_draft ─▶ bv_wordpress ─────▶ summarizer → END
 
-`extract` fans out to three siblings: ``kb_curator`` (the existing
-writer/research lineage), ``extract_image`` (smart-frame featured image),
-and ``youtube_upload`` (draft short on YouTube). LangGraph synchronises
-on join nodes via disjoint state keys.
+`extract` fans out to ``kb_curator`` (the writer/research lineage) and
+``extract_image`` (smart-frame featured image). `writer` fans out to
+``notion_blog`` and ``youtube_metadata``, so the YouTube metadata sees the blog
+title and post. LangGraph synchronises on join nodes via disjoint state keys.
 
 `pre_validator` runs once after kb_curator and owns the shared upstream
 checks (transcript, extraction, vault entry, themes/frameworks, timeline).
@@ -71,6 +68,7 @@ from pipeline.nodes.validators.pre import node_pre_validator
 from pipeline.nodes.validators.summarizer import node_summarizer
 from pipeline.nodes.wordpress_draft import node_wordpress_draft
 from pipeline.nodes.writer import node_writer
+from pipeline.nodes.youtube_metadata import node_youtube_metadata
 from pipeline.nodes.youtube_upload import node_youtube_upload
 from pipeline.state import State
 from pipeline.usage import bind as bind_usage
@@ -221,6 +219,7 @@ def build_graph(start_at: str = "transcribe"):
     # New nodes (no retry policy — they catch their own errors and degrade
     # gracefully instead of bubbling exceptions into the graph).
     g.add_node("extract_image", _instrumented("extract_image", node_extract_image))
+    g.add_node("youtube_metadata", _instrumented("youtube_metadata", node_youtube_metadata))
     g.add_node("youtube_upload", _instrumented("youtube_upload", node_youtube_upload))
     g.add_node("wordpress_draft", _instrumented("wordpress_draft", node_wordpress_draft))
     # Per-branch validators + summarizer join. None need retry: they only
@@ -236,13 +235,14 @@ def build_graph(start_at: str = "transcribe"):
         g.add_edge("transcribe", "extract")
     g.add_edge("extract", "kb_curator")
     g.add_edge("extract", "extract_image")
-    g.add_edge("extract", "youtube_upload")
     # pre_validator runs once between kb_curator and the writer/research fan-out
     # so shared upstream findings are computed exactly once.
     g.add_edge("kb_curator", "pre_validator")
     g.add_edge("pre_validator", "writer")
     g.add_edge("pre_validator", "research")
     g.add_edge("writer", "notion_blog")
+    g.add_edge("writer", "youtube_metadata")
+    g.add_edge("youtube_metadata", "youtube_upload")
     g.add_edge("research", "notion_research")
     g.add_edge("notion_blog", "wordpress_draft")
     g.add_edge("extract_image", "wordpress_draft")

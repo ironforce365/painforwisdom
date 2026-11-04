@@ -11,6 +11,7 @@ export const ICONS = {
   notion: 'M5 4h11l3 3v13H5z M9 16V9l6 7V9',
   image: 'M4 5h16v14H4z M4 16l5-5 4 4 2-2 5 5 M15 9h.01',
   video: 'M3 6h13v12H3z M16 10l5-3v10l-5-3',
+  tag: 'M3 12V4h8l10 10-8 8z M8 8h.01',
   globe: 'M12 3a9 9 0 1 1 0 18a9 9 0 0 1 0-18z M3 12h18 M12 3c3 3 3 15 0 18 M12 3c-3 3-3 15 0 18',
   flag: 'M5 21V4 M5 4h11l-2 4 2 4H5',
   check: 'M12 3l7 3v6c0 4-3 7-7 9c-4-2-7-5-7-9V6z M9 12l2 2 4-4',

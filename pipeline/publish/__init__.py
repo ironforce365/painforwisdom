@@ -17,7 +17,13 @@ def _wordpress(run_dir: Path, package: dict) -> dict:
     return publish(run_dir, package)
 
 
-TARGETS: dict[str, Callable[[Path, dict], dict]] = {"wordpress": _wordpress}
+def _youtube(run_dir: Path, package: dict) -> dict:
+    from pipeline.publish.youtube import publish  # noqa: PLC0415
+
+    return publish(run_dir, package)
+
+
+TARGETS: dict[str, Callable[[Path, dict], dict]] = {"wordpress": _wordpress, "youtube": _youtube}
 
 
 def run_target(run_dir: Path, target: str) -> dict[str, Any]:

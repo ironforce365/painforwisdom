@@ -53,10 +53,12 @@ Sandbox profile (`.env.sandbox`) points at duplicated Notion DBs and a parallel 
 ## Pipeline topology
 
 ```
-START → transcribe → extract → kb_curator
-                                   ├─▶ writer ──▶ notion_blog ──┐
-                                   └─▶ research ▶ notion_research ┤
-                                                                  ├─▶ validator → END
+START → transcribe → extract ─┬─▶ kb_curator → pre_validator ─┬─▶ writer ─┬─▶ notion_blog ─┐
+                              │                               │           └─▶ youtube_metadata ─▶ youtube_upload ─▶ bv_youtube ─┐
+                              │                               └─▶ research ─▶ notion_research ─▶ bv_research ───────────────────┤
+                              └─▶ extract_image ───────────────────────────────────────────┐                                    │
+                                                                                           ▼                                    ▼
+                                                                                   wordpress_draft ─▶ bv_wordpress ─────▶ summarizer → END
 ```
 
 Per-node retry policy classifies transient infra errors (network, 5xx) as retryable; persistent errors escalate to Telegram with `retry / abort` (see `pipeline/run.py:_drive_graph`). Checkpointing via SqliteSaver makes HITL `interrupt()` resume safe across restarts.
@@ -70,6 +72,8 @@ Per-node retry policy classifies transient infra errors (network, 5xx) as retrya
 | 4b | `nodes/research.py`  | `research_report.csv` |
 | 5a | `nodes/notion_blog.py`     | Notion page in "Blog post pending publications" |
 | 5b | `nodes/notion_research.py` | Notion tasks in "Research Tasks" database |
+| 5c | `nodes/youtube_metadata.py` | `youtube-upload/metadata.json` — title, description, tags from the blog post |
+| 5d | `nodes/youtube_upload.py` | `youtube-upload/package.json`, uploaded per `youtube.mode` |
 | 6 | `nodes/validator.py` | `audit_report.md` + Telegram summary; verdict PASS/PARTIAL/FAIL |
 
 Each run produces a directory under `processed/<RUN_ID>/<run_suffix>/` with all stage outputs and a `runs.jsonl` telemetry trace.
