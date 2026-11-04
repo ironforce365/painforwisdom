@@ -63,7 +63,7 @@ def run_dir(root: Path, run_id: str) -> Optional[Path]:
 
 def _blank_node() -> dict[str, Any]:
     return {"state": "pending", "started_at": None, "ended_at": None, "duration_s": None, "attempts": 0, "error": None,
-            "result": {}, "facts": {}, "skip_reason": None}
+            "result": {}, "outputs": {}, "facts": {}, "skip_reason": None}
 
 
 def node_states(events: Iterable[dict], node_ids: list[str], finished: bool, input_kind: Optional[str]) -> dict:
@@ -88,6 +88,7 @@ def node_states(events: Iterable[dict], node_ids: list[str], finished: bool, inp
             if not noop:
                 real_end.add(node)
                 n["result"] = ev.get("result") or {}
+                n["outputs"] = ev.get("outputs") or {}
             n["state"], n["error"] = "done", None
         elif kind == "error":
             n["state"], n["error"], n["ended_at"] = "error", ev.get("error"), ts
@@ -108,6 +109,13 @@ def apply_rows(nodes: dict, rows: Iterable[dict]) -> dict:
             n["skip_reason"] = row.get("reason")
             if n["state"] in {"done", "pending"}:  # running, paused and error are live news; the row is not
                 n["state"] = "skipped"
+    return nodes
+
+
+def resolve_outputs(nodes: dict, rd: Path) -> dict:
+    """Absolute `outputs` (a relative one is relative to the run dir, as in artifacts): the view links to them (Q3341)."""
+    for n in nodes.values():
+        n["outputs"] = {k: str((rd / str(v)).resolve()) for k, v in n["outputs"].items()}
     return nodes
 
 
@@ -260,7 +268,7 @@ def load_run(root: Path, run_id: str, node_ids: list[str], now: Optional[float] 
     else:
         nodes = node_states(rec["events"], node_ids, rec["status"] in FINISHED, rec["input"].get("kind"))
     keys = ("run_id", "status", "verdict", "profile", "input", "started_at", "ended_at", "hitl_wait_s", "error")
-    return {**{k: rec[k] for k in keys}, "nodes": apply_rows(nodes, rec["rows"]),
+    return {**{k: rec[k] for k in keys}, "nodes": resolve_outputs(apply_rows(nodes, rec["rows"]), rd),
             "telemetry": telemetry(rec["rows"], rec["total_s"], rec["hitl_wait_s"],
                                    read_jsonl(rd / "usage.jsonl"), rec["status"] in ACTIVE)}
 

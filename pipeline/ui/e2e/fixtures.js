@@ -53,6 +53,7 @@ export function freshServerState({ live = false } = {}) {
   killRunners();
   fs.rmSync(PROCESSED, { recursive: true, force: true });
   fs.cpSync(path.join(FIXTURES, 'processed'), PROCESSED, { recursive: true });
+  fs.cpSync(path.join(FIXTURES, 'vault'), path.join(process.env.PFW_UI_TMP, 'vault'), { recursive: true });
   fs.rmSync(INBOX, { recursive: true, force: true });
   fs.cpSync(path.join(FIXTURES, 'inbox'), INBOX, { recursive: true });
   if (live) {

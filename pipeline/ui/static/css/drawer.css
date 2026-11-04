@@ -1,4 +1,4 @@
-/* Step inspector and final result (spec 2026-10-31-pipeline-console-ui §8). Tokens from css/app.css. */
+/* Step inspector (spec 2026-10-31-pipeline-console-ui §8). Tokens from css/app.css. */
 .drawer [hidden] { display: none !important; }
 .drawer button {
   display: inline-flex;
@@ -13,15 +13,6 @@
 }
 .drawer button:focus-visible, .drawer a:focus-visible { outline: 2px solid var(--run); outline-offset: 2px; }
 .drawer a { color: var(--run); }
-
-/* trophy: lives in #drawer, placed over the header next to the logo */
-.drawer .result-open {
-  position: fixed;
-  top: 8px;
-  left: 56px;
-  z-index: 20;
-  color: var(--pause);
-}
 
 /* ---- side panel ---- */
 .drawer .panel {
@@ -74,6 +65,7 @@
 .drawer .panel[data-state="running"] .state-cue .icon { animation: drawer-spin 1s linear infinite; }
 .drawer small { color: var(--muted); font-variant-numeric: tabular-nums; }
 
+/* .art and .md are shared with css/operability.css. */
 /* text wraps; only a wide table or code block scrolls, inside its own box */
 .drawer .body {
   flex: 1;
@@ -87,8 +79,8 @@
 }
 .drawer .body > .unavailable { display: none; }
 .drawer .body:not(:has(.fact, .finding, .art)) > .unavailable { display: flex; }
-.drawer .info, .drawer .arts { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
-.drawer .info:not(:has(.fact, .finding)), .drawer .arts:empty { display: none; }
+.drawer .info, .arts { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.drawer .info:not(:has(.fact, .finding)), .arts:empty { display: none; }
 .drawer .facts { display: grid; grid-template-columns: minmax(0, max-content) minmax(0, 1fr); gap: 2px 12px; margin: 0; font-size: 12px; }
 .drawer .facts:empty, .drawer .findings:empty { display: none; }
 .drawer .fact { display: contents; }
@@ -100,13 +92,13 @@
 .drawer .finding[data-level="ok"] .icon, .drawer .finding[data-level="PASS"] .icon { color: var(--done); }
 .drawer .finding[data-level="secondary"] .icon, .drawer .finding[data-level="PARTIAL"] .icon { color: var(--pause); }
 .drawer .finding[data-level="core"] .icon, .drawer .finding[data-level="FAIL"] .icon { color: var(--error); }
-.drawer .art {
+.art {
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--bg);
   overflow: hidden;
 }
-.drawer .art .art-head {
+.art .art-head {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -117,89 +109,42 @@
   color: var(--muted);
   border-bottom: 1px solid var(--line);
 }
-.drawer .art .art-head .icon { width: 14px; height: 14px; }
-.drawer .art[data-state="loading"] h3 .icon { animation: drawer-fade 1s ease-in-out infinite alternate; }
-.drawer .art[data-state="error"] { border-color: var(--error); }
-.drawer .art[data-state="error"] > .icon { margin: 10px; color: var(--error); }
-.drawer .art > [data-testid="artifact-body"] { display: block; margin: 0; padding: 10px; max-height: 360px; overflow: auto; }
-.drawer .art pre { font: 12px/1.45 ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
-.drawer .art img { max-width: 100%; height: auto; image-rendering: pixelated; }
-.drawer .art table, .drawer .md table { border-collapse: collapse; font-size: 12px; overflow-wrap: normal; }
-.drawer .art th, .drawer .art td, .drawer .md th, .drawer .md td { border: 1px solid var(--line); padding: 3px 6px; text-align: left; vertical-align: top; }
-.drawer .art th, .drawer .md th { background: var(--surface-2); }
+.art .art-head .icon { width: 14px; height: 14px; }
+.art[data-state="loading"] h3 .icon { animation: drawer-fade 1s ease-in-out infinite alternate; }
+.art[data-state="error"] { border-color: var(--error); }
+.art[data-state="error"] > .icon { margin: 10px; color: var(--error); }
+.art > [data-testid="artifact-body"] { display: block; margin: 0; padding: 10px; max-height: 360px; overflow: auto; }
+.art pre { font: 12px/1.45 ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.art img { max-width: 100%; height: auto; image-rendering: pixelated; }
+.art table, .md table { border-collapse: collapse; font-size: 12px; overflow-wrap: normal; }
+.art th, .art td, .md th, .md td { border: 1px solid var(--line); padding: 3px 6px; text-align: left; vertical-align: top; }
+.art th, .md th { background: var(--surface-2); }
 
-.drawer .md { line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
-.drawer .md code { font: 12px ui-monospace, monospace; padding: 1px 4px; border-radius: 4px; background: var(--surface-2); }
-.drawer .art .md pre, .drawer .md pre { margin: 0.5em 0; padding: 8px 10px; overflow-x: auto; border-radius: 6px; background: var(--surface-2); white-space: pre; overflow-wrap: normal; }
-.drawer .md pre code { padding: 0; background: none; }
-.drawer .md .table-wrap { overflow-x: auto; margin: 0.5em 0; }
-.drawer .md blockquote { margin: 0.5em 0; padding-left: 10px; border-left: 3px solid var(--line); color: var(--muted); }
-.drawer .md hr { border: 0; border-top: 1px solid var(--line); margin: 0.8em 0; }
-.drawer .md h1, .drawer .md h2, .drawer .md h3, .drawer .md h4, .drawer .md h5, .drawer .md h6 { margin: 0.6em 0 0.3em; line-height: 1.25; }
-.drawer .md h1 { font-size: 18px; }
-.drawer .md h2 { font-size: 16px; }
-.drawer .md h3, .drawer .md h4, .drawer .md h5, .drawer .md h6 { font-size: 14px; }
-.drawer .md p { margin: 0.4em 0; }
-.drawer .md ul, .drawer .md ol { margin: 0.4em 0; padding-left: 1.4em; }
+.md { line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.md code { font: 12px ui-monospace, monospace; padding: 1px 4px; border-radius: 4px; background: var(--surface-2); }
+.art .md pre, .md pre { margin: 0.5em 0; padding: 8px 10px; overflow-x: auto; border-radius: 6px; background: var(--surface-2); white-space: pre; overflow-wrap: normal; }
+.md pre code { padding: 0; background: none; }
+.md .table-wrap { overflow-x: auto; margin: 0.5em 0; }
+.md blockquote { margin: 0.5em 0; padding-left: 10px; border-left: 3px solid var(--line); color: var(--muted); }
+.md hr { border: 0; border-top: 1px solid var(--line); margin: 0.8em 0; }
+.md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { margin: 0.6em 0 0.3em; line-height: 1.25; }
+.md h1 { font-size: 18px; }
+.md h2 { font-size: 16px; }
+.md h3, .md h4, .md h5, .md h6 { font-size: 14px; }
+.md p { margin: 0.4em 0; }
+.md ul, .md ol { margin: 0.4em 0; padding-left: 1.4em; }
 
-/* ---- final result modal ---- */
-.drawer .result {
-  position: fixed;
-  inset: 0;
-  z-index: 30;
-  display: grid;
-  place-items: center;
-  padding: 16px;
-  background: rgb(0 0 0 / 55%);
-}
-.drawer .sheet {
-  position: relative;
-  width: min(1200px, 92vw);
-  max-height: 100%;
-  overflow-y: auto;
-  padding: 20px 22px;
-  border-radius: 14px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-}
-.drawer .result-close { position: absolute; top: 12px; right: 12px; }
-.drawer .content > header { display: flex; align-items: center; gap: 10px; padding-right: 44px; }
-.drawer .content h1[data-testid="result-title"] { margin: 0; font-size: 20px; }
-.drawer .content > .md { margin-top: 8px; }
-.drawer .cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 10px;
-  margin-top: 16px;
-}
-.drawer .cards:empty { display: none; }
-.drawer .card {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--bg);
-  color: var(--text);
-  text-decoration: none;
-}
-.drawer .card:hover { border-color: var(--run); }
-.drawer .card .icon { flex: none; color: var(--run); }
-.drawer .pending, .drawer .unavailable {
+.drawer .unavailable {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 8px;
   padding: 40px 0;
 }
-.drawer .pending .icon, .drawer .unavailable .icon { width: 44px; height: 44px; }
-.drawer .pending .icon { color: var(--pause); animation: drawer-flip 1.6s ease-in-out infinite; }
-.drawer .unavailable .icon { color: var(--muted); }
+.drawer .unavailable .icon { width: 44px; height: 44px; color: var(--muted); }
 
 @keyframes drawer-spin { to { transform: rotate(360deg); } }
 @keyframes drawer-fade { from { opacity: 1; } to { opacity: 0.3; } }
-@keyframes drawer-flip { 0%, 40% { transform: rotate(0); } 60%, 100% { transform: rotate(180deg); } }
 
 @media (prefers-reduced-motion: reduce) {
   .drawer .icon { animation: none !important; }

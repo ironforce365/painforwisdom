@@ -1,4 +1,4 @@
-// Step inspector and final result (spec 2026-10-31-pipeline-console-ui §8).
+// Step inspector (spec 2026-10-31-pipeline-console-ui §8).
 import fs from 'node:fs';
 import path from 'node:path';
 import { test, expect, freshServerState, PROCESSED } from '../fixtures.js';
@@ -271,115 +271,12 @@ test('drawer follows a live fake run', async ({ page, request }) => {
   await expect(art(page, 'blog_post.md').getByRole('heading', { level: 1 })).toHaveText('Fake post');
 });
 
-test.describe('final result', () => {
-  const result = (page) => page.getByTestId('result');
-
-  test('ready: blog rendered with title and research cards linking out', async ({ page }) => {
-    await page.goto('/#/runs/fx-done');
-    await page.getByTestId('result-open').click();
-    await expect(result(page)).toHaveAttribute('data-status', 'ready');
-    await expect(result(page).getByTestId('result-title')).toHaveText('the trail that used to beat me');
-    await expect(result(page).getByRole('heading', { level: 2 })).toHaveText(['The climb', 'What changed']);
-    const blog = result(page).getByTestId('result-link');
-    await expect(blog).toHaveAttribute('href', 'https://www.notion.so/fx-blog-1');
-    await expect(blog).toHaveAttribute('rel', 'noopener');
-    const cards = result(page).getByTestId('research-card');
-    await expect(cards).toHaveCount(2);
-    await expect(cards.first()).toHaveAttribute('data-type', 'Book');
-    await expect(cards.first()).toHaveAttribute('href', 'https://example.org/endure');
-    await expect(cards.first()).toHaveAttribute('target', '_blank');
-    await expect(cards.first()).toHaveAttribute('rel', 'noopener');
-    await expect(cards.nth(1)).toHaveAttribute('data-type', 'Article');
-  });
-
-  test('modal traps focus and closes on Escape or its button', async ({ page }) => {
-    await page.goto('/#/runs/fx-done');
-    const open = page.getByTestId('result-open');
-    await open.click();
-    await expect(result(page)).toHaveAttribute('data-status', 'ready');
-    const close = result(page).getByTestId('result-close');
-    await expect(close).toBeFocused();
-    await page.keyboard.press('Shift+Tab');
-    await expect(result(page).getByTestId('research-card').last()).toBeFocused();
-    await page.keyboard.press('Tab');
-    await expect(close).toBeFocused();
-    await page.keyboard.press('Tab');
-    await expect(result(page).getByTestId('result-link')).toBeFocused();
-    await page.keyboard.press('x');
-    await expect(result(page)).toBeVisible();
-    await page.keyboard.press('Escape');
-    await expect(result(page)).toBeHidden();
-    await expect(open).toBeFocused();
-    await open.click();
-    await close.click();
-    await expect(result(page)).toBeHidden();
-  });
-
-  test('legacy run: blog shown, no research cards', async ({ page }) => {
-    await page.goto('/#/runs/fx-legacy');
-    await page.getByTestId('result-open').click();
-    await expect(result(page)).toHaveAttribute('data-status', 'ready');
-    await expect(result(page).getByTestId('result-title')).toHaveText('the trail that used to beat me');
-    await expect(result(page).getByTestId('research-card')).toHaveCount(0);
-  });
-
-  test('pending on a live fake run, then ready once Notion rows land', async ({ page, request }) => {
-    const id = await launch(request, 400);
-    await page.goto(`/#/runs/${id}`);
-    await page.getByTestId('result-open').click();
-    await expect(result(page)).toHaveAttribute('data-status', 'pending');
-    await expect(result(page).getByTestId('result-pending')).toBeVisible();
-    await expect(result(page)).toHaveAttribute('data-status', 'ready', { timeout: 30_000 });
-    await expect(result(page).getByTestId('research-card')).toHaveCount(2);
-  });
-
-  test('unavailable shows the reason; an intercepted failure is unavailable too', async ({ page, errors }) => {
-    await page.goto('/#/runs/fx-crashed');
-    await page.getByTestId('result-open').click();
-    await expect(result(page)).toHaveAttribute('data-status', 'unavailable');
-    await expect(result(page).getByTestId('result-reason')).toHaveText('no blog page recorded for this run');
-    await page.keyboard.press('Escape');
-
-    errors.allow(/status of 503/);
-    await page.route('**/api/runs/fx-done/result', (route) => route.fulfill({ status: 503, body: 'nope' }));
-    await page.getByTestId('run-fx-done').click();
-    await page.getByTestId('result-open').click();
-    await expect(result(page)).toHaveAttribute('data-status', 'unavailable');
-    await expect(result(page).getByTestId('result-reason')).toHaveText('HTTP 503');
-  });
-
-  test('unknown research type falls back to a generic icon', async ({ page }) => {
-    await page.route('**/api/runs/fx-done/result', (route) => route.fulfill({ json: {
-      status: 'ready', reason: null, blog: { title: 't', url: 'https://e.org/b', markdown: 'x' },
-      research: [{ title: 'r', type: 'Zine', url: 'https://e.org/r' }],
-    } }));
-    await page.goto('/#/runs/fx-done');
-    await page.getByTestId('result-open').click();
-    await expect(result(page).getByTestId('research-card')).toHaveAttribute('data-type', 'Zine');
-    await expect(result(page).getByTestId('research-card').getByTestId('type-icon')).toHaveAttribute('data-icon', 'globe');
-  });
-
-  test('non-http(s) blog and research urls render without an href', async ({ page }) => {
-    await page.route('**/api/runs/fx-done/result', (route) => route.fulfill({ json: {
-      status: 'ready', reason: null, blog: { title: 't', url: 'javascript:alert(1)', markdown: 'x' },
-      research: [{ title: 'r', type: 'Book', url: 'JavaScript:alert(2)' }],
-    } }));
-    await page.goto('/#/runs/fx-done');
-    await page.getByTestId('result-open').click();
-    await expect(result(page).getByTestId('research-card')).toHaveText('r');
-    await expect(result(page).getByTestId('result-link')).toBeVisible();
-    await expect(result(page).locator('[href]')).toHaveCount(0);
-    expect(await result(page).getByTestId('research-card').evaluate((n) => n.tagName)).toBe('DIV');
-  });
-});
-
 // PR screenshots, opt-in like screenshots.spec.js: PFW_SHOTS=<dir> npm test
 test.describe('inspect shots', () => {
   const DIR = process.env.PFW_SHOTS;
   test.skip(!DIR, 'screenshots only when PFW_SHOTS names an output dir');
   test.use({ viewport: { width: 1280, height: 720 } });
   const shoot = (page, name) => page.screenshot({ path: path.join(DIR, `${name}.png`) });
-  const result = (page) => page.getByTestId('result');
 
   test('shot drawer markdown and csv', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -399,31 +296,6 @@ test.describe('inspect shots', () => {
     await pick(page, 'youtube_upload');
     await expect(art(page, 'metadata.json')).toHaveAttribute('data-state', 'ready');
     await shoot(page, 'drawer-json');
-  });
-
-  for (const [name, run, status, live] of [['result-ready', 'fx-done', 'ready', false],
-    ['result-pending', 'fx-hitl', 'pending', true], ['result-unavailable', 'fx-crashed', 'unavailable', false]]) {
-    test(`shot ${name}`, async ({ page }) => {
-      freshServerState({ live });
-      await page.emulateMedia({ reducedMotion: 'reduce' });
-      await page.goto(`/#/runs/${run}`);
-      await page.getByTestId('result-open').click();
-      await expect(result(page)).toHaveAttribute('data-status', status);
-      await shoot(page, name);
-    });
-  }
-
-  test('shot result with non-http(s) urls beside an http(s) card', async ({ page }) => {
-    await page.route('**/api/runs/fx-done/result', (route) => route.fulfill({ json: {
-      status: 'ready', reason: null, blog: { title: 'hostile urls', url: 'javascript:alert(1)', markdown: 'x' },
-      research: [{ title: 'http card (link)', type: 'Book', url: 'https://e.org/r' },
-        { title: 'javascript: card (no link)', type: 'Article', url: 'javascript:alert(2)' }],
-    } }));
-    await page.emulateMedia({ reducedMotion: 'reduce' });
-    await page.goto('/#/runs/fx-done');
-    await page.getByTestId('result-open').click();
-    await expect(result(page).getByTestId('research-card')).toHaveCount(2);
-    await shoot(page, 'result-hostile-urls');
   });
 
   test('shot drawer facts, findings, skipped, nothing and rich markdown', async ({ page }) => {

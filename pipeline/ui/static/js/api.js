@@ -44,3 +44,9 @@ export const launchRun = (body) => request('/api/runs', {
   headers: { 'content-type': 'application/json' },
   body: JSON.stringify(body),
 });
+export const publishPackages = (id) => request(`/api/runs/${enc(id)}/publish`);
+export const publish = (id, target, fields) => request(`/api/runs/${enc(id)}/publish/${enc(target)}`, {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ fields }),
+});

@@ -1,0 +1,102 @@
+/* Operability view (spec 2026-11-03-console-operability §8). Tokens from css/app.css; .art and .md from css/drawer.css. */
+.slot-operability { display: contents; }
+.operability [hidden] { display: none !important; }
+.layout:has(.out-panel:not([hidden])) > :is(.dag, .slot-telemetry, .slot-debug),
+body:has(.out-panel:not([hidden])) > #drawer { display: none; }
+
+.operability button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+}
+.operability button:disabled { opacity: 0.45; cursor: default; }
+.operability button:focus-visible, .operability a:focus-visible,
+.operability input:focus-visible, .operability textarea:focus-visible, .operability select:focus-visible {
+  outline: 2px solid var(--run);
+  outline-offset: 2px;
+}
+.operability a { color: var(--run); }
+
+.out-open { position: fixed; top: 8px; left: 56px; z-index: 20; }
+
+.out-panel {
+  grid-column: 2;
+  grid-row: 1 / -1;
+  min-width: 0;
+  overflow: hidden auto;
+  padding: 12px 16px 32px;
+}
+.out-head { position: sticky; top: 0; z-index: 2; display: flex; justify-content: flex-end; align-items: flex-start; height: 0; }
+.out-cards { display: flex; flex-direction: column; gap: 14px; max-width: 1100px; margin: 0 auto; overflow-wrap: anywhere; }
+
+.nothing { display: flex; justify-content: center; padding: 60px 0; color: var(--muted); }
+.nothing .icon { width: 44px; height: 44px; }
+.out-cards:has(.out-slot > *) > .nothing { display: none; }
+
+.out-card { border: 1px solid var(--line); border-radius: 12px; background: var(--surface); padding: 12px 14px; }
+.out-card:not(:has(.out-slot > *)) { display: none; }
+.out-card > header { display: flex; align-items: flex-start; gap: 10px; color: var(--muted); padding-right: 40px; }
+.out-card > header > .icon { flex: none; }
+.links { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.links a, .links span { display: inline-flex; align-items: center; gap: 6px; }
+.links .icon { flex: none; width: 16px; height: 16px; }
+.links .research { padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); text-decoration: none; }
+.out-slot.body { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+.out-slot.body:empty { display: none; }
+
+/* a card shows the whole artifact; the drawer's cap is for its narrow list */
+.out-card .art > [data-testid="artifact-body"] { max-height: none; }
+.out-card .art img { display: block; width: 100%; padding: 0; image-rendering: auto; }
+
+.editor { display: flex; flex-direction: column; gap: 10px; }
+.editor-head { display: flex; align-items: center; gap: 10px; }
+.editor-head .publish { margin-left: auto; color: var(--run); }
+.editor .status { display: inline-flex; padding: 3px; border-radius: 999px; border: 1px solid currentColor; color: var(--muted); }
+.editor .status .icon { width: 14px; height: 14px; }
+.editor[data-status="publishing"] .status { color: var(--run); }
+.editor[data-status="publishing"] .status .icon { animation: drawer-spin 1s linear infinite; }
+.editor[data-status="published"] .status { color: var(--done); }
+.editor[data-status="failed"] .status { color: var(--error); }
+.published { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.published .icon { flex: none; width: 16px; height: 16px; }
+
+.editor fieldset { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.field { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.field .label { font-size: 11px; color: var(--muted); }
+.field input, .field textarea, .field select {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+.field textarea { resize: vertical; }
+.field:has(.error:not(:empty)) :is(input, textarea, select) { border-color: var(--error); }
+.split { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+.preview { padding: 6px 10px; border: 1px dashed var(--line); border-radius: 6px; max-height: 320px; overflow: auto; }
+.tags { display: flex; flex-direction: column; gap: 6px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chips:empty { display: none; }
+.chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 8px; border-radius: 999px; background: var(--surface-2); }
+.operability .chip button { padding: 1px; border: 0; background: none; }
+.chip .icon { width: 12px; height: 12px; }
+.operability .error { color: var(--error); font-size: 12px; }
+.operability .error:empty { display: none; }
+
+.readonly { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0; font-size: 11px; }
+.readonly:empty { display: none; }
+.readonly > div { display: flex; gap: 6px; }
+.readonly dt { color: var(--muted); }
+.readonly dd { margin: 0; }
+.assets { display: flex; flex-wrap: wrap; gap: 8px; }
+.assets:empty { display: none; }
+.asset { display: flex; align-items: center; gap: 8px; margin: 0; padding: 8px 12px; border: 1px dashed var(--line); border-radius: 8px; color: var(--muted); }
+.asset .icon { width: 28px; height: 28px; }

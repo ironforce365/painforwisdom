@@ -270,7 +270,7 @@ systemctl --user start        painforwisdom-daily-brief.service
 
 ## 9. Pipeline console
 
-Local web UI to start runs, watch the DAG live, inspect each step's facts, findings and artifacts (skipped steps are amber) and open the final Notion result.
+Local web UI to start runs, watch the DAG live, inspect each step's facts, findings and artifacts (skipped steps are amber) and open a run's output.
 Design: `docs/superpowers/specs/2026-10-31-pipeline-console-ui.md`.
 
 ```bash
@@ -288,6 +288,7 @@ python -m pipeline.ui --profile sandbox --inbox /path/to/inbox
 - Prod is never the default: `--profile prod` (or `PIPELINE_UI_PROFILE=prod`) must be chosen explicitly; it reads `.env`.
 - HITL approvals still go through Telegram. The popup's auto-approve toggle passes `--auto-approve` instead.
 - One active run at a time (a second launch returns 409 and shows the live run).
+- Output view (document button in the header, or `#/runs/<id>/output`; `Esc` closes): thumbnail, blog post, knowledge base, research and audit cards, plus an editor per publish package. Confirming spawns the publisher and shows the link or the error.
 - Debug panel (DAG corner, collapsible): live tokens, calls in flight, cost and times for the run; click a node to scope it to that node, click again or use the chip to return.
 
 ### Prod console service
