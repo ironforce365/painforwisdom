@@ -5,7 +5,7 @@
 {"ts": 1793343615.5, "node": "extract_image", "event": "end", "attempt": 1, "duration_s": 2.0, "noop": false, "outputs": {"featured_image_path": "wordpress-draft/featured.png"}, "result": {"featured_image_frame": "featured.png"}}
 {"ts": 1793343620.0, "node": "kb_curator", "event": "paused", "attempt": 1}
 {"ts": 1793343740.0, "node": "kb_curator", "event": "start", "attempt": 2}
-{"ts": 1793343795.0, "node": "kb_curator", "event": "end", "attempt": 2, "duration_s": 55.0, "noop": false, "outputs": {"vault_entry_path": "/nonexistent/painforwisdom-fixtures/obsidian-vault/entries/2026-10-30.md"}, "result": {"vault_entry_date": "2026-10-30"}}
+{"ts": 1793343795.0, "node": "kb_curator", "event": "end", "attempt": 2, "duration_s": 55.0, "noop": false, "outputs": {"vault_entry_path": "../../../vault/entries/2026-10-30.md", "curator_summary_path": "kb-curator/curator_summary.md"}, "result": {"vault_entry_date": "2026-10-30"}}
 {"ts": 1793343795.5, "node": "pre_validator", "event": "start", "attempt": 1}
 {"ts": 1793343796.0, "node": "pre_validator", "event": "end", "attempt": 1, "duration_s": 0.5, "noop": false, "outputs": {}, "result": {"pre_findings": ["{\"name\": \"extraction report present\", \"ok\": true, \"detail\": \"extraction_report.md\", \"severity\": \"core\"}", "{\"name\": \"vault entry written\", \"ok\": true, \"detail\": \"entries/2026-10-30.md\", \"severity\": \"core\"}"], "pre_verdict": "PASS"}}
 {"ts": 1793343796.2, "node": "writer", "event": "start", "attempt": 1}

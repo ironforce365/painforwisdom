@@ -108,7 +108,7 @@ def test_last_event_wins_and_never_started_is_pending():
     assert st["b"]["state"] == "running"
     assert st["c"] == {"state": "pending", "started_at": None, "ended_at": None,
                        "duration_s": None, "attempts": 0, "error": None,
-                       "result": {}, "facts": {}, "skip_reason": None}
+                       "result": {}, "outputs": {}, "facts": {}, "skip_reason": None}
 
 
 def test_error_state_carries_message():
@@ -178,6 +178,17 @@ def test_fx_hitl_paused(root):
 
 
 # ---------- telemetry ----------
+
+def test_outputs_are_absolute_and_from_the_last_real_end(root):
+    rd = (root / "fx-done" / "langgraph").resolve()
+    nodes = runs.load_run(root, "fx-done", NODES)["nodes"]
+    assert nodes["kb_curator"]["outputs"] == {
+        "vault_entry_path": str(rd.parents[2] / "vault" / "entries" / "2026-10-30.md"),
+        "curator_summary_path": str(rd / "kb-curator" / "curator_summary.md"),
+    }
+    assert nodes["summarizer"]["outputs"] == {}  # the noop fires leave it empty, like `result`
+    assert runs.load_run(root, "fx-legacy", NODES)["nodes"]["writer"]["outputs"] == {}
+
 
 def test_fx_done_telemetry(root):
     run = runs.load_run(root, "fx-done", NODES)
