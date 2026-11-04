@@ -12,13 +12,13 @@ const SEGMENTS = ['input', 'output', 'cache_read', 'cache_creation'];
 const NODE_TOKENS = ['input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_creation_tokens'];
 const NO_ROW = { duration_s: null, model: null, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0 };
 
-const fmtCount = (n) => {
+export const fmtCount = (n) => {
   if (n < 1e3) return String(n);
   if (n < 1e6) return `${(n / 1e3).toFixed(1).replace(/\.0$/, '')}k`;
   return `${(n / 1e6).toFixed(1).replace(/\.0$/, '')}M`;
 };
 
-const fmtDuration = (s) => {
+export const fmtDuration = (s) => {
   if (s == null) return '–';
   if (s < 60) return `${+s.toFixed(1)}s`;
   const t = Math.round(s);
@@ -113,14 +113,19 @@ export function mount(root, ctx) {
     timeline.replaceChildren(...graph.nodes.map((n) => {
       const row = el('div', 'tl-row', { 'data-testid': `tl-row-${n.id}` });
       const track = el('div', 'tl-track');
-      const bar = { el: el('div', 'tl-bar', { 'data-testid': `tl-bar-${n.id}`, tabindex: '0' }), label: n.label, tip: [] };
+      const bar = {
+        el: el('div', 'tl-bar', { 'data-testid': `tl-bar-${n.id}`, tabindex: '0' }),
+        tokens: el('span', 'tl-tokens', { 'data-testid': `tl-tokens-${n.id}` }),
+        label: n.label,
+        tip: [],
+      };
       bar.el.hidden = true;
       bar.el.addEventListener('mouseenter', () => highlight(n.id, bar));
       bar.el.addEventListener('focus', () => highlight(n.id, bar));
       bar.el.addEventListener('mouseleave', unhighlight);
       bar.el.addEventListener('blur', unhighlight);
       track.append(bar.el);
-      row.append(svgIcon(n.icon, { role: 'img', 'aria-label': n.label, 'aria-hidden': 'false' }), track);
+      row.append(svgIcon(n.icon, { role: 'img', 'aria-label': n.label, 'aria-hidden': 'false' }), track, bar.tokens);
       bars.set(n.id, bar);
       return row;
     }));
@@ -133,18 +138,27 @@ export function mount(root, ctx) {
       .map((id) => [id, run.nodes[id].started_at, run.nodes[id].ended_at ?? now]);
     const t0 = Math.min(run.started_at, ...spans.map((s) => s[1]));
     const width = Math.max(now, ...spans.map((s) => s[2])) - t0 || 1;
-    for (const bar of bars.values()) bar.el.hidden = true;
+    const rowOf = (id) => ({ ...NO_ROW, ...run.telemetry.per_node[id] });
+    const sumOf = (row) => NODE_TOKENS.reduce((a, k) => a + row[k], 0);
+    for (const [id, bar] of bars) {
+      const sum = sumOf(rowOf(id));
+      bar.el.hidden = true;
+      bar.tokens.textContent = sum ? fmtCount(sum) : '–';
+      bar.tokens.dataset.value = sum;
+      bar.tokens.title = `${bar.label}: ${sum} tokens`;
+    }
     for (const [id, start, end] of spans) {
       const bar = bars.get(id);
       const state = run.nodes[id].state;
-      const row = { ...NO_ROW, ...run.telemetry.per_node[id] };
-      const tokens = NODE_TOKENS.reduce((a, k) => a + row[k], 0);
+      const row = rowOf(id);
+      const tokens = sumOf(row);
       const dur = fmtDuration(row.duration_s ?? end - start);
       Object.assign(bar.el.style, { left: `${((start - t0) / width) * 100}%`, width: `${((end - start) / width) * 100}%` });
       bar.el.dataset.state = state;
       bar.el.dataset.span = end - start;
       bar.el.setAttribute('aria-label', `${bar.label}: ${state}, ${dur}`);
-      bar.tip = [bar.label, `${dur} · ${fmtCount(tokens)} tokens`, row.model].filter(Boolean);
+      const split = `in ${fmtCount(row.input_tokens)} · out ${fmtCount(row.output_tokens)} · cache read ${fmtCount(row.cache_read_tokens)} · cache write ${fmtCount(row.cache_creation_tokens)}`;
+      bar.tip = [bar.label, `${dur} · ${fmtCount(tokens)} tokens`, tokens && split, row.model].filter(Boolean);
       bar.el.hidden = false;
     }
   });

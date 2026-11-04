@@ -14,7 +14,7 @@
   border-top: 1px solid var(--line);
   background: var(--surface);
   padding: 8px 16px 12px;
-  max-height: 38vh;
+  max-height: 50vh;
   overflow-y: auto;
 }
 
@@ -47,10 +47,13 @@
 .seg-cache_creation { background: repeating-linear-gradient(90deg, var(--seg-cache_creation) 0 3px, transparent 3px 5px); }
 
 /* ---- timeline ---- */
-.tele-timeline { display: grid; gap: 3px; }
-.tl-row { display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: center; gap: 8px; height: 14px; }
-.tl-row > .icon { width: 14px; height: 14px; color: var(--muted); }
-.tl-track { position: relative; height: 10px; border-radius: 3px; background: color-mix(in srgb, var(--surface-2) 60%, transparent); }
+/* right padding clears the fixed launch button, which would hide the bottom labels */
+.tele-timeline { display: grid; gap: 2px; padding-right: 72px; }
+/* fixed label column: totals line up across rows, so heavy consumers stand out (spec 2026-11-03 §5.1) */
+.tl-row { display: grid; grid-template-columns: 22px minmax(0, 1fr) 48px; align-items: center; gap: 8px; height: 24px; }
+.tl-row > .icon { width: 22px; height: 22px; color: var(--muted); }
+.tl-tokens { text-align: right; color: var(--text); font-variant-numeric: tabular-nums; font-weight: 600; }
+.tl-track { position: relative; height: 14px; border-radius: 3px; background: color-mix(in srgb, var(--surface-2) 60%, transparent); }
 .tl-bar {
   --c: var(--muted);
   position: absolute;
@@ -67,6 +70,10 @@
 .tl-bar:hover, .tl-bar:focus-visible { box-shadow: 0 0 0 2px var(--text); }
 .tl-bar[data-state="done"] { --c: var(--done); }
 .tl-bar[data-state="error"] { --c: var(--error); border-right: 3px solid var(--text); }
+.tl-bar[data-state="skipped"] {
+  --c: var(--skipped);
+  background: repeating-linear-gradient(90deg, var(--c) 0 3px, transparent 3px 5px);
+}
 .tl-bar[data-state="running"] {
   --c: var(--run);
   background: repeating-linear-gradient(-45deg, var(--c) 0 5px, color-mix(in srgb, var(--c) 55%, var(--surface)) 5px 10px);
@@ -84,7 +91,7 @@
 
 .tele-tip {
   position: absolute;
-  top: 14px;
+  top: 18px;
   left: var(--x);
   transform: translateX(calc(-1 * var(--x))); /* stays inside the track at both ends */
   z-index: 2;

@@ -64,6 +64,35 @@ test('timeline has one bar per started node, parallel branches overlap, pending 
   await expect(tl.getByTestId('tl-bar-summarizer')).toBeHidden();
 });
 
+test('every row carries an always-visible token label in an aligned column, and a 22 px icon', async ({ page }) => {
+  await page.goto('/#/runs/fx-done');
+  const label = (id) => page.getByTestId(`tl-tokens-${id}`);
+  await expect(label('research')).toHaveText('104.8k');
+  await expect(label('research')).toHaveAttribute('data-value', '104800');
+  await expect(label('bv_youtube')).toHaveText('–'); // ran, no tokens
+  await expect(label('transcribe')).toHaveText('–'); // never started
+  const edges = await Promise.all(['research', 'extract', 'bv_youtube', 'transcribe'].map(async (id) => {
+    const b = await label(id).boundingBox();
+    return b.x + b.width;
+  }));
+  expect(new Set(edges).size).toBe(1);
+  expect(edges[0]).toBeLessThanOrEqual((await page.getByTestId('launch-button').boundingBox()).x); // never hidden under it
+  const icon = await page.getByTestId('tl-row-research').locator('svg').first().boundingBox();
+  expect(icon.width).toBeGreaterThanOrEqual(22);
+  expect(icon.height).toBeGreaterThanOrEqual(22);
+  await page.getByTestId('tl-bar-research').hover();
+  await expect(page.getByTestId('tele-tip')).toContainText('in 51k · out 3.3k · cache read 38k · cache write 12.5k');
+});
+
+test('a skipped bar is amber and striped', async ({ page }) => {
+  await page.goto('/#/runs/fx-done');
+  const bar = page.getByTestId('tl-bar-youtube_upload');
+  await expect(bar).toHaveAttribute('data-state', 'skipped');
+  await expect(bar).toHaveCSS('background-image', /repeating-linear-gradient/);
+  const colours = await bar.evaluate((n) => [getComputedStyle(n).getPropertyValue('--c'), getComputedStyle(document.documentElement).getPropertyValue('--skipped')]);
+  expect(colours[0].trim()).toBe(colours[1].trim());
+});
+
 test('legacy run renders from runs.jsonl alone, cost hidden at 0', async ({ page }) => {
   await page.goto('/#/runs/fx-legacy');
   const strip = page.getByTestId('tele-strip');
@@ -134,7 +163,7 @@ test('a run with no timings or tokens renders placeholders without NaN', async (
     const run = await (await route.fetch()).json();
     for (const n of Object.values(run.nodes)) Object.assign(n, { state: 'pending', started_at: null, ended_at: null });
     run.telemetry = {
-      total_s: null, work_s: null, cost_usd: 0, per_node: {},
+      total_s: null, work_s: null, cost_usd: 0, calls: 0, in_flight: 0, per_node: {},
       tokens: { input: 0, output: 0, cache_read: 0, cache_creation: 0 },
     };
     await route.fulfill({ json: run });

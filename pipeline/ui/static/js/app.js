@@ -6,6 +6,7 @@ import * as runs from './runs.js';
 import * as launch from './launch.js';
 import * as drawer from './drawer.js';
 import * as telemetry from './telemetry.js';
+import * as debug from './debug.js';
 
 const POLL_MS = 1000;
 const $ = (id) => document.getElementById(id);
@@ -82,5 +83,6 @@ dag.mount($('dag'), ctx);
 launch.mount($('launch'), ctx);
 drawer.mount($('drawer'), ctx);
 telemetry.mount($('telemetry'), ctx);
+debug.mount($('debug'), ctx);
 runs.mount($('runs'), ctx);
 if (state.runId) bus.emit('run:selected', state.runId);
