@@ -157,6 +157,7 @@ bash extract_transcription.sh path/to/video.mp4 English 2026-04-13
 ```bash
 ls processed/<RUN_ID>/<suffix>/                # per-stage output dirs
 cat processed/<RUN_ID>/<suffix>/runs.jsonl     # telemetry (one line per stage)
+cat processed/<RUN_ID>/<suffix>/usage.jsonl    # live LLM usage (one line per call start, end or error)
 cat processed/<RUN_ID>/<suffix>/validator/audit_report.md
 ```
 

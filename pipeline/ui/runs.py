@@ -121,19 +121,61 @@ def _row_cost(row: dict) -> float:
     return float(row.get("cost_usd", row.get("total_cost_usd")) or 0.0)
 
 
-def telemetry(rows: Iterable[dict], total_s: Optional[float], hitl_wait_s: float) -> dict:
+def _row_has_tokens(row: dict) -> bool:
+    return any(k in row for k in TOKEN_FIELDS) or isinstance(row.get("per_call"), list)
+
+
+def _row_calls(row: dict) -> int:
+    # Only kb_curator writes llm_calls; every other LLM node makes one call per row (Neo, Q3314).
+    return int(row.get("llm_calls", 1 if _row_has_tokens(row) else 0) or 0)
+
+
+def _blank_telemetry() -> dict[str, Any]:
+    # duration_s stays None until a C4 row exists: telemetry.js falls back to the node's elapsed span.
+    return {"duration_s": None, **{k: 0 for k in TOKEN_FIELDS}, "cost_usd": 0.0, "model": None,
+            "calls": 0, "in_flight": 0, "live": False}
+
+
+def _apply_usage(per_node: dict[str, dict], final: set[str], usage: Iterable[dict], active: bool) -> None:
+    """Merge C8 lines into per_node. A node with a final C4 row keeps its C4 tokens (spec 2026-11-03 §4.3)."""
+    by_node: dict[str, list[dict]] = {}
+    for line in usage:
+        if line.get("node"):
+            by_node.setdefault(str(line["node"]), []).append(line)
+    for node, lines in by_node.items():
+        agg = per_node.setdefault(node, _blank_telemetry())
+        ends = [ln for ln in lines if ln.get("event") == "end"]
+        closed = {ln.get("call_id") for ln in lines if ln.get("event") in {"end", "error"}}
+        started = {ln.get("call_id") for ln in lines if ln.get("event") == "start"}
+        agg["in_flight"] = len(started - closed) if active else 0
+        agg["calls"] = len(ends) or agg["calls"]
+        if node in final:
+            continue
+        agg["live"] = True
+        agg["model"] = lines[-1].get("model") or agg["model"]
+        for k in TOKEN_FIELDS:
+            agg[k] = sum(int(ln.get(k) or 0) for ln in ends)
+        agg["cost_usd"] = sum(float(ln.get("cost_usd") or 0.0) for ln in ends)
+
+
+def telemetry(rows: Iterable[dict], total_s: Optional[float], hitl_wait_s: float,
+              usage: Iterable[dict] = (), active: bool = False) -> dict:
     per_node: dict[str, dict] = {}
+    final: set[str] = set()
     for row in rows:
         node = node_for_stage(str(row.get("stage", "")))
         if node is None:
             continue
-        agg = per_node.setdefault(node, {"duration_s": 0.0, **{k: 0 for k in TOKEN_FIELDS}, "cost_usd": 0.0,
-                                         "model": None})
-        agg["duration_s"] = round(agg["duration_s"] + float(row.get("duration_s") or 0.0), 3)
+        agg = per_node.setdefault(node, _blank_telemetry())
+        agg["duration_s"] = round((agg["duration_s"] or 0.0) + float(row.get("duration_s") or 0.0), 3)
         for k, v in _row_tokens(row).items():
             agg[k] += v
         agg["cost_usd"] += _row_cost(row)
         agg["model"] = row.get("model") or agg["model"]
+        agg["calls"] += _row_calls(row)
+        if _row_has_tokens(row):
+            final.add(node)
+    _apply_usage(per_node, final, usage, active)
     tokens = {short: sum(p[k] for p in per_node.values())
               for short, k in zip(("input", "output", "cache_read", "cache_creation"), TOKEN_FIELDS)}
     return {
@@ -141,6 +183,8 @@ def telemetry(rows: Iterable[dict], total_s: Optional[float], hitl_wait_s: float
         "work_s": None if total_s is None else total_s - (hitl_wait_s or 0.0),
         "tokens": tokens,
         "cost_usd": sum(p["cost_usd"] for p in per_node.values()),
+        "calls": sum(p["calls"] for p in per_node.values()),
+        "in_flight": sum(p["in_flight"] for p in per_node.values()),
         "per_node": per_node,
     }
 
@@ -217,7 +261,8 @@ def load_run(root: Path, run_id: str, node_ids: list[str], now: Optional[float] 
         nodes = node_states(rec["events"], node_ids, rec["status"] in FINISHED, rec["input"].get("kind"))
     keys = ("run_id", "status", "verdict", "profile", "input", "started_at", "ended_at", "hitl_wait_s", "error")
     return {**{k: rec[k] for k in keys}, "nodes": apply_rows(nodes, rec["rows"]),
-            "telemetry": telemetry(rec["rows"], rec["total_s"], rec["hitl_wait_s"])}
+            "telemetry": telemetry(rec["rows"], rec["total_s"], rec["hitl_wait_s"],
+                                   read_jsonl(rd / "usage.jsonl"), rec["status"] in ACTIVE)}
 
 
 def list_runs(root: Path, now: Optional[float] = None) -> list[dict]:

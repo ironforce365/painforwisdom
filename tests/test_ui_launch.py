@@ -219,6 +219,14 @@ def test_fake_runner_hitl_in_process(tmp_path):
     assert {k: n["state"] for k, n in run["nodes"].items() if n["state"] != "done"} == {
         "youtube_upload": "skipped", "wordpress_draft": "skipped"}
     assert run["nodes"]["bv_research"]["result"]["branch_verdict_research"] == "PASS"
+    # C8: _LLM nodes write balanced pairs, kb_curator once per re-run; C4 stays final.
+    lines = runs.read_jsonl(rd / "usage.jsonl")
+    assert {ln["node"] for ln in lines} == set(fake_runner._LLM)
+    kb_lines = [ln for ln in lines if ln["node"] == "kb_curator"]
+    assert [(ln["event"], ln["attempt"]) for ln in kb_lines] == [("start", 1), ("end", 1)] * 2 + [("start", 2), ("end", 2)] * 2
+    tel = run["telemetry"]["per_node"]
+    assert tel["kb_curator"]["calls"] == 4 and tel["kb_curator"]["input_tokens"] == fake_runner._LLM["kb_curator"][0]
+    assert tel["kb_curator"]["live"] is False and run["telemetry"]["in_flight"] == 0
 
 
 def test_fake_runner_fail_in_process(tmp_path):

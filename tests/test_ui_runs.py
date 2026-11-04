@@ -202,8 +202,64 @@ def test_rows_for_one_node_sum():
     t = runs.telemetry(rows, total_s=None, hitl_wait_s=0.0)
     assert t["per_node"] == {"summarizer": {
         "duration_s": 1.5, "input_tokens": 3, "output_tokens": 0, "cache_read_tokens": 0,
-        "cache_creation_tokens": 0, "cost_usd": 0.1, "model": None}}
+        "cache_creation_tokens": 0, "cost_usd": 0.1, "model": None, "calls": 1, "in_flight": 0, "live": False}}
     assert t["work_s"] is None
+
+
+def _start(node, call_id):
+    return {"ts": 1.0, "event": "start", "call_id": call_id, "node": node, "attempt": 1, "model": "m"}
+
+
+def _end(node, call_id, tokens):
+    return {**_start(node, call_id), "event": "end", "input_tokens": tokens, "output_tokens": 1,
+            "cache_read_tokens": 0, "cache_creation_tokens": 0, "cost_usd": 0.5, "call_s": 2.0}
+
+
+def test_c4_is_final_over_c8_no_double_count():
+    rows = [{"stage": "extract", "duration_s": 3.0, "model": "c4", "input_tokens": 100, "cost_usd": 0.1}]
+    usage = [_start("extract", "a"), _end("extract", "a", 7), _start("extract", "b"), _end("extract", "b", 7)]
+    t = runs.telemetry(rows, None, 0.0, usage, active=True)
+    ex = t["per_node"]["extract"]
+    assert (ex["input_tokens"], ex["cost_usd"], ex["model"]) == (100, 0.1, "c4")
+    assert (ex["calls"], ex["in_flight"], ex["live"]) == (2, 0, False)
+    assert t["tokens"]["input"] == 100 and t["cost_usd"] == 0.1 and t["calls"] == 2
+
+
+def test_c8_only_node_is_live_and_counts_in_flight():
+    usage = [_start("research", "a"), _end("research", "a", 5), _start("research", "e"),
+             {**_start("research", "e"), "event": "error", "error": "boom"}, _start("research", "open")]
+    t = runs.telemetry([], None, 0.0, usage, active=True)
+    res = t["per_node"]["research"]
+    assert res["duration_s"] is None and res["live"] is True and res["model"] == "m"
+    assert (res["input_tokens"], res["output_tokens"], res["cost_usd"]) == (5, 1, 0.5)
+    assert (res["calls"], res["in_flight"]) == (1, 1)
+    assert (t["calls"], t["in_flight"], t["tokens"]["input"]) == (1, 1, 5)
+    assert runs.telemetry([], None, 0.0, usage, active=False)["in_flight"] == 0
+
+
+def test_c4_row_without_tokens_does_not_finalise_c8():
+    rows = [{"stage": "youtube-upload", "duration_s": 1.0, "skipped": True}]
+    usage = [_start("youtube_upload", "a"), _end("youtube_upload", "a", 9)]
+    yt = runs.telemetry(rows, None, 0.0, usage)["per_node"]["youtube_upload"]
+    assert (yt["input_tokens"], yt["calls"], yt["live"], yt["duration_s"]) == (9, 1, True, 1.0)
+
+
+def test_calls_from_c4_only(root):
+    per_node = runs.load_run(root, "fx-done", NODES)["telemetry"]["per_node"]
+    assert per_node["kb_curator"]["calls"] == 2  # llm_calls
+    assert per_node["extract"]["calls"] == 1  # tokens, no llm_calls
+    assert per_node["extract_image"]["calls"] == 0  # no tokens
+    assert per_node["extract"]["live"] is False
+
+
+def test_fx_running_in_flight_only_while_live(root):
+    crashed = runs.load_run(root, "fx-running", NODES)["telemetry"]
+    assert crashed["in_flight"] == 0 and crashed["per_node"]["extract"]["input_tokens"] == 1200
+    _set_pid(root, "fx-running", os.getpid())
+    live = runs.load_run(root, "fx-running", NODES)["telemetry"]
+    ex = live["per_node"]["extract"]
+    assert (ex["calls"], ex["in_flight"], ex["live"], ex["input_tokens"]) == (1, 1, True, 1200)
+    assert (live["calls"], live["in_flight"]) == (1, 1)
 
 
 def test_active_run_total_uses_now(root):
