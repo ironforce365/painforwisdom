@@ -59,7 +59,7 @@ def test_run_detail(client):
                       "hitl_wait_s", "error", "nodes", "telemetry"}
     assert r["status"] == "done" and r["profile"] == "sandbox"
     assert len(r["nodes"]) == 15
-    assert set(r["telemetry"]) == {"total_s", "work_s", "tokens", "cost_usd", "per_node"}
+    assert set(r["telemetry"]) == {"total_s", "work_s", "tokens", "cost_usd", "calls", "in_flight", "per_node"}
 
 
 def test_unknown_run_is_404(client):

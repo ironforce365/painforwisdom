@@ -28,6 +28,7 @@ from typing import Any, Dict, List, Optional
 import litellm
 
 from pipeline.token_rotation import read_oauth_token
+from pipeline.usage import record_end, record_error, record_start
 
 
 CLAUDE_CODE_IDENTITY = "You are Claude Code, Anthropic's official CLI for Claude."
@@ -173,6 +174,7 @@ def call_llm(
         if effective_tools:
             kwargs["tools"] = effective_tools
 
+        call_id = record_start(model)
         t0 = time.time()
         try:
             resp = litellm.completion(**kwargs)
@@ -191,6 +193,7 @@ def call_llm(
                     cost_usd = float(litellm.completion_cost(completion_response=resp))
                 except Exception:
                     cost_usd = 0.0
+            record_end(call_id, usage, cost_usd, duration)
             return {
                 "text": text,
                 "duration_s": duration,
@@ -202,6 +205,7 @@ def call_llm(
                 "attempts": attempt + 1,
             }
         except Exception as exc:
+            record_error(call_id, exc)
             last_exc = exc
             if _is_auth_error(exc) and attempt < max_retries:
                 # Token may have rotated — re-read on next loop iteration.

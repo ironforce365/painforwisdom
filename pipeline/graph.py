@@ -73,6 +73,7 @@ from pipeline.nodes.wordpress_draft import node_wordpress_draft
 from pipeline.nodes.writer import node_writer
 from pipeline.nodes.youtube_upload import node_youtube_upload
 from pipeline.state import State
+from pipeline.usage import bind as bind_usage
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # Sandbox profile redirects the checkpoint DB so HITL/interrupt state from
@@ -147,7 +148,8 @@ def _instrumented(name: str, fn: Callable[[Any], Dict[str, Any]]) -> Callable[[A
         _emit(run_dir, {"ts": time.time(), **base, "event": "start"})
         t0 = time.time()
         try:
-            out = fn(state)
+            with bind_usage(run_dir, name, attempt):
+                out = fn(state)
         except GraphInterrupt:
             _emit(run_dir, {"ts": time.time(), **base, "event": "paused"})
             raise
