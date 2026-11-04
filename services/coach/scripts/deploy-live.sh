@@ -19,6 +19,9 @@
 #   5. Install the pipeline units from the new tag, restart the console, wait
 #      for its /api/graph to return 200.
 #
+# DEPLOY_SKIP_COACH=1 ships the pipeline only: skips steps 3, 4 and the disk
+# reclaim, leaving the coach containers as they are.
+#
 # Durable state — the vault RAG index, mem0 postgres, user memories (docker
 # volumes), the host allowlist (COACH_ACCESS_HOST_PATH) and the vault bind
 # (VAULT_HOST_PATH) — all persist across deploys. The coach SessionMap is
@@ -88,29 +91,33 @@ if [ "${DEPLOY_FORCE_LEGACY:-0}" != "1" ]; then
   fi
 fi
 
+SKIP_COACH="${DEPLOY_SKIP_COACH:-0}"
 COMPOSE_DIR="$LIVE_DIR/services/coach"
 ENV_FILE="$COMPOSE_DIR/.env.coach"
-[ -f "$ENV_FILE" ] || { echo "FAIL: missing $ENV_FILE (copy it from a configured checkout; it is gitignored)"; exit 1; }
 
 dc() {
   docker compose -p "$PROJECT" --project-directory "$COMPOSE_DIR" \
     --env-file "$ENV_FILE" -f "$COMPOSE_DIR/docker-compose.yml" "$@"
 }
 
-echo "==> build"
-dc build
-echo "==> up -d"
-dc up -d
+if [ "$SKIP_COACH" != "1" ]; then
+  [ -f "$ENV_FILE" ] || { echo "FAIL: missing $ENV_FILE (copy it from a configured checkout; it is gitignored)"; exit 1; }
 
-echo "==> wait for health ($HEALTH_URL)"
-for i in $(seq 1 45); do
-  if curl -fsS -m 5 "$HEALTH_URL" >/dev/null 2>&1; then
-    echo "healthy after $((i * 2))s"
-    break
-  fi
-  if [ "$i" = 45 ]; then echo "FAIL: health timeout at $HEALTH_URL"; exit 1; fi
-  sleep 2
-done
+  echo "==> build"
+  dc build
+  echo "==> up -d"
+  dc up -d
+
+  echo "==> wait for health ($HEALTH_URL)"
+  for i in $(seq 1 45); do
+    if curl -fsS -m 5 "$HEALTH_URL" >/dev/null 2>&1; then
+      echo "healthy after $((i * 2))s"
+      break
+    fi
+    if [ "$i" = 45 ]; then echo "FAIL: health timeout at $HEALTH_URL"; exit 1; fi
+    sleep 2
+  done
+fi
 
 echo "==> install pipeline units from $TAG"
 PFW_LIVE_DIR="$LIVE_DIR" bash "$LIVE_DIR/pipeline/scripts/install-pipeline-units.sh" --no-restart
@@ -132,6 +139,11 @@ done
 if [ "$CONSOLE_UP" != 1 ]; then
   echo "FAIL: console timeout at $CONSOLE_URL (journalctl --user -u $CONSOLE_UNIT -n 50)"
   exit 1
+fi
+
+if [ "$SKIP_COACH" = "1" ]; then
+  echo "==> deployed $TAG (pipeline only, coach untouched) from $LIVE_DIR"
+  exit 0
 fi
 
 echo "==> deployed $TAG to project '$PROJECT' from $LIVE_DIR"

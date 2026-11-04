@@ -196,3 +196,21 @@ def test_deploy_fails_when_console_never_answers(tree: Tree) -> None:
     assert "FAIL: console timeout" in r.stdout
     assert tree.calls().count("curl -fsS -m 2 http://127.0.0.1:8820/api/graph") == 30
     assert f"systemctl --user restart {CONSOLE_UNIT}" in tree.calls()
+
+
+def test_deploy_skip_coach_never_touches_docker_or_coach_health(tree: Tree) -> None:
+    (tree.live / "services/coach/.env.coach").unlink()
+    r = tree.deploy(DEPLOY_SKIP_COACH="1")
+    assert r.returncode == 0, r.stdout + r.stderr
+    calls = tree.calls()
+    assert not any(c.startswith("docker") or "8800/health" in c for c in calls)
+    assert any("checkout --detach tags/v1.2.3" in c for c in calls)
+    assert f"systemctl --user restart {CONSOLE_UNIT}" in calls
+    assert "curl -fsS -m 2 http://127.0.0.1:8820/api/graph" in calls
+
+
+def test_deploy_skip_coach_keeps_active_run_refusal(tree: Tree) -> None:
+    tree.run_json("run-1", "running", os.getpid())
+    r = tree.deploy(DEPLOY_SKIP_COACH="1")
+    assert r.returncode == 1
+    assert "pipeline run run-1 active" in r.stdout
