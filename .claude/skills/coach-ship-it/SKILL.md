@@ -20,9 +20,12 @@ The version derives from the latest `v*` tag; main's pyproject is never bumped.
    `origin/main` (`git pull --ff-only`), or pass `--base <40-char sha>` of an
    `origin/main` commit.
 2. Show the plan: `services/coach/scripts/ship-it.sh --dry-run [bump]`.
-3. **Confirm.** "About to ship `<tag>` (branch `release/X.Y.Z`) and rebuild/restart
-   the live coach stack. Confirm?" — wait for an explicit yes. It pushes a branch
-   and tag to origin and restarts live containers.
+3. **Confirm.** "About to ship `<tag>` (branch `release/X.Y.Z`), rebuild/restart
+   the live coach stack and restart the pipeline console. Confirm?" — wait for an
+   explicit yes. It pushes a branch and tag to origin and restarts live containers
+   and `painforwisdom-console.service`.
+4. **First ship with the console unit only:** stop the hand-started console first
+   (`OPERATIONS.md` §9).
 
 ## Execution
 
@@ -39,9 +42,14 @@ First turn after the restart is ~55s (cold reranker, once per process); the bot'
   lock held): relay the message; nothing was published.
 - **Deploy failure:** branch and tag are already on origin; do NOT delete them and
   never rerun ship-it. Fix the cause, then `deploy-live.sh <tag>`.
+- **`pipeline run <run_id> active; retry after it ends`:** a deploy failure before
+  the checkout; the live stack is untouched. Wait for the run, then `deploy-live.sh <tag>`.
+  `DEPLOY_IGNORE_ACTIVE_RUN=1` overrides and gives that run mixed-version prompts.
+- **`FAIL: console timeout`:** the coach is already up on the tag. Read
+  `journalctl --user -u painforwisdom-console.service -n 50`, fix, then `deploy-live.sh <tag>`.
 - **gh release failure:** non-fatal; the script prints the command to publish later.
 
 ## Post-run
 
-Surface the tag shipped, the release page, the `deploy-live.sh` health result, and
-`docker compose -p coach ps`.
+Surface the tag shipped, the release page, the `deploy-live.sh` coach and console
+health results, and `docker compose -p coach ps`.
