@@ -52,8 +52,6 @@ def _all_findings(state: State) -> List[Dict[str, Any]]:
 def _wp_line(state: State) -> str:
     if state.get("wordpress_url"):
         return f"Stage 7 — wordpress draft:  ✓ {state.get('wordpress_url', '')}"
-    if state.get("wordpress_dormant"):
-        return "Stage 7 — wordpress draft:  ⏸ dormant (WORDPRESS_ENABLED!=true; bundle on disk)"
     if state.get("wordpress_skipped"):
         reason = state.get("wordpress_skip_reason", "skipped")
         return f"Stage 7 — wordpress draft:  ⏭ skipped ({reason})"

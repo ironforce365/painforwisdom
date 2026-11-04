@@ -1,0 +1,72 @@
+{
+  "schema": 1,
+  "target": "youtube",
+  "mode": "manual",
+  "status": "pending",
+  "fields": {
+    "title": "The hill does not care",
+    "description": "One step, then the next.",
+    "tags": [
+      "painforwisdom",
+      "ultra running"
+    ],
+    "privacy_status": "private",
+    "kind": "short"
+  },
+  "field_specs": {
+    "title": {
+      "type": "string",
+      "label": "Title",
+      "max": 100,
+      "options": null,
+      "required": true
+    },
+    "description": {
+      "type": "text",
+      "label": "Description",
+      "max": 5000,
+      "options": null,
+      "required": false
+    },
+    "tags": {
+      "type": "tags",
+      "label": "Tags",
+      "max": 500,
+      "options": null,
+      "required": false
+    },
+    "privacy_status": {
+      "type": "enum",
+      "label": "Privacy",
+      "max": null,
+      "options": [
+        "private",
+        "unlisted",
+        "public"
+      ],
+      "required": false
+    },
+    "kind": {
+      "type": "enum",
+      "label": "Kind",
+      "max": null,
+      "options": [
+        "short",
+        "video"
+      ],
+      "required": false
+    }
+  },
+  "readonly": {
+    "duration_s": 42.0
+  },
+  "assets": [
+    {
+      "role": "video",
+      "path": "/nonexistent/painforwisdom-fixtures/inbox/video_2026-10-30.mp4"
+    }
+  ],
+  "result": null,
+  "error": null,
+  "updated_at": 1793343900.0
+}

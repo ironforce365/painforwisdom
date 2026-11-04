@@ -43,12 +43,12 @@ def _audit(state: State) -> List[Dict[str, Any]]:
                 severity="secondary",
             ))
 
-    # WordPress draft: PASS if url present OR dormant OR skipped-with-reason.
+    # WordPress draft: PASS if url present OR mode off/manual OR skipped-with-reason.
     wp_url = state.get("wordpress_url", "")
     if wp_url:
         findings.append(check("WordPress draft created or skipped cleanly", True, str(wp_url)))
-    elif state.get("wordpress_dormant"):
-        findings.append(check("WordPress draft created or skipped cleanly", True, "dormant"))
+    elif state.get("wordpress_skip_reason") in ("off", "manual"):
+        findings.append(check("WordPress draft created or skipped cleanly", True, state["wordpress_skip_reason"]))
     elif state.get("wordpress_skipped"):
         findings.append(check(
             "WordPress draft created or skipped cleanly",
@@ -60,7 +60,7 @@ def _audit(state: State) -> List[Dict[str, Any]]:
         findings.append(check(
             "WordPress draft created or skipped cleanly",
             False,
-            "no url, not dormant, not skipped",
+            "no url, not skipped",
             severity="secondary",
         ))
 

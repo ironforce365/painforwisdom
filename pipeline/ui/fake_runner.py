@@ -1,6 +1,7 @@
 """Deterministic fake pipeline run: real topology, no LLM/Notion/Whisper (spec 2026-10-31-pipeline-console-ui §5.3).
 
 python -m pipeline.ui.fake_runner --run-id ID --processed-root DIR --input PATH --scenario ok|hitl|fail --step-ms N
+python -m pipeline.ui.fake_runner publish --run-dir RD --target T --step-ms N
 """
 from __future__ import annotations
 
@@ -17,6 +18,7 @@ from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from pathlib import Path
 from typing import Optional, Sequence
 
+from pipeline.publish import package as publish_package
 from pipeline.ui.launcher import input_kind
 from pipeline.ui.mapping import NODE_TO_STAGE
 
@@ -50,7 +52,7 @@ _LLM = {"extract": (2200, 440, 0.012), "kb_curator": (7400, 900, 0.11), "writer"
         "research": (51000, 3300, 0.4)}
 _EXTRA = {"notion_blog": {"page_id": "fx-blog-1", "page_url": "https://www.notion.so/fx-blog-1"},
           "notion_research": {"rows_in": 2, "created": 2, "failed": 0, "page_ids": ["fx-res-1", "fx-res-2"]},
-          "youtube_upload": {"skipped": True, "reason": "off"}, "wordpress_draft": {"skipped": True, "reason": "off"},
+          "youtube_upload": {"skipped": True, "reason": "off"}, "wordpress_draft": {"skipped": True, "reason": "manual"},
           "summarizer": {"verdict": "PASS"}}
 
 
@@ -63,7 +65,7 @@ def _audit(prefix: str, suffix: str = "") -> dict:
 _RESULTS = {"pre_validator": _audit("pre"), "bv_research": _audit("branch", "_research"),
             "bv_wordpress": _audit("branch", "_wordpress"), "bv_youtube": _audit("branch", "_youtube"),
             "youtube_upload": {"youtube_skipped": True, "youtube_skip_reason": "off"},
-            "wordpress_draft": {"wordpress_skipped": True, "wordpress_skip_reason": "off"},
+            "wordpress_draft": {"wordpress_skipped": True, "wordpress_skip_reason": "manual"},
             "writer": {"blog_post_title": "Fake post"}, "summarizer": {"validator_verdict": "PASS"}}
 
 
@@ -135,6 +137,18 @@ class FakeRun:
                 "cache_read_tokens": inp // 2 // LLM_CALLS, "cache_creation_tokens": inp // 4 // LLM_CALLS,
                 "cost_usd": cost / LLM_CALLS, "call_s": self.step_s / LLM_CALLS})
 
+    def _package(self, node: str) -> None:
+        if node != "wordpress_draft":
+            return
+        from pipeline.nodes.wordpress_draft import FIELD_SPECS
+
+        featured = self.rd / "wordpress-draft" / "featured.png"
+        fields = {"title": "Fake post", "body": "# Fake post\n\nBody.\n", "excerpt": "Body.",
+                  "tags": ["painforwisdom"], "categories": [], "status": "draft", "youtube_url": ""}
+        publish_package.write(self.rd, publish_package.new_package(
+            "wordpress", "manual", fields, FIELD_SPECS, readonly={"date_mmddyy": "10/30/26"},
+            assets=[{"role": "featured_image", "path": str(featured)}]))
+
     def run_node(self, node: str) -> None:
         t0 = time.time()
         self.event(node, "start")
@@ -153,6 +167,7 @@ class FakeRun:
             raise RuntimeError(msg)
         duration = round(time.time() - t0, 3)
         outputs = self._outputs(node)
+        self._package(node)
         self._metric(node, duration)
         self.event(node, "end", duration_s=duration, noop=False, outputs=outputs,
                    result=_RESULTS.get(node, {}))
@@ -211,7 +226,30 @@ def execute(run: FakeRun, preds: dict[str, set[str]]) -> Optional[str]:
                     error = str(exc)
 
 
+def fake_publish(rd: Path, target: str, step_s: float) -> int:
+    """Stands in for `python -m pipeline.publish`: the title FAIL takes the error path. No client, no network."""
+    try:
+        time.sleep(step_s)
+        pkg = publish_package.read(rd, target)
+        if pkg["fields"].get("title") == "FAIL":
+            publish_package.write(rd, {**pkg, "status": "failed", "error": "fake publish failure"})
+            return 1
+        result = {"id": f"fake-{rd.parent.name}", "url": f"https://example.invalid/{target}/{rd.parent.name}"}
+        publish_package.write(rd, {**pkg, "status": "published", "result": result, "error": None})
+        return 0
+    finally:
+        publish_package.release_lock(rd, target)
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv[:1] == ["publish"]:
+        q = argparse.ArgumentParser(prog="python -m pipeline.ui.fake_runner publish")
+        q.add_argument("--run-dir", required=True, type=Path)
+        q.add_argument("--target", required=True)
+        q.add_argument("--step-ms", type=int, default=200)
+        pub = q.parse_args(argv[1:])
+        return fake_publish(pub.run_dir, pub.target, pub.step_ms / 1000)
     p = argparse.ArgumentParser(prog="python -m pipeline.ui.fake_runner")
     p.add_argument("--run-id", required=True)
     p.add_argument("--processed-root", required=True, type=Path)

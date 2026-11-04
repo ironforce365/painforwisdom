@@ -313,6 +313,22 @@ pipeline/scripts/install-pipeline-units.sh --dry-run   # print the plan and rend
 
 The installer takes `--dry-run`, `--unit-dir <dir>` (writes there, skips systemctl) and `--no-restart`, plus the path overrides `PFW_LIVE_DIR`, `PFW_STATE_ROOT`, `PFW_PYTHON`. A rollback to a tag older than this unit keeps the installed unit; if that tag lacks the installer or `pipeline/ui`, the console step fails, with the coach already up on that tag.
 
+### Publishing
+
+`config/publishing.json` (committed, no secrets) sets each target's `mode`, per profile. Credentials stay in the profile env file (`.env` / `.env.sandbox` under `$STATE_ROOT`).
+
+| `mode` | The node writes | DAG |
+|---|---|---|
+| `off` (sandbox default) | bundle only | skipped |
+| `manual` (prod default) | bundle and `package.json`, status `pending` | skipped |
+| `auto` | bundle and `package.json`, then publishes in-process | done |
+
+- A package lives at `processed/<run>/langgraph/{wordpress-draft,youtube-upload}/package.json`.
+- `GET /api/runs/<run>/publish` lists a run's packages; `POST /api/runs/<run>/publish/<target>` with `{"fields": {...}}` publishes one. The server never loads secrets: it spawns the CLI, which reads the profile env file itself.
+- By hand: `python -m pipeline.publish --profile prod --run-dir processed/<run>/langgraph --target wordpress`. Output goes to `publish.log` next to the package when the console spawns it.
+- `publish.lock` next to the package marks a publish in progress. The console clears it, and marks the package `failed`, when its publisher died.
+- WordPress.com's free plan blocks writes: a publish on it ends `failed` with a 403 in `error`.
+
 Tests (from `pipeline/ui/e2e/`):
 
 ```bash
