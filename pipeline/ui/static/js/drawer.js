@@ -1,7 +1,13 @@
 // Step inspector drawer and final result view (spec 2026-10-31-pipeline-console-ui §8). Styles: css/drawer.css.
 import { svgIcon } from './icons.js';
+import { isHttp, renderMarkdown } from './markdown.js';
 
 const POLL_MS = 1000;
+const WIDTH_KEY = 'pfw.drawer.width';
+const WIDTH_MIN = 320;
+const WIDTH_STEP = { ArrowLeft: 40, ArrowRight: -40 };
+const AUDIT_KEY = /_findings/;
+const FINDING_ICONS = { ok: 'tick', core: 'cross', secondary: 'warn', PASS: 'tick', PARTIAL: 'warn', FAIL: 'cross' };
 const CUES = { pending: 'dot', running: 'arc', paused: 'pause', done: 'tick', error: 'cross', skipped: 'dash' };
 const KIND_ICONS = { markdown: 'pen', csv: 'grid', json: 'braces', text: 'lines', image: 'image', other: 'file' };
 const TYPE_ICONS = { Book: 'book', Article: 'pen', Paper: 'file', Podcast: 'mic', Video: 'video' };
@@ -16,6 +22,7 @@ const PATHS = {
   lines: 'M5 6h14 M5 10h14 M5 14h14 M5 18h9',
   file: 'M6 3h8l4 4v14H6z M14 3v4h4',
   link: 'M10 14a4 4 0 0 0 6 0l3-3a4 4 0 0 0-6-6l-1 1 M14 10a4 4 0 0 0-6 0l-3 3a4 4 0 0 0 6 6l1-1',
+  warn: 'M12 4l9 16H3z M12 10v4 M12 17h.01',
 };
 
 function icon(name, attrs = {}) {
@@ -32,52 +39,8 @@ function el(tag, props = {}, ...children) {
   return node;
 }
 
-const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
-const escapeHtml = (s) => s.replace(/[&<>"']/g, (c) => ESC[c]);
-
-// Only http(s) targets become hrefs: Notion rows and LLM output can carry javascript: and other schemes.
-const isHttp = (url) => /^https?:\/\//i.test(url);
 // Outbound-link props, or none for a non-http(s) target.
 const outLink = (url) => (isHttp(url) ? { href: url, target: '_blank', rel: 'noopener' } : {});
-
-/** Inline markdown on already-escaped text: bold and http(s) links only. */
-function inline(s) {
-  return s
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, text, url) => (isHttp(url)
-      ? `<a href="${url}" target="_blank" rel="noopener">${text}</a>` : text));
-}
-
-/** Markdown to HTML, escaping first: headings, bold, lists, links; nothing else passes through. */
-function markdown(src) {
-  const out = [];
-  let list = null;
-  const endList = () => {
-    if (list) out.push(`</${list}>`);
-    list = null;
-  };
-  for (const line of escapeHtml(src).split(/\r?\n/)) {
-    const h = /^(#{1,6})\s+(.*)$/.exec(line);
-    const li = /^\s*(?:([-*])|\d+[.)])\s+(.*)$/.exec(line);
-    if (h) {
-      endList();
-      out.push(`<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`);
-    } else if (li) {
-      const tag = li[1] ? 'ul' : 'ol';
-      if (list !== tag) {
-        endList();
-        out.push(`<${tag}>`);
-        list = tag;
-      }
-      out.push(`<li>${inline(li[2])}</li>`);
-    } else {
-      endList();
-      if (line.trim()) out.push(`<p>${inline(line)}</p>`);
-    }
-  }
-  endList();
-  return out.join('');
-}
 
 /** RFC 4180-ish: quoted fields, "" escapes, CRLF; blank rows dropped. */
 function parseCsv(text) {
@@ -114,7 +77,7 @@ function prettyJson(text) {
 const RENDER = {
   markdown: (text) => {
     const div = el('div', { class: 'md' });
-    div.innerHTML = markdown(text); // safe: markdown() escapes before adding its own tags
+    div.innerHTML = renderMarkdown(text); // safe: renderMarkdown() escapes before adding its own tags
     return div;
   },
   csv: (text) => {
@@ -149,6 +112,85 @@ function artifactEl(a, url) {
     );
   }
   return card;
+}
+
+/** end.result items are JSON cut at 500 chars (C1), so an item may not parse: show it raw. */
+function parseFinding(item) {
+  try {
+    return { name: item, ...JSON.parse(item) };
+  } catch {
+    return { name: item };
+  }
+}
+
+function findingEl(item) {
+  const f = parseFinding(item);
+  const level = f.ok ? 'ok' : (f.severity || f.verdict || 'unknown');
+  return el('li', { class: 'finding', 'data-testid': 'finding', 'data-level': level, title: f.detail || f.name },
+    icon(FINDING_ICONS[level] || 'dot', { role: 'img', 'aria-label': level }), el('span', {}, f.name));
+}
+
+const factText = (v) => (typeof v === 'object' ? JSON.stringify(v) : String(v));
+
+/** Facts (C4 row + result scalars) as a key/value list, then findings; each empty when there is nothing. */
+function infoEls(n) {
+  const entries = Object.entries(n.result);
+  const scalars = entries.filter(([k]) => !AUDIT_KEY.test(k));
+  const items = entries.filter(([k]) => AUDIT_KEY.test(k)).flatMap(([, v]) => v);
+  const pairs = Object.entries({ ...n.facts, ...Object.fromEntries(scalars) });
+  const facts = pairs.map(([k, v]) => el('div', { class: 'fact', 'data-testid': `fact-${k}` }, el('dt', {}, k), el('dd', {}, factText(v))));
+  return [el('dl', { class: 'facts', 'data-testid': 'drawer-facts' }, ...facts),
+    el('ul', { class: 'findings', 'data-testid': 'drawer-findings' }, ...items.map(findingEl))];
+}
+
+function loadWidth() {
+  try {
+    return Number(localStorage.getItem(WIDTH_KEY));
+  } catch {
+    return 0; // storage blocked: the default width stands
+  }
+}
+
+function saveWidth(px) {
+  try {
+    localStorage.setItem(WIDTH_KEY, String(px));
+  } catch {
+    // storage blocked: the width lasts this page only
+  }
+}
+
+/** Left-edge drag and ←/→ resize of the panel; the chosen width survives reloads (spec 2026-11-03 §3.5). */
+function resizer(panel) {
+  const handle = el('div', {
+    class: 'resize', 'data-testid': 'drawer-resize', role: 'separator', 'aria-orientation': 'vertical',
+    'aria-label': 'resize', tabindex: '0', 'aria-valuemin': WIDTH_MIN,
+  });
+  const setWidth = (px) => {
+    const width = Math.round(Math.min(Math.max(px, WIDTH_MIN), window.innerWidth));
+    panel.style.setProperty('--drawer-w', `${width}px`);
+    handle.setAttribute('aria-valuenow', width);
+    handle.setAttribute('aria-valuemax', window.innerWidth);
+    return width;
+  };
+  handle.addEventListener('pointerdown', (down) => {
+    handle.setPointerCapture(down.pointerId);
+    const move = (e) => setWidth(window.innerWidth - e.clientX);
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', (up) => {
+      handle.removeEventListener('pointermove', move);
+      saveWidth(setWidth(window.innerWidth - up.clientX));
+    }, { once: true });
+  });
+  handle.addEventListener('keydown', (e) => {
+    const step = WIDTH_STEP[e.key];
+    if (step) {
+      e.preventDefault();
+      saveWidth(setWidth(panel.getBoundingClientRect().width + step));
+    }
+  });
+  const stored = loadWidth();
+  if (stored > 0) setWidth(stored);
+  return handle;
 }
 
 function fmtDuration(s) {
@@ -216,14 +258,22 @@ export function mount(root, ctx) {
   const cue = el('span', { class: 'state-cue', role: 'img' });
   const duration = el('small', { 'data-testid': 'drawer-duration' });
   const head = el('header', {}, nodeIcon, cue, duration, close);
-  panel.append(head);
+  const handle = resizer(panel);
+  panel.append(handle, head);
+  const info = el('div', { class: 'info' });
 
   const renderHead = () => {
-    const n = Object.assign({ state: 'pending', duration_s: null }, run.nodes[panel.dataset.node]);
+    const n = Object.assign({ state: 'pending', duration_s: null, facts: {}, result: {} }, run.nodes[panel.dataset.node]);
     panel.dataset.state = n.state;
     cue.replaceChildren(svgIcon(CUES[n.state]));
     cue.setAttribute('aria-label', n.state);
     duration.textContent = fmtDuration(n.duration_s);
+    // Rebuild only on change: the poll would otherwise drop a text selection every second.
+    const sig = JSON.stringify([panel.dataset.node, n.facts, n.result]);
+    if (info.dataset.sig !== sig) {
+      info.dataset.sig = sig;
+      info.replaceChildren(...infoEls(n));
+    }
   };
 
   ctx.bus.on('node:selected', (id) => {
@@ -236,7 +286,10 @@ export function mount(root, ctx) {
     nodeIcon.title = node.label;
     // A fresh list per selection: a late answer for the previous node lands in a detached element.
     const list = el('div', { class: 'arts', 'data-testid': 'artifact-list' });
-    panel.replaceChildren(head, list);
+    // Shown by CSS when the body holds no fact, finding or artifact, so the listing's answer decides no branch.
+    const nothing = el('div', { class: 'unavailable', 'data-testid': 'drawer-nothing' },
+      icon('cloudOff', { role: 'img', 'aria-label': 'nothing recorded' }));
+    panel.replaceChildren(handle, head, el('div', { class: 'body', 'data-testid': 'drawer-body' }, info, list, nothing));
     renderHead();
     panel.hidden = false;
     const shown = new Set();
