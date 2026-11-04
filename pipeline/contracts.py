@@ -39,6 +39,7 @@ NODE_INPUTS: Dict[str, List[str]] = {
     # New nodes (run_dir is the only hard requirement; nodes self-skip on
     # missing optional inputs like video_path or validator_verdict).
     "extract_image":    ["run_dir"],
+    "youtube_metadata": ["run_dir"],
     "youtube_upload":   ["run_dir"],
     "wordpress_draft":  ["run_dir"],
     "validator":        [],

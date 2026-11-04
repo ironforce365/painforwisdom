@@ -39,11 +39,13 @@ def test_health_index_and_static(client):
 def test_graph(client):
     g = client.get("/api/graph").json()
     ids = [n["id"] for n in g["nodes"]]
-    assert len(ids) == 15 and "__start__" not in ids and "__end__" not in ids
+    assert len(ids) == 16 and "__start__" not in ids and "__end__" not in ids
     assert all(set(n) == {"id", "label", "icon"} and n["label"] and n["icon"] for n in g["nodes"])
     edges = {(e["from"], e["to"]) for e in g["edges"]}
     assert ("transcribe", "extract") in edges and ("extract", "kb_curator") in edges
     assert ("bv_youtube", "summarizer") in edges
+    assert {("writer", "youtube_metadata"), ("youtube_metadata", "youtube_upload"), ("youtube_upload", "bv_youtube")} <= edges
+    assert ("extract", "youtube_upload") not in edges
     assert not any("__" in a or "__" in b for a, b in edges)
 
 
@@ -58,7 +60,7 @@ def test_run_detail(client):
     assert set(r) == {"run_id", "status", "verdict", "profile", "input", "started_at", "ended_at",
                       "hitl_wait_s", "error", "nodes", "telemetry"}
     assert r["status"] == "done" and r["profile"] == "sandbox"
-    assert len(r["nodes"]) == 15
+    assert len(r["nodes"]) == 16
     assert set(r["telemetry"]) == {"total_s", "work_s", "tokens", "cost_usd", "calls", "in_flight", "per_node"}
 
 

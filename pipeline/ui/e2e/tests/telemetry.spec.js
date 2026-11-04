@@ -37,10 +37,10 @@ test('strip totals match the fx-done fixture files, compactly formatted', async 
   }
   expect(await value(strip.getByTestId('tele-cost'))).toBeCloseTo(exp.cost, 9);
   await expect(strip.getByTestId('tele-cost')).toBeVisible();
-  // 298 s wall, 178 s work, 145546 tokens, $0.747
+  // 298 s wall, 178 s work, 146846 tokens, $0.752
   await expect(strip.getByTestId('tele-total')).toHaveText('4m 58s');
   await expect(strip.getByTestId('tele-work')).toHaveText('2m 58s');
-  await expect(strip.getByTestId('tele-tokens')).toHaveText('145.5k');
+  await expect(strip.getByTestId('tele-tokens')).toHaveText('146.8k');
   await expect(strip.getByTestId('tele-cost')).toHaveText('$0.75');
   await expect(strip.getByTestId('tele-total')).toHaveAttribute('data-live', 'false');
   // stacked bar: segment widths proportional to the split

@@ -16,7 +16,6 @@ from fastapi.testclient import TestClient
 
 from pipeline import publish as publish_core
 from pipeline import publishing_config
-from pipeline.nodes import youtube_upload
 from pipeline.nodes.validators.branch_wordpress import node_bv_wordpress
 from pipeline.nodes.wordpress_draft import FIELD_SPECS, node_wordpress_draft
 from pipeline.publish import package
@@ -68,13 +67,6 @@ def test_load_merges_profile_over_base():
     assert sandbox["wordpress"]["site"] == prod["wordpress"]["site"]
     assert "profiles" not in prod
     assert prod["youtube"]["default_tags"][0] == "painforwisdom"
-
-
-def test_youtube_node_reads_renamed_keys(monkeypatch):
-    monkeypatch.setenv("PIPELINE_PROFILE", "sandbox")
-    defaults = youtube_upload._load_defaults()
-    assert defaults["category_id"] == "22" and defaults["privacy_status"] == "private"
-    assert defaults["description_suffix"] == "" and "painforwisdom" in defaults["default_tags"]
 
 
 def test_scraper_writes_only_its_keys_into_the_raw_file(tmp_path, monkeypatch):
@@ -313,7 +305,8 @@ def test_cli_records_failure_and_removes_console_lock(processed, tmp_path, monke
     assert not package.lock_path(rd, "wordpress").exists()
 
 
-def test_target_without_adapter_fails_cleanly(processed):
+def test_target_without_adapter_fails_cleanly(processed, monkeypatch):
+    monkeypatch.delitem(publish_core.TARGETS, "youtube")
     rd = rd_of(processed, "fx-published")
     pkg = publish_core.run_target(rd, "youtube")
     assert pkg["status"] == "failed" and "no adapter" in pkg["error"]

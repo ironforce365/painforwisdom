@@ -316,6 +316,12 @@ The installer takes `--dry-run`, `--unit-dir <dir>` (writes there, skips systemc
 
 ### Publishing
 
+```
+extract ─▶ extract_image ─────────────────────────┐
+writer ─┬─▶ notion_blog ──────────────────────────┴─▶ wordpress_draft ─▶ bv_wordpress ─▶ summarizer
+        └─▶ youtube_metadata ─▶ youtube_upload ─▶ bv_youtube ───────────────────────────▶ summarizer
+```
+
 `config/publishing.json` (committed, no secrets) sets each target's `mode`, per profile. Credentials stay in the profile env file (`.env` / `.env.sandbox` under `$STATE_ROOT`).
 
 | `mode` | The node writes | DAG |
@@ -329,6 +335,8 @@ The installer takes `--dry-run`, `--unit-dir <dir>` (writes there, skips systemc
 - By hand: `python -m pipeline.publish --profile prod --run-dir processed/<run>/langgraph --target wordpress`. Output goes to `publish.log` next to the package when the console spawns it.
 - `publish.lock` next to the package marks a publish in progress. The console clears it, and marks the package `failed`, when its publisher died.
 - WordPress.com's free plan blocks writes: a publish on it ends `failed` with a 403 in `error`.
+- YouTube needs a video: a transcript run skips both YouTube nodes with reason `no video`. `youtube_metadata` writes `youtube-upload/metadata.json`; an empty title after one retry leaves a `warning` there and in the package, and the title must be filled before publishing.
+- YouTube `kind`: `short` appends `#Shorts` to the description and fails over 180 s; `video` uploads as is.
 
 Tests (from `pipeline/ui/e2e/`):
 

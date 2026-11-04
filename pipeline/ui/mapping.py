@@ -12,6 +12,7 @@ NODE_TO_STAGE: dict[str, Optional[str]] = {
     "notion_blog": "notion-blog",
     "notion_research": "notion-research",
     "extract_image": "extract-image",
+    "youtube_metadata": "youtube-metadata",
     "youtube_upload": "youtube-upload",
     "wordpress_draft": "wordpress-draft",
     "summarizer": "summarizer",
@@ -33,6 +34,7 @@ NODE_TO_DIR: dict[str, tuple[str, ...]] = {
     "notion_blog": ("notion-blog-post-logger",),
     "notion_research": ("notion-research-logger",),
     "extract_image": ("wordpress-draft",),
+    "youtube_metadata": ("youtube-upload",),
     "youtube_upload": ("youtube-upload",),
     "wordpress_draft": ("wordpress-draft",),
     "summarizer": ("validator", "pipeline-summary"),
@@ -51,6 +53,7 @@ NODE_ICON: dict[str, str] = {
     "notion_blog": "notion",
     "notion_research": "notion",
     "extract_image": "image",
+    "youtube_metadata": "tag",
     "youtube_upload": "video",
     "wordpress_draft": "globe",
     "summarizer": "flag",
@@ -62,8 +65,9 @@ NODE_ICON: dict[str, str] = {
 
 _STAGE_TO_NODE = {stage: node for node, stage in NODE_TO_STAGE.items() if stage}
 
-# wordpress-draft is shared with extract_image; files no `end.outputs` claims are the draft's.
-DIR_TO_NODE: dict[str, str] = {d: n for n, dirs in NODE_TO_DIR.items() for d in dirs if n != "extract_image"}
+# wordpress-draft and youtube-upload are each shared by two nodes; files no `end.outputs` claims go to the later node.
+DIR_TO_NODE: dict[str, str] = {d: n for n, dirs in NODE_TO_DIR.items() for d in dirs
+                               if n not in {"extract_image", "youtube_metadata"}}
 
 
 def node_for_stage(stage: str) -> Optional[str]:

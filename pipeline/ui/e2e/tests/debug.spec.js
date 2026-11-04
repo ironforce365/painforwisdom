@@ -17,7 +17,7 @@ test('run scope shows every field of a finished run', async ({ page }) => {
   await expect(panel).toHaveAttribute('data-live', 'false');
   await expect(page.getByTestId('debug-scope-clear')).toBeHidden();
   await expectFields(page, {
-    total: '145.5k', calls: '5', 'in-flight': '0', cost: '$0.747', elapsed: '4m 58s', work: '2m 58s', models: /claude-sonnet-5-5/,
+    total: '146.8k', calls: '6', 'in-flight': '0', cost: '$0.752', elapsed: '4m 58s', work: '2m 58s', models: /claude-sonnet-5-5/,
   });
   const [input, read] = [await numberOf(page, 'input'), await numberOf(page, 'cache-read')];
   expect(await numberOf(page, 'hit')).toBeCloseTo(read / (input + read), 9);
@@ -45,6 +45,7 @@ test('selecting a node scopes the panel; same node or chip returns to the run', 
   await expect(panel).toHaveAttribute('data-scope', 'run');
   await expect(page.getByTestId('debug-scope-clear')).toBeHidden();
   // no C4 row: work is the node's own duration, no model; never started: dashes
+  await page.getByTestId('drawer-close').click(); // the drawer covers the graph's right side, where bv_youtube now sits
   await page.getByTestId('node-bv_youtube').click();
   await expectFields(page, { total: '0', hit: '–', work: '0.2s', elapsed: '0.2s', models: '–' });
   await page.getByTestId('node-transcribe').click();
@@ -168,7 +169,7 @@ test.describe('screenshots', () => {
   test('shot finished run', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.goto('/#/runs/fx-done');
-    await expect(page.getByTestId('debug-total')).toHaveText('145.5k');
+    await expect(page.getByTestId('debug-total')).toHaveText('146.8k');
     await shot(page, 'done');
     await page.getByTestId('node-research').click();
     await expect(page.getByTestId('debug-total')).toHaveText('104.8k');

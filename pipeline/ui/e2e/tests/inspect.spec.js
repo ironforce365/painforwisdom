@@ -67,7 +67,7 @@ test('every artifact kind renders in the drawer', async ({ page }) => {
   await expect(art(page, 'broken.json').getByTestId('artifact-body')).toHaveText('{not json');
   await expect(art(page, 'blog_post.md')).toHaveAttribute('data-kind', 'markdown');
 
-  await pick(page, 'youtube_upload');
+  await pick(page, 'youtube_metadata');
   await expect(art(page, 'metadata.json')).toHaveAttribute('data-state', 'ready');
   const json = await art(page, 'metadata.json').getByTestId('artifact-body').textContent();
   expect(json).toContain('\n  ');
@@ -293,7 +293,7 @@ test.describe('inspect shots', () => {
     await openNode(page, 'fx-done', 'extract_image');
     await expect(art(page, 'featured.png').getByTestId('artifact-body')).toHaveJSProperty('complete', true);
     await shoot(page, 'drawer-image');
-    await pick(page, 'youtube_upload');
+    await pick(page, 'youtube_metadata');
     await expect(art(page, 'metadata.json')).toHaveAttribute('data-state', 'ready');
     await shoot(page, 'drawer-json');
   });
@@ -306,7 +306,7 @@ test.describe('inspect shots', () => {
     await expect(drawer(page).getByTestId('finding')).toHaveCount(1);
     await shoot(page, 'drawer-findings');
     await pick(page, 'youtube_upload');
-    await expect(art(page, 'metadata.json')).toHaveAttribute('data-state', 'ready');
+    await expect(drawer(page)).toHaveAttribute('data-state', 'skipped');
     await shoot(page, 'drawer-skipped');
     await pick(page, 'transcribe');
     await expect(drawer(page).getByTestId('drawer-nothing')).toBeVisible();

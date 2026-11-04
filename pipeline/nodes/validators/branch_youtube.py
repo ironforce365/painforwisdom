@@ -1,7 +1,8 @@
 """Branch validator: youtube_upload branch.
 
-YouTube is optional (gated by ``YOUTUBE_ENABLED``). PASS = url present or
-skipped cleanly. Silent absence = secondary failure (PARTIAL), never core.
+YouTube is optional (``youtube.mode`` in ``config/publishing.json``). PASS = url
+present or skipped cleanly (``off``, ``manual``, nothing to upload). A failed
+``auto`` upload or silent absence = secondary failure (PARTIAL), never core.
 """
 from __future__ import annotations
 
@@ -21,7 +22,7 @@ def _audit(state: State) -> List[Dict[str, Any]]:
         reason = state.get("youtube_skip_reason", "skipped")
         findings.append(check(
             "YouTube upload produced URL or skipped cleanly",
-            True,
+            not reason.startswith("publish error"),
             f"skipped: {reason}",
             severity="secondary",
         ))

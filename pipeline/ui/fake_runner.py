@@ -42,14 +42,14 @@ ARTIFACTS: dict[str, tuple[str, str, str, bytes]] = {
     "notion_research": ("notion_research_summary_path", "notion-research-logger", "notion_summary.md",
                         b"pages fx-res-1 fx-res-2\n"),
     "extract_image": ("featured_image_path", "wordpress-draft", "featured.png", _PNG),
-    "youtube_upload": ("youtube_metadata_path", "youtube-upload", "metadata.json", b'{"title": "fake"}\n'),
+    "youtube_metadata": ("youtube_metadata_path", "youtube-upload", "metadata.json", b'{"title": "fake"}\n'),
     "wordpress_draft": ("wordpress_bundle_path", "wordpress-draft", "bundle.json", b'{"status": "draft"}\n'),
     "summarizer": ("pipeline_summary_path", "pipeline-summary", "telegram.txt", b"PASS\n"),
 }
 
 # Plausible per-stage telemetry; page ids match tests/fixtures/ui/notion (C6).
 _LLM = {"extract": (2200, 440, 0.012), "kb_curator": (7400, 900, 0.11), "writer": (4260, 657, 0.025),
-        "research": (51000, 3300, 0.4)}
+        "research": (51000, 3300, 0.4), "youtube_metadata": (1200, 100, 0.005)}
 _EXTRA = {"notion_blog": {"page_id": "fx-blog-1", "page_url": "https://www.notion.so/fx-blog-1"},
           "notion_research": {"rows_in": 2, "created": 2, "failed": 0, "page_ids": ["fx-res-1", "fx-res-2"]},
           "youtube_upload": {"skipped": True, "reason": "off"}, "wordpress_draft": {"skipped": True, "reason": "manual"},
