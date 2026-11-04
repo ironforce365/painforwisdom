@@ -14,6 +14,7 @@ const PYTHON = process.env.PYTHON || 'python';
 if (!process.env.PFW_UI_TMP) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pfw-ui-e2e-'));
   fs.cpSync(path.join(FIXTURES, 'processed'), path.join(tmp, 'processed'), { recursive: true });
+  fs.cpSync(path.join(FIXTURES, 'vault'), path.join(tmp, 'vault'), { recursive: true });
   fs.cpSync(path.join(FIXTURES, 'inbox'), path.join(tmp, 'inbox'), { recursive: true });
   process.env.PFW_UI_TMP = tmp;
   process.env.PFW_UI_PORT = execFileSync(PYTHON, ['-c',

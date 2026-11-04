@@ -66,9 +66,8 @@ for (const r of RUNS) {
     const title = execFileSync(PYTHON, ['pipeline/ui/e2e/real_blog_title.py', path.join(REPO, 'processed', runId, 'langgraph')],
       { cwd: REPO, env: { ...process.env, PYTHONPATH: REPO } }).toString().trim();
     expect(title).not.toBe('');
-    await page.getByTestId('result-open').click();
-    await expect(page.getByTestId('result')).toHaveAttribute('data-status', 'ready', { timeout: 60_000 });
-    await expect(page.getByTestId('result-title')).toHaveText(title);
+    await page.getByTestId('output-open').click();
+    await expect(page.getByTestId('output-blog-link')).toHaveText(title, { timeout: 60_000 });
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `real-${r.kind}-result.png`) });
 
     expect(errors).toEqual([]);

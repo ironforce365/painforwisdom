@@ -7,6 +7,7 @@ import * as launch from './launch.js';
 import * as drawer from './drawer.js';
 import * as telemetry from './telemetry.js';
 import * as debug from './debug.js';
+import * as operability from './operability.js';
 
 const POLL_MS = 1000;
 const $ = (id) => document.getElementById(id);
@@ -76,7 +77,7 @@ bus.on('run:selected', (id) => {
   graphReady.then(() => poll(id));
 });
 
-const hash = /^#\/runs\/(.+)$/.exec(location.hash);
+const hash = /^#\/runs\/([^/]+)/.exec(location.hash); // operability owns the /output suffix
 state.runId = hash && decodeURIComponent(hash[1]);
 
 dag.mount($('dag'), ctx);
@@ -84,5 +85,6 @@ launch.mount($('launch'), ctx);
 drawer.mount($('drawer'), ctx);
 telemetry.mount($('telemetry'), ctx);
 debug.mount($('debug'), ctx);
+operability.mount($('operability'), ctx);
 runs.mount($('runs'), ctx);
 if (state.runId) bus.emit('run:selected', state.runId);
