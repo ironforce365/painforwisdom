@@ -76,28 +76,31 @@ def _user_message(state: State) -> str:
     )
 
 
-def _ask_agent(state: State, model: str) -> tuple[Dict[str, Any], Dict[str, Any], Optional[str]]:
-    """Up to two calls until a title comes back. Returns (parsed, usage over all calls, warning)."""
+def _ask_agent(state: State, model: str) -> tuple[Dict[str, Any], Dict[str, Any], Optional[str], Optional[str]]:
+    """Up to two calls until a title comes back. Returns (parsed, usage over all calls, warning, last stop_reason)."""
     # "## OUTPUT" holds the JSON format here, not file-writing steps: stripping it made the agent answer in prose.
     system_prompt = load_agent_prompt("youtube-upload-agent.md", strip_output_section=False)
     usage: Dict[str, Any] = {k: 0 for k in _TOKEN_FIELDS}
     usage["llm_calls"] = 0
     parsed: Dict[str, Any] = {}
     last = ""
+    stop_reason: Optional[str] = None
     for _ in range(LLM_ATTEMPTS):
         usage["llm_calls"] += 1
+        stop_reason = None
         try:
             result = call_llm(model, system_prompt, _user_message(state), max_tokens=MAX_TOKENS)
         except Exception as exc:  # noqa: BLE001 - a dead agent means the user fills the package, not a failed run
             last = f"{type(exc).__name__}: {exc}"
             continue
+        stop_reason = result.get("stop_reason")
         for key in _TOKEN_FIELDS:
             usage[key] += result.get(key) or 0
         parsed = _parse_agent_response(result.get("text", ""))
         if str(parsed.get("title") or "").strip():
-            return parsed, usage, None
-        last = f"stop_reason={result.get('stop_reason')}"
-    return parsed, usage, f"empty title after {LLM_ATTEMPTS} attempts ({last})"
+            return parsed, usage, None, stop_reason
+        last = f"stop_reason={stop_reason}"
+    return parsed, usage, f"empty title after {LLM_ATTEMPTS} attempts ({last})", stop_reason
 
 
 def node_youtube_metadata(state: State) -> Dict[str, Any]:
@@ -114,7 +117,7 @@ def node_youtube_metadata(state: State) -> Dict[str, Any]:
 
     config = load(current_profile())["youtube"]
     model = os.environ.get("PIPELINE_MODEL", DEFAULT_MODEL)
-    parsed, usage, warning = _ask_agent(state, model)
+    parsed, usage, warning, stop_reason = _ask_agent(state, model)
 
     title = str(parsed.get("title") or "").strip()[:TITLE_MAX]
     suffix = str(config.get("description_suffix") or "").strip()
@@ -125,11 +128,12 @@ def node_youtube_metadata(state: State) -> Dict[str, Any]:
     out_dir = Path(state["run_dir"]) / "youtube-upload"
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / "metadata.json"
-    path.write_text(json.dumps({"title": title, "description": description, "tags": tags, "warning": warning}, indent=2))
+    path.write_text(json.dumps({"title": title, "description": description, "tags": tags, "warning": warning,
+                                "stop_reason": stop_reason}, indent=2))
 
     usage["cost_usd"] = round(usage["cost_usd"], 6)
     duration = time.time() - t0
     append_metric(telemetry, "youtube-metadata", duration_s=round(duration, 2), model=model, **usage,
-                  title=title, tag_count=len(tags), **({"warning": warning} if warning else {}))
+                  title=title, tag_count=len(tags), stop_reason=stop_reason, **({"warning": warning} if warning else {}))
     print(f"[youtube-metadata] done {duration:.1f}s title={title!r} warning={warning!r}")
     return {"youtube_metadata_path": str(path), **({"youtube_metadata_warning": warning} if warning else {})}

@@ -110,6 +110,26 @@ def test_empty_title_after_one_retry_writes_a_warning_and_never_raises(state, mo
     assert out["youtube_metadata_warning"] == written["warning"] and _rows(state)[-1]["warning"] == written["warning"]
 
 
+@pytest.mark.parametrize("replies,stored", [
+    ([(GOOD, "stop")], "stop"),
+    ([(LABELLED, "stop"), (LABELLED, "length")], "length"),
+    ([(LABELLED, "length"), RuntimeError("boom")], None),
+])
+def test_last_stop_reason_is_stored_in_metadata_and_c4(state, monkeypatch, replies, stored):
+    answers = iter(replies)
+
+    def fake(model, system, user, max_tokens):
+        answer = next(answers)
+        if isinstance(answer, Exception):
+            raise answer
+        return {"text": answer[0], "model": model, "stop_reason": answer[1], **USAGE}
+
+    monkeypatch.setattr(youtube_metadata, "call_llm", fake)
+    out = youtube_metadata.node_youtube_metadata(state)
+    assert json.loads(Path(out["youtube_metadata_path"]).read_text())["stop_reason"] == stored
+    assert _rows(state)[-1]["stop_reason"] == stored
+
+
 def test_title_capped_at_100(state, monkeypatch):
     _llm(monkeypatch, json.dumps({"title": "x" * 150, "description": "", "tags_extra": []}))
     out = youtube_metadata.node_youtube_metadata(state)
