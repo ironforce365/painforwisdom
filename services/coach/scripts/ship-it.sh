@@ -175,5 +175,5 @@ if ! run "'$DEPLOY_SCRIPT' '$TAG'"; then
 fi
 
 # --- 6. notify ------------------------------------------------------------------
-notify "<b>ship-it $TAG COMPLETE</b>%0ACoach deployed from $REL_BRANCH (base ${SHIP_SHA:0:9})%0ATime: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+notify "<b>ship-it $TAG COMPLETE</b>%0ADeployed from $REL_BRANCH (base ${SHIP_SHA:0:9})%0ATime: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 say "shipped $TAG"

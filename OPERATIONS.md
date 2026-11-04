@@ -299,6 +299,8 @@ Every ship deploys it: `services/coach/scripts/deploy-live.sh`, after the coach 
 
 Deploys refuse with `pipeline run <run_id> active; retry after it ends` while a run in `<live>/processed/` is active with a live pid, because agent prompts are read from disk at node time. Retry `deploy-live.sh <tag>` after it ends. `DEPLOY_IGNORE_ACTIVE_RUN=1` overrides. A restart alone never kills a run (`KillMode=process`).
 
+**Pipeline-only ship:** `DEPLOY_SKIP_COACH=1 services/coach/scripts/ship-it.sh [bump] [--base <sha>]`, or `DEPLOY_SKIP_COACH=1 services/coach/scripts/deploy-live.sh <tag>` for an existing tag. Moves the live checkout and redeploys the console; never builds, restarts or health-checks the coach containers.
+
 **Before the first install, stop the hand-started console.** It holds port 8820, so the service could not bind and the deploy's health check would pass against the old process. Its runs are detached, so killing the server does not kill them:
 
 ```bash
