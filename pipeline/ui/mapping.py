@@ -62,7 +62,7 @@ NODE_ICON: dict[str, str] = {
 
 _STAGE_TO_NODE = {stage: node for node, stage in NODE_TO_STAGE.items() if stage}
 
-# wordpress-draft is shared with extract_image; the files there are the draft's.
+# wordpress-draft is shared with extract_image; files no `end.outputs` claims are the draft's.
 DIR_TO_NODE: dict[str, str] = {d: n for n, dirs in NODE_TO_DIR.items() for d in dirs if n != "extract_image"}
 
 

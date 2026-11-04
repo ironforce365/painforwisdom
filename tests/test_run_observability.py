@@ -74,7 +74,23 @@ def test_success_writes_start_end_with_outputs(tmp_path):
     assert isinstance(end["duration_s"], float) and end["duration_s"] >= 0
     assert isinstance(ev[0]["ts"], float)
     assert set(ev[0]) == {"ts", "node", "event", "attempt"}
-    assert set(end) == {"ts", "node", "event", "attempt", "duration_s", "noop", "outputs"}
+    assert set(end) == {"ts", "node", "event", "attempt", "duration_s", "noop", "outputs", "result"}
+    assert end["result"] == {"other": "v"}
+
+
+def test_end_result_keeps_scalars_and_audit_keys_only():
+    big = {"detail": "y" * 600}
+    result = pgraph.end_result({
+        "out_path": "/x/o.md", "s": "x" * 400, "n": 3, "f": 1.5, "b": True, "none": None, "blob": {"a": 1}, "many": [1],
+        "pre_findings": [{"ok": True}] * 60, "branch_findings_research": [big], "branch_verdict_x": {"v": 1},
+    })
+    assert result["s"] == "x" * 300
+    assert {k: result[k] for k in ("n", "f", "b", "none")} == {"n": 3, "f": 1.5, "b": True, "none": None}
+    assert not {"out_path", "blob", "many"} & set(result)
+    assert len(result["pre_findings"]) == 50 and result["pre_findings"][0] == '{"ok": true}'
+    assert len(result["branch_findings_research"][0]) == 500
+    assert result["branch_verdict_x"] == ['{"v": 1}']
+    assert pgraph.end_result(None) == {}
 
 
 def test_empty_return_is_noop(tmp_path):

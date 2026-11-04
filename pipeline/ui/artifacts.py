@@ -37,21 +37,24 @@ def _entry(path: Path, node: Optional[str]) -> dict:
             "kind": kind_of(path), "bytes": path.stat().st_size, "path": path}
 
 
-def list_artifacts(rd: Path) -> list[dict]:
-    """External `end.outputs` first (event order), then every file under the agent subdirs. Entries keep `path`."""
-    rd = rd.resolve()
-    out, seen = [], set()
+def _output_owners(rd: Path) -> dict[Path, Optional[str]]:
+    """Path to node from every `end.outputs`, first event wins. A relative path is relative to the run dir."""
+    owners: dict[Path, Optional[str]] = {}
     for ev in read_jsonl(rd / "events.jsonl"):
         outputs = ev.get("outputs") if ev.get("event") == "end" else None
         for value in (outputs or {}).values() if isinstance(outputs, dict) else ():
-            path = Path(str(value)).resolve()
-            if path in seen or path.is_relative_to(rd) or not path.is_file():
-                continue
-            seen.add(path)
-            out.append(_entry(path, ev.get("node")))
+            owners.setdefault((rd / str(value)).resolve(), ev.get("node"))
+    return owners
+
+
+def list_artifacts(rd: Path) -> list[dict]:
+    """External `end.outputs` first (event order), then every file under the agent subdirs. Entries keep `path`."""
+    rd = rd.resolve()
+    owners = _output_owners(rd)
+    out = [_entry(path, node) for path, node in owners.items() if not path.is_relative_to(rd) and path.is_file()]
     for sub in sorted(p for p in rd.iterdir() if p.is_dir()):
         for path in sorted(p for p in sub.rglob("*") if p.is_file()):
-            out.append(_entry(path, DIR_TO_NODE.get(sub.name)))
+            out.append(_entry(path, owners.get(path, DIR_TO_NODE.get(sub.name))))
     return out
 
 

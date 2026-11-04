@@ -107,7 +107,8 @@ def test_last_event_wins_and_never_started_is_pending():
     assert st["a"]["state"] == "running" and st["a"]["attempts"] == 2 and st["a"]["error"] is None
     assert st["b"]["state"] == "running"
     assert st["c"] == {"state": "pending", "started_at": None, "ended_at": None,
-                       "duration_s": None, "attempts": 0, "error": None}
+                       "duration_s": None, "attempts": 0, "error": None,
+                       "result": {}, "facts": {}, "skip_reason": None}
 
 
 def test_error_state_carries_message():
@@ -149,7 +150,11 @@ def test_fx_done_nodes(root):
     run = runs.load_run(root, "fx-done", NODES)
     states = {n: v["state"] for n, v in run["nodes"].items()}
     assert states.pop("transcribe") == "skipped"
+    assert states.pop("youtube_upload") == "skipped"
+    assert states.pop("wordpress_draft") == "skipped"
     assert set(states.values()) == {"done"}
+    assert run["nodes"]["youtube_upload"]["skip_reason"] == "off"
+    assert run["nodes"]["transcribe"]["skip_reason"] is None
     assert run["nodes"]["kb_curator"]["attempts"] == 2
     assert run["nodes"]["summarizer"]["duration_s"] == 1.1
 
@@ -274,7 +279,8 @@ def test_fx_done_artifacts_one_of_each_kind(root):
     assert kinds == {"markdown", "csv", "json", "text", "image", "other"}
     by_name = {a["name"]: a for a in arts}
     assert by_name["blog_post.md"]["node"] == "writer"
-    assert by_name["featured.png"]["node"] == "wordpress_draft"
+    assert by_name["featured.png"]["node"] == "extract_image"
+    assert by_name["frames.bin"]["node"] == "wordpress_draft"
     assert by_name["audit_report.md"]["node"] == "summarizer"
     assert by_name["research_report.csv"]["bytes"] > 0
     assert len({a["id"] for a in arts}) == len(arts)
@@ -310,3 +316,47 @@ def test_artifact_ids_are_stable_and_opaque(root):
     assert all("/" not in a["id"] and "." not in a["id"] for a in a1)
     assert artifacts.find_artifact(root / "fx-done" / "langgraph", a1[0]["id"]) == a1[0]
     assert artifacts.find_artifact(root / "fx-done" / "langgraph", "../run.json") is None
+
+
+def test_skipped_from_last_row_survives_noop_refire_and_never_hides_live_state():
+    rows = [{"stage": "youtube-upload", "skipped": True, "reason": "off", "ts": "t", "cost_usd": 0.1,
+             "input_tokens": 1, "duration_s": 2.0}]
+    done = [_ev("youtube_upload", "start", 1), _ev("youtube_upload", "end", 2, duration_s=1, noop=False, outputs={})]
+
+    def state(evs, r=rows):
+        return runs.apply_rows(runs.node_states(evs, ["youtube_upload"], False, "video"), r)["youtube_upload"]
+
+    assert state(done[:1])["state"] == "running"
+    n = state(done)
+    assert n["state"] == "skipped" and n["skip_reason"] == "off"
+    assert n["facts"] == {"skipped": True, "reason": "off", "duration_s": 2.0}
+    assert state(done + [_ev("youtube_upload", "start", 3)])["state"] == "skipped"
+    assert state([])["state"] == "skipped"
+    assert state(done, rows + [{"stage": "youtube-upload", "video_id": "v"}])["state"] == "done"  # last row decides
+
+
+def test_result_is_last_non_noop_and_old_events_read_empty():
+    evs = [_ev("s", "end", 1, duration_s=1, noop=False, outputs={}, result={"a": 1}),
+           _ev("s", "end", 2, duration_s=1, noop=True, outputs={}, result={})]
+    assert runs.node_states(evs, ["s"], False, "video")["s"]["result"] == {"a": 1}
+    old = [_ev("s", "end", 1, duration_s=1, noop=False, outputs={})]
+    assert runs.node_states(old, ["s"], False, "video")["s"]["result"] == {}
+
+
+def test_legacy_run_skipped_from_rows(root):
+    run = runs.load_run(root, "fx-legacy", NODES)
+    assert run["nodes"]["youtube_upload"]["state"] == "skipped"
+    assert run["nodes"]["youtube_upload"]["result"] == {}
+    assert "input_tokens" not in run["nodes"]["writer"]["facts"] and run["nodes"]["writer"]["facts"]
+
+
+def test_output_inside_run_dir_owns_the_file_over_its_dir(tmp_path):
+    rd = tmp_path / "r" / "langgraph"
+    (rd / "wordpress-draft").mkdir(parents=True)
+    img = rd / "wordpress-draft" / "featured.jpg"
+    img.write_bytes(b"x")
+    (rd / "wordpress-draft" / "post.md").write_text("p")
+    (rd / "events.jsonl").write_text(json.dumps(
+        _ev("extract_image", "end", 1, duration_s=1, noop=False, outputs={"featured_image_path": str(img)})) + "\n")
+    assert {a["name"]: a["node"] for a in artifacts.list_artifacts(rd)} == {
+        "featured.jpg": "extract_image", "post.md": "wordpress_draft"}

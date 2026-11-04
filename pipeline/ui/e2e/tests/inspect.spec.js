@@ -67,28 +67,159 @@ test('every artifact kind renders in the drawer', async ({ page }) => {
   await expect(art(page, 'broken.json').getByTestId('artifact-body')).toHaveText('{not json');
   await expect(art(page, 'blog_post.md')).toHaveAttribute('data-kind', 'markdown');
 
-  await page.getByTestId('node-youtube_upload').click();
-  await expect(drawer(page)).toHaveAttribute('data-node', 'youtube_upload');
+  await pick(page, 'youtube_upload');
   await expect(art(page, 'metadata.json')).toHaveAttribute('data-state', 'ready');
   const json = await art(page, 'metadata.json').getByTestId('artifact-body').textContent();
   expect(json).toContain('\n  ');
 
-  await pick(page, 'wordpress_draft');
+  await pick(page, 'extract_image');
   const img = art(page, 'featured.png').getByTestId('artifact-body');
   await expect(img).toHaveJSProperty('complete', true);
   expect(await img.evaluate((el) => el.naturalWidth)).toBeGreaterThan(0);
+
+  await pick(page, 'wordpress_draft');
   await expect(art(page, 'frames.bin').getByTestId('artifact-body')).toHaveAttribute('download', 'frames.bin');
+  await expect(art(page, 'featured.png')).toHaveCount(0);
 
   await pick(page, 'summarizer');
   await expect(art(page, 'telegram.txt').getByTestId('artifact-body')).toHaveText(/\S/);
   await expect(art(page, 'audit_report.md')).toHaveAttribute('data-state', 'ready');
 
-  await drawer(page).getByTestId('drawer-close').click();
-  await page.getByTestId('node-transcribe').press('Enter'); // a skipped node's hollow disc takes no clicks
-  await expect(drawer(page)).toHaveAttribute('data-node', 'transcribe');
+  await pick(page, 'transcribe');
   await expect(drawer(page)).toHaveAttribute('data-state', 'skipped');
   await expect(drawer(page).getByTestId('drawer-duration')).toHaveText('–');
   await expect(drawer(page).getByTestId('artifact-list')).toBeEmpty();
+  await expect(drawer(page).getByTestId('drawer-nothing')).toBeVisible();
+  await pick(page, 'writer');
+  await expect(drawer(page).getByTestId('drawer-nothing')).toBeHidden();
+});
+
+const AMBER = 'rgb(232, 207, 79)'; // --skipped
+
+const withResult = (page, node, result) => page.route('**/api/runs/fx-done', async (route) => {
+  const res = await route.fetch();
+  const body = await res.json();
+  body.nodes[node].result = result;
+  await route.fulfill({ response: res, json: body });
+});
+
+test('facts and findings show for every node with data; skipped is amber with its reason', async ({ page }) => {
+  await openNode(page, 'fx-done', 'youtube_upload');
+  const panel = drawer(page);
+  await expect(panel).toHaveAttribute('data-state', 'skipped');
+  await expect(panel.getByTestId('fact-reason').locator('dd')).toHaveText('off');
+  await expect(panel.getByTestId('fact-youtube_skip_reason').locator('dd')).toHaveText('off');
+  await expect(panel.getByTestId('fact-stage')).toHaveCount(0);
+  await expect(panel.locator('.state-cue')).toHaveCSS('color', AMBER);
+  await expect(page.getByTestId('node-wordpress_draft').locator('.disc')).toHaveCSS('stroke', AMBER); // unselected
+
+  await pick(page, 'bv_research');
+  await expect(panel.getByTestId('finding')).toHaveText(['research rows logged']);
+  await expect(panel.getByTestId('finding')).toHaveAttribute('data-level', 'ok');
+  await expect(panel.getByTestId('fact-branch_verdict_research').locator('dd')).toHaveText('PASS');
+  await expect(panel.getByTestId('drawer-nothing')).toBeHidden();
+
+  await pick(page, 'notion_research');
+  await expect(panel.getByTestId('fact-page_ids').locator('dd')).toHaveText('["fx-res-1","fx-res-2"]');
+});
+
+test('every finding level maps to its icon, an unparseable item shows raw', async ({ page }) => {
+  await withResult(page, 'pre_validator', { pre_findings: [
+    '{"name": "good", "ok": true, "severity": "core", "detail": "why"}',
+    '{"name": "bad core", "ok": false, "severity": "core"}',
+    '{"name": "bad secondary", "ok": false, "severity": "secondary"}',
+    '{"name": "verdict fail", "verdict": "FAIL"}',
+    '{"name": "odd", "severity": "other"}',
+    '{"name": "bare"}',
+    '{"name": "cut off',
+  ] });
+  await openNode(page, 'fx-done', 'pre_validator');
+  const items = drawer(page).getByTestId('finding');
+  await expect(items).toHaveCount(7);
+  const levels = await items.evaluateAll((els) => els.map((e) => [e.dataset.level, e.querySelector('svg').dataset.icon]));
+  expect(levels).toEqual([['ok', 'tick'], ['core', 'cross'], ['secondary', 'warn'], ['FAIL', 'cross'], ['other', 'dot'],
+    ['unknown', 'dot'], ['unknown', 'dot']]);
+  await expect(items.nth(0)).toHaveAttribute('title', 'why');
+  await expect(items.nth(6)).toHaveText('{"name": "cut off');
+});
+
+test('drawer default width, drag and keyboard resize persist across reloads', async ({ page }) => {
+  await page.setViewportSize({ width: 1600, height: 800 });
+  await openNode(page, 'fx-done', 'writer');
+  const width = async () => (await drawer(page).boundingBox()).width;
+  expect(await width()).toBeCloseTo(0.38 * 1600, 0);
+  const handle = drawer(page).getByTestId('drawer-resize');
+  await handle.focus();
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  expect(await width()).toBeCloseTo(0.38 * 1600 - 40, 0);
+  await page.reload();
+  await page.getByTestId('node-writer').click();
+  expect(await width()).toBeCloseTo(0.38 * 1600 - 40, 0);
+  // After the reload: coverage keeps only the last load of a script.
+  const box = await handle.boundingBox();
+  await page.mouse.move(box.x + 4, 400);
+  await page.mouse.down();
+  await page.mouse.move(900, 400);
+  await page.mouse.up();
+  expect(await width()).toBe(700);
+  await handle.focus();
+  await page.keyboard.press('x');
+  expect(await width()).toBe(700);
+  expect(await page.evaluate(() => localStorage.getItem('pfw.drawer.width'))).toBe('700');
+});
+
+test('blocked localStorage leaves the default width and resizing still works', async ({ page }) => {
+  await page.addInitScript(() => {
+    const blocked = () => { throw new Error('blocked'); };
+    Storage.prototype.getItem = blocked;
+    Storage.prototype.setItem = blocked;
+  });
+  await page.setViewportSize({ width: 1600, height: 800 });
+  await openNode(page, 'fx-done', 'writer');
+  const handle = drawer(page).getByTestId('drawer-resize');
+  await handle.focus();
+  await page.keyboard.press('ArrowLeft');
+  expect((await drawer(page).boundingBox()).width).toBeCloseTo(0.38 * 1600 + 40, 0);
+});
+
+test('long text wraps without horizontal scroll; only tables and code scroll in their box', async ({ page }) => {
+  const long = 'x'.repeat(2000);
+  plant('fx-done', 'painforwisdom-writer', 'wide.md',
+    `${long}\n\n\`\`\`\n${long}\n\`\`\`\n\n| ${long} | b |\n|---|---|\n| 1 | 2 |\n`);
+  await openNode(page, 'fx-done', 'writer');
+  await expect(art(page, 'wide.md')).toHaveAttribute('data-state', 'ready');
+  const body = drawer(page).getByTestId('drawer-body');
+  expect(await body.evaluate((n) => n.scrollWidth <= n.clientWidth)).toBe(true);
+  const pre = art(page, 'wide.md').locator('pre');
+  expect(await pre.evaluate((n) => n.scrollWidth > n.clientWidth)).toBe(true);
+});
+
+const render = (page, src) => page.evaluate(async (s) => (await import('/static/js/markdown.js')).renderMarkdown(s), src);
+
+test('renderMarkdown block and inline forms', async ({ page }) => {
+  await page.goto('/');
+  const cases = [
+    ['', ''],
+    ['# H1\n###### H6', '<h1>H1</h1><h6>H6</h6>'],
+    ['one\ntwo\n\nthree', '<p>one\ntwo</p><p>three</p>'],
+    ['para\n# head', '<p>para</p><h1>head</h1>'],
+    ['**b** *i* _u_ `c*d*` snake_case_name 2 * 3 * 4', '<p><strong>b</strong> <em>i</em> <em>u</em> <code>c*d*</code> snake_case_name 2 * 3 * 4</p>'],
+    ['**[l](https://e.org/a_b_c)**', '<p><strong><a href="https://e.org/a_b_c" target="_blank" rel="noopener">l</a></strong></p>'],
+    ['[bad](javascript:alert(1)) [ok](http://e.org)', '<p>bad) <a href="http://e.org" target="_blank" rel="noopener">ok</a></p>'],
+    ['```py\na < b\n\n# no\n```\nafter', '<pre><code>a &lt; b\n\n# no</code></pre><p>after</p>'],
+    ['~~~\nopen', '<pre><code>open</code></pre>'],
+    ['---\n* * *\n___', '<hr><hr><hr>'],
+    ['> q\n> # h\n\nout', '<blockquote><p>q</p><h1>h</h1></blockquote><p>out</p>'],
+    ['- a\n  - b\n  - c\n    1. d\n- e\n1. f', '<ul><li>a<ul><li>b</li><li>c</li></ul><ol><li>d</li></ol></li><li>e</li></ul><ol><li>f</li></ol>'],
+    ['  - lead\n\t- tab', '<ul><li>lead<ul><li>tab</li></ul></li></ul>'],
+    ['| a | **b** |\n|---|:-:|\n| 1 | 2 |\n| 3 |\nend', '<div class="table-wrap"><table><thead><tr><th>a</th><th><strong>b</strong></th></tr></thead><tbody><tr><td>1</td><td>2</td></tr><tr><td>3</td><td></td></tr></tbody></table></div><p>end</p>'],
+    ['a|b\nplain', '<p>a|b\nplain</p>'],
+    ['a|b\n---', '<p>a|b</p><hr>'],
+    ['<b>x</b> & "y"', '<p>&lt;b&gt;x&lt;/b&gt; &amp; &quot;y&quot;</p>'],
+  ];
+  for (const [src, html] of cases) expect(await render(page, src), src).toBe(html);
 });
 
 test('an XSS payload in an artifact is shown as text', async ({ page }) => {
@@ -262,7 +393,7 @@ test.describe('inspect shots', () => {
 
   test('shot drawer image, json and other', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    await openNode(page, 'fx-done', 'wordpress_draft');
+    await openNode(page, 'fx-done', 'extract_image');
     await expect(art(page, 'featured.png').getByTestId('artifact-body')).toHaveJSProperty('complete', true);
     await shoot(page, 'drawer-image');
     await pick(page, 'youtube_upload');
@@ -293,6 +424,25 @@ test.describe('inspect shots', () => {
     await page.getByTestId('result-open').click();
     await expect(result(page).getByTestId('research-card')).toHaveCount(2);
     await shoot(page, 'result-hostile-urls');
+  });
+
+  test('shot drawer facts, findings, skipped, nothing and rich markdown', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    plant('fx-done', 'painforwisdom-writer', 'rich.md',
+      '# Heading\n\nSome **bold**, *italic*, `code` and [link](https://example.org).\n\n> A quote\n\n- one\n  - nested\n- two\n\n1. first\n2. second\n\n---\n\n```\ncode block\n```\n\n| col a | col b |\n|---|---|\n| 1 | 2 |\n');
+    await openNode(page, 'fx-done', 'bv_youtube');
+    await expect(drawer(page).getByTestId('finding')).toHaveCount(1);
+    await shoot(page, 'drawer-findings');
+    await pick(page, 'youtube_upload');
+    await expect(art(page, 'metadata.json')).toHaveAttribute('data-state', 'ready');
+    await shoot(page, 'drawer-skipped');
+    await pick(page, 'transcribe');
+    await expect(drawer(page).getByTestId('drawer-nothing')).toBeVisible();
+    await shoot(page, 'drawer-nothing');
+    await pick(page, 'writer');
+    await expect(art(page, 'rich.md')).toHaveAttribute('data-state', 'ready');
+    await art(page, 'rich.md').scrollIntoViewIfNeeded();
+    await shoot(page, 'drawer-rich-markdown');
   });
 
   test('shot drawer phone width', async ({ page }) => {

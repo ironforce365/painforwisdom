@@ -48,7 +48,21 @@ _LLM = {"extract": (2200, 440, 0.012), "kb_curator": (7400, 900, 0.11), "writer"
         "research": (51000, 3300, 0.4)}
 _EXTRA = {"notion_blog": {"page_id": "fx-blog-1", "page_url": "https://www.notion.so/fx-blog-1"},
           "notion_research": {"rows_in": 2, "created": 2, "failed": 0, "page_ids": ["fx-res-1", "fx-res-2"]},
+          "youtube_upload": {"skipped": True, "reason": "off"}, "wordpress_draft": {"skipped": True, "reason": "off"},
           "summarizer": {"verdict": "PASS"}}
+
+
+def _audit(prefix: str, suffix: str = "") -> dict:
+    check = json.dumps({"name": "fake check", "ok": True, "detail": "", "severity": "core"})
+    return {f"{prefix}_findings{suffix}": [check], f"{prefix}_verdict{suffix}": "PASS"}
+
+
+# C1 end.result (spec 2026-11-03-console-operability §1.2).
+_RESULTS = {"pre_validator": _audit("pre"), "bv_research": _audit("branch", "_research"),
+            "bv_wordpress": _audit("branch", "_wordpress"), "bv_youtube": _audit("branch", "_youtube"),
+            "youtube_upload": {"youtube_skipped": True, "youtube_skip_reason": "off"},
+            "wordpress_draft": {"wordpress_skipped": True, "wordpress_skip_reason": "off"},
+            "writer": {"blog_post_title": "Fake post"}, "summarizer": {"validator_verdict": "PASS"}}
 
 
 class FakeRun:
@@ -121,7 +135,8 @@ class FakeRun:
         duration = round(time.time() - t0, 3)
         outputs = self._outputs(node)
         self._metric(node, duration)
-        self.event(node, "end", duration_s=duration, noop=False, outputs=outputs)
+        self.event(node, "end", duration_s=duration, noop=False, outputs=outputs,
+                   result=_RESULTS.get(node, {}))
 
 
 def topology(kind: str) -> dict[str, set[str]]:

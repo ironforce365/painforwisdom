@@ -216,7 +216,9 @@ def test_fake_runner_hitl_in_process(tmp_path):
     assert kb == [("start", 1), ("paused", 1), ("start", 2), ("end", 2)]
     assert ev[0]["node"] == "transcribe"
     run = runs.load_run(tmp_path / "p", "h1", sorted(NODES_TRANSCRIPT | {"transcribe"}))
-    assert {n["state"] for n in run["nodes"].values()} == {"done"}
+    assert {k: n["state"] for k, n in run["nodes"].items() if n["state"] != "done"} == {
+        "youtube_upload": "skipped", "wordpress_draft": "skipped"}
+    assert run["nodes"]["bv_research"]["result"]["branch_verdict_research"] == "PASS"
 
 
 def test_fake_runner_fail_in_process(tmp_path):
@@ -252,7 +254,9 @@ def test_fake_runner_spawned_to_completion(processed):
     assert detail["status"] == "done", (rd / "stdout.log").read_text()
     assert detail["verdict"] == "PASS" and detail["input"]["kind"] == "transcript"
     assert detail["nodes"]["transcribe"]["state"] == "skipped"
-    assert all(detail["nodes"][n]["state"] == "done" for n in NODES_TRANSCRIPT)
+    off = {"youtube_upload", "wordpress_draft"}
+    assert all(detail["nodes"][n]["state"] == "skipped" for n in off)
+    assert all(detail["nodes"][n]["state"] == "done" for n in NODES_TRANSCRIPT - off)
     tel = detail["telemetry"]
     assert set(tel["per_node"]) >= {"extract", "kb_curator", "writer", "research", "summarizer"}
     assert tel["tokens"]["input"] > 0 and tel["cost_usd"] > 0

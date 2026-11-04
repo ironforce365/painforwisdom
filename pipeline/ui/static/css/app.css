@@ -11,6 +11,7 @@
   --done: #3ecf8e;
   --error: #ff5d5d;
   --crash: #b07cff;
+  --skipped: #e8cf4f;
   --r: 24px;
   color-scheme: dark;
 }
@@ -173,8 +174,9 @@ body {
 .node[data-state="error"] { --c: var(--error); }
 .node[data-state="error"] .disc { fill: color-mix(in srgb, var(--error) 18%, var(--surface-2)); }
 .node[data-state="error"] > * { animation: shake .45s ease-in-out 1; }
-.node[data-state="skipped"] .disc { fill: none; stroke-dasharray: 3 4; }
-.node[data-state="skipped"] { opacity: .6; }
+/* pointer-events: a hollow disc would otherwise take no clicks; skipped nodes now carry data to inspect */
+.node[data-state="skipped"] { --c: var(--skipped); }
+.node[data-state="skipped"] .disc { fill: none; stroke-dasharray: 3 4; pointer-events: all; }
 
 .cue { display: none; }
 .cue circle { fill: var(--c); stroke: var(--bg); stroke-width: 2; }
@@ -185,10 +187,10 @@ body {
 .node[data-state="done"] .cue-done,
 .node[data-state="error"] .cue-error,
 .node[data-state="skipped"] .cue-skipped { display: inline; }
-.node[data-state="pending"] .cue circle,
-.node[data-state="skipped"] .cue circle { fill: var(--surface-2); stroke: var(--muted); }
-.node[data-state="pending"] .cue .icon,
-.node[data-state="skipped"] .cue .icon { color: var(--muted); }
+.node[data-state="pending"] .cue circle { fill: var(--surface-2); stroke: var(--muted); }
+.node[data-state="pending"] .cue .icon { color: var(--muted); }
+.node[data-state="skipped"] .cue circle { fill: var(--surface-2); stroke: var(--skipped); }
+.node[data-state="skipped"] .cue .icon { color: var(--skipped); }
 
 @keyframes flow { to { stroke-dashoffset: -12; } }
 @keyframes pulse { 0% { transform: scale(.9); opacity: 1; } 100% { transform: scale(1.35); opacity: 0; } }

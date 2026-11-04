@@ -269,7 +269,7 @@ systemctl --user start        painforwisdom-daily-brief.service
 
 ## 9. Pipeline console
 
-Local web UI to start runs, watch the DAG live, inspect each step's artifacts and open the final Notion result.
+Local web UI to start runs, watch the DAG live, inspect each step's facts, findings and artifacts (skipped steps are amber) and open the final Notion result.
 Design: `docs/superpowers/specs/2026-10-31-pipeline-console-ui.md`.
 
 ```bash

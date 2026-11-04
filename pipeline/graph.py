@@ -48,7 +48,7 @@ import subprocess
 import threading
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 import httpx
 from langgraph.checkpoint.sqlite import SqliteSaver
@@ -128,10 +128,31 @@ def _error_text(exc: BaseException) -> str:
     return f"{type(exc).__name__}: {exc}"[:500]
 
 
+RESULT_STR_CAP = 300
+RESULT_LIST_CAP = 50
+RESULT_ITEM_CAP = 500
+
+
 def _emit(run_dir: str, row: Dict[str, Any]) -> None:
     line = json.dumps(row) + "\n"
     with _EVENTS_LOCK, open(Path(run_dir) / "events.jsonl", "a") as f:
         f.write(line)
+
+
+def end_result(out: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """C1 `end.result` from a node's state update (spec 2026-11-03-console-operability §1.2, §3.1)."""
+    result: Dict[str, Any] = {}
+    for key, value in (out or {}).items():
+        if key.endswith("_path"):
+            continue
+        if isinstance(value, str):
+            result[key] = value[:RESULT_STR_CAP]
+        elif value is None or isinstance(value, (bool, int, float)):
+            result[key] = value
+        elif "_findings" in key or "_verdict" in key:  # anywhere in the key: validators write branch_findings_<x>
+            items = value if isinstance(value, list) else [value]
+            result[key] = [json.dumps(i, default=str)[:RESULT_ITEM_CAP] for i in items[:RESULT_LIST_CAP]]
+    return result
 
 
 def _instrumented(name: str, fn: Callable[[Any], Dict[str, Any]]) -> Callable[[Any], Dict[str, Any]]:
@@ -157,7 +178,7 @@ def _instrumented(name: str, fn: Callable[[Any], Dict[str, Any]]) -> Callable[[A
         outputs = {k: v for k, v in (out or {}).items() if k.endswith("_path") and isinstance(v, str) and v}
         _emit(run_dir, {
             "ts": time.time(), **base, "event": "end",
-            "duration_s": time.time() - t0, "noop": not out, "outputs": outputs,
+            "duration_s": time.time() - t0, "noop": not out, "outputs": outputs, "result": end_result(out),
         })
         return out
 

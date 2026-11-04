@@ -12,6 +12,7 @@ from pipeline.ui.mapping import node_for_stage
 ACTIVE = {"running", "waiting_hitl", "waiting_reply"}
 FINISHED = {"done", "failed", "crashed"}
 TOKEN_FIELDS = ("input_tokens", "output_tokens", "cache_read_tokens", "cache_creation_tokens")
+NOT_FACTS = {"ts", "stage", "per_call", "cost_usd", "total_cost_usd", *TOKEN_FIELDS}
 
 
 def read_jsonl(path: Path) -> list[dict]:
@@ -61,7 +62,8 @@ def run_dir(root: Path, run_id: str) -> Optional[Path]:
 
 
 def _blank_node() -> dict[str, Any]:
-    return {"state": "pending", "started_at": None, "ended_at": None, "duration_s": None, "attempts": 0, "error": None}
+    return {"state": "pending", "started_at": None, "ended_at": None, "duration_s": None, "attempts": 0, "error": None,
+            "result": {}, "facts": {}, "skip_reason": None}
 
 
 def node_states(events: Iterable[dict], node_ids: list[str], finished: bool, input_kind: Optional[str]) -> dict:
@@ -85,6 +87,7 @@ def node_states(events: Iterable[dict], node_ids: list[str], finished: bool, inp
                 n["duration_s"], n["ended_at"] = ev.get("duration_s"), ts
             if not noop:
                 real_end.add(node)
+                n["result"] = ev.get("result") or {}
             n["state"], n["error"] = "done", None
         elif kind == "error":
             n["state"], n["error"], n["ended_at"] = "error", ev.get("error"), ts
@@ -92,6 +95,19 @@ def node_states(events: Iterable[dict], node_ids: list[str], finished: bool, inp
             n["state"] = "paused"
     if finished and input_kind == "transcript" and nodes.get("transcribe", {}).get("state") == "pending":
         nodes["transcribe"]["state"] = "skipped"
+    return nodes
+
+
+def apply_rows(nodes: dict, rows: Iterable[dict]) -> dict:
+    """C3 `facts`, `skip_reason` and the `skipped` state from each node's last C4 row (spec 2026-11-03 §3.2)."""
+    last = {node_for_stage(str(row.get("stage", ""))): row for row in rows}
+    for node, n in nodes.items():
+        row = last.get(node, {})
+        n["facts"] = {k: v for k, v in row.items() if k not in NOT_FACTS}
+        if row.get("skipped") is True:
+            n["skip_reason"] = row.get("reason")
+            if n["state"] in {"done", "pending"}:  # running, paused and error are live news; the row is not
+                n["state"] = "skipped"
     return nodes
 
 
@@ -200,7 +216,7 @@ def load_run(root: Path, run_id: str, node_ids: list[str], now: Optional[float] 
     else:
         nodes = node_states(rec["events"], node_ids, rec["status"] in FINISHED, rec["input"].get("kind"))
     keys = ("run_id", "status", "verdict", "profile", "input", "started_at", "ended_at", "hitl_wait_s", "error")
-    return {**{k: rec[k] for k in keys}, "nodes": nodes,
+    return {**{k: rec[k] for k in keys}, "nodes": apply_rows(nodes, rec["rows"]),
             "telemetry": telemetry(rec["rows"], rec["total_s"], rec["hitl_wait_s"])}
 
 
