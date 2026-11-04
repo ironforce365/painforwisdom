@@ -1,0 +1,18 @@
+# Install: pipeline/scripts/install-pipeline-units.sh (renders the paths; do not copy by hand).
+# Code from the tag-pinned live checkout; state (.env, inbox/, vault) from the dev folder.
+[Unit]
+Description=Painforwisdom pipeline console
+
+[Service]
+WorkingDirectory=@LIVE_DIR@
+Environment=PAINFORWISDOM_STATE_ROOT=@STATE_ROOT@
+# Every spawned run inherits this. Conda env first; ffmpeg in /usr/bin, claude and nlm in ~/.local/bin.
+Environment=PATH=@PYTHON_DIR@:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=@PYTHON@ -m pipeline.ui --profile prod
+Restart=always
+RestartSec=5
+# Runs are detached inside this cgroup; control-group would kill them on restart (docs/superpowers/specs/2026-11-03-console-operability.md section 2.1).
+KillMode=process
+
+[Install]
+WantedBy=default.target

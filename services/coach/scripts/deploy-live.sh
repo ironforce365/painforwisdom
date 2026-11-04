@@ -7,6 +7,8 @@
 #   Usage: deploy-live.sh <vX.Y.Z>
 #
 # Steps:
+#   0. Refuse while a pipeline run is active in PFW_PROCESSED_ROOT (default
+#      COACH_LIVE_DIR/processed). Override with DEPLOY_IGNORE_ACTIVE_RUN=1.
 #   1. Fetch + checkout the tag (detached) in COACH_LIVE_DIR.
 #   2. G4 gate: the tag must be reachable from a release/* branch — this
 #      blocks deploying a tag that bypassed the release line. Override with
@@ -14,6 +16,8 @@
 #   3. docker compose build + up -d (project "coach") from
 #      COACH_LIVE_DIR/services/coach with --env-file .env.coach.
 #   4. Wait for the agent /health to return 200.
+#   5. Install the pipeline units from the new tag, restart the console, wait
+#      for its /api/graph to return 200.
 #
 # Durable state — the vault RAG index, mem0 postgres, user memories (docker
 # volumes), the host allowlist (COACH_ACCESS_HOST_PATH) and the vault bind
@@ -28,10 +32,45 @@ REMOTE="${COACH_DEPLOY_REMOTE:-origin}"
 PROJECT="${COACH_COMPOSE_PROJECT:-coach}"
 HEALTH_URL="${COACH_HEALTH_URL:-http://127.0.0.1:8800/health}"
 RELEASE_PREFIX="${COACH_RELEASE_PREFIX:-origin/release/}"
+PROCESSED_ROOT="${PFW_PROCESSED_ROOT:-$LIVE_DIR/processed}"
+CONSOLE_UNIT=painforwisdom-console.service
+CONSOLE_URL="http://127.0.0.1:8820/api/graph"
 
 # G1: strict semver tag.
 [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "G1 FAIL: bad tag '$TAG' (want vX.Y.Z)"; exit 1; }
 [ -d "$LIVE_DIR/.git" ] || { echo "FAIL: COACH_LIVE_DIR is not a git checkout: $LIVE_DIR"; exit 1; }
+
+# Prints the run_id of the first run.json with an active status and a live pid
+# (same rule as pipeline/ui/runs.py; contract C2).
+active_pipeline_run() {
+  python3 - "$PROCESSED_ROOT" <<'PY'
+import glob, json, os, sys
+
+for path in sorted(glob.glob(os.path.join(sys.argv[1], "*", "langgraph", "run.json"))):
+    try:
+        with open(path) as f:
+            rec = json.load(f)
+        pid = rec["pid"]
+        if rec["status"] not in ("running", "waiting_hitl", "waiting_reply") or not isinstance(pid, int) or pid <= 0:
+            continue
+        os.kill(pid, 0)
+    except PermissionError:
+        pass
+    except (OSError, OverflowError, ValueError, KeyError, TypeError):
+        continue
+    print(path.split(os.sep)[-3])
+    break
+PY
+}
+
+# Agent prompts are read from disk at node time: a checkout mid-run would mix versions.
+if [ "${DEPLOY_IGNORE_ACTIVE_RUN:-0}" != "1" ]; then
+  ACTIVE_RUN="$(active_pipeline_run)"
+  if [ -n "$ACTIVE_RUN" ]; then
+    echo "pipeline run $ACTIVE_RUN active; retry after it ends"
+    exit 1
+  fi
+fi
 
 echo "==> fetch $REMOTE tags in $LIVE_DIR"
 git -C "$LIVE_DIR" fetch --tags --prune "$REMOTE"
@@ -72,6 +111,28 @@ for i in $(seq 1 45); do
   if [ "$i" = 45 ]; then echo "FAIL: health timeout at $HEALTH_URL"; exit 1; fi
   sleep 2
 done
+
+echo "==> install pipeline units from $TAG"
+PFW_LIVE_DIR="$LIVE_DIR" bash "$LIVE_DIR/pipeline/scripts/install-pipeline-units.sh" --no-restart
+echo "==> restart $CONSOLE_UNIT"
+systemctl --user restart "$CONSOLE_UNIT"
+
+echo "==> wait for console ($CONSOLE_URL)"
+CONSOLE_UP=0
+SECONDS=0
+for _ in $(seq 1 30); do
+  if curl -fsS -m 2 "$CONSOLE_URL" >/dev/null 2>&1; then
+    CONSOLE_UP=1
+    echo "console up after ${SECONDS}s"
+    break
+  fi
+  if [ "$SECONDS" -ge 30 ]; then break; fi
+  sleep 1
+done
+if [ "$CONSOLE_UP" != 1 ]; then
+  echo "FAIL: console timeout at $CONSOLE_URL (journalctl --user -u $CONSOLE_UNIT -n 50)"
+  exit 1
+fi
 
 echo "==> deployed $TAG to project '$PROJECT' from $LIVE_DIR"
 dc ps

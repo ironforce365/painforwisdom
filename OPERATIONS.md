@@ -288,6 +288,29 @@ python -m pipeline.ui --profile sandbox --inbox /path/to/inbox
 - HITL approvals still go through Telegram. The popup's auto-approve toggle passes `--auto-approve` instead.
 - One active run at a time (a second launch returns 409 and shows the live run).
 
+### Prod console service
+
+Prod runs as `painforwisdom-console.service` (systemd `--user`, `--profile prod`, code from `~/workspace/painforwisdom-live`, state from the dev folder). Runs and their history live in the live checkout's `processed/`.
+
+Every ship deploys it: `services/coach/scripts/deploy-live.sh`, after the coach health check, runs `pipeline/scripts/install-pipeline-units.sh --no-restart` from the new tag, restarts the service and waits up to 30 s for `GET http://127.0.0.1:8820/api/graph` to return 200. A timeout fails the deploy, with the coach already up on the tag.
+
+Deploys refuse with `pipeline run <run_id> active; retry after it ends` while a run in `<live>/processed/` is active with a live pid, because agent prompts are read from disk at node time. Retry `deploy-live.sh <tag>` after it ends. `DEPLOY_IGNORE_ACTIVE_RUN=1` overrides. A restart alone never kills a run (`KillMode=process`).
+
+**Before the first install, stop the hand-started console.** It holds port 8820, so the service could not bind and the deploy's health check would pass against the old process. Its runs are detached, so killing the server does not kill them:
+
+```bash
+pgrep -af 'pipeline\.ui'    # find the hand-started server's pid
+kill <pid>
+```
+
+```bash
+systemctl --user status painforwisdom-console.service --no-pager
+journalctl --user -u painforwisdom-console.service -n 200 --no-pager
+pipeline/scripts/install-pipeline-units.sh --dry-run   # print the plan and rendered unit, touch nothing
+```
+
+The installer takes `--dry-run`, `--unit-dir <dir>` (writes there, skips systemctl) and `--no-restart`, plus the path overrides `PFW_LIVE_DIR`, `PFW_STATE_ROOT`, `PFW_PYTHON`. A rollback to a tag older than this unit keeps the installed unit; if that tag lacks the installer or `pipeline/ui`, the console step fails, with the coach already up on that tag.
+
 Tests (from `pipeline/ui/e2e/`):
 
 ```bash
