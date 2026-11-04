@@ -288,6 +288,7 @@ python -m pipeline.ui --profile sandbox --inbox /path/to/inbox
 - Prod is never the default: `--profile prod` (or `PIPELINE_UI_PROFILE=prod`) must be chosen explicitly; it reads `.env`.
 - HITL approvals still go through Telegram. The popup's auto-approve toggle passes `--auto-approve` instead.
 - One active run at a time (a second launch returns 409 and shows the live run).
+- Debug panel (DAG corner, collapsible): live tokens, calls in flight, cost and times for the run; click a node to scope it to that node, click again or use the chip to return.
 
 ### Prod console service
 
