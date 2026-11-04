@@ -12,6 +12,7 @@ import sys
 import tempfile
 import threading
 import time
+import uuid
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from pathlib import Path
 from typing import Optional, Sequence
@@ -20,6 +21,7 @@ from pipeline.ui.launcher import input_kind
 from pipeline.ui.mapping import NODE_TO_STAGE
 
 HITL_STEPS = 3
+LLM_CALLS = 2
 FAIL_NODE = "research"
 _PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")
@@ -102,10 +104,27 @@ class FakeRun:
         row.update(_EXTRA.get(node, {}))
         self._append("runs.jsonl", row)
 
+    def _work(self, node: str) -> None:
+        """One step of node time. An _LLM node spends it on C8 start/end pairs, so live numbers grow."""
+        if node not in _LLM:
+            time.sleep(self.step_s)
+            return
+        inp, out, cost = _LLM[node]
+        base = {"node": node, "attempt": self.attempts[node], "model": "fake-model"}
+        for _ in range(LLM_CALLS):
+            call_id = uuid.uuid4().hex
+            self._append("usage.jsonl", {"ts": time.time(), "event": "start", "call_id": call_id, **base})
+            time.sleep(self.step_s / LLM_CALLS)
+            self._append("usage.jsonl", {
+                "ts": time.time(), "event": "end", "call_id": call_id, **base,
+                "input_tokens": inp // LLM_CALLS, "output_tokens": out // LLM_CALLS,
+                "cache_read_tokens": inp // 2 // LLM_CALLS, "cache_creation_tokens": inp // 4 // LLM_CALLS,
+                "cost_usd": cost / LLM_CALLS, "call_s": self.step_s / LLM_CALLS})
+
     def run_node(self, node: str) -> None:
         t0 = time.time()
         self.event(node, "start")
-        time.sleep(self.step_s)
+        self._work(node)
         if node == "kb_curator" and self.scenario == "hitl":
             self.event(node, "paused")
             self.save(status="waiting_hitl")
@@ -113,7 +132,7 @@ class FakeRun:
             time.sleep(HITL_STEPS * self.step_s)
             self.save(status="running", hitl_wait_s=round(time.time() - t_wait, 3))
             self.event(node, "start")  # interrupt() re-runs the node from its top
-            time.sleep(self.step_s)
+            self._work(node)
         if node == FAIL_NODE and self.scenario == "fail":
             msg = f"RuntimeError: fake failure at {node}"
             self.event(node, "error", error=msg)
