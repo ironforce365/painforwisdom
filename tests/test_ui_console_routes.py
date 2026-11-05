@@ -174,7 +174,7 @@ def test_list_adds_cost_tokens_failed_node_attention(client, processed):  # [DT-
     assert [a["kind"] for a in items["fx-done"]["attention"]] == ["publish"]
     assert items["fx-unpackaged"]["attention"] == []
     assert items["fx-unpackaged"]["cost_estimated"] is True and items["fx-unpackaged"]["cost_usd"] > 0
-    assert items["fx-unpackaged"]["tokens"] == 3000 + 800 + 1000 + 1000 + 8000 + 2000 + 4000 + 500 + 300
+    assert items["fx-unpackaged"]["tokens"] == 3000 + 800 + 8000 + 2000 + 500 + 300
     assert items["fx-done"]["cost_estimated"] is False and items["fx-done"]["failed_node"] is None
 
 

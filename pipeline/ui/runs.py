@@ -364,10 +364,15 @@ _FAILURE_HINT = {"failed": "Retry from the last checkpoint, or restart from scra
                  "stopped": "Retry from the last checkpoint, or restart from scratch."}
 
 
+def tokens_total(tokens: dict) -> int:
+    """input is litellm's prompt_tokens, which already holds both cache counts (pipeline/llm.py)."""
+    return tokens["input"] + tokens["output"]
+
+
 def failure(rec: dict, pending: Optional[dict]) -> Optional[dict]:
     status = rec["status"]
     node, node_error = _failed_node(rec["events"])
-    if status == "waiting_reply" and pending is None:
+    if status in {"waiting_reply", "waiting_hitl"} and pending is None:
         return {"node": node, "error": rec["error"] or node_error or _E6,
                 "hint": "Answer on Telegram, or stop it and retry from the last checkpoint." if rec["error"] or node_error
                 else "Answer on Telegram, or stop it."}
@@ -440,7 +445,7 @@ def list_runs(root: Path, now: Optional[float] = None) -> list[dict]:
             "started_at": rec["started_at"], "ended_at": rec["ended_at"],
             "input": {"kind": rec["input"].get("kind"), "name": Path(path).name if path else None},
             "total_s": rec["total_s"], "cost_usd": tele["cost_usd"], "cost_estimated": tele["cost_estimated"],
-            "tokens": sum(tele["tokens"].values()), "failed_node": node,
+            "tokens": tokens_total(tele["tokens"]), "failed_node": node,
             "attention": [] if rec["dismissed"] else needs_decision(rec, rd, pending, node),
         })
     out.sort(key=lambda r: (r["started_at"] or 0.0, r["run_id"]), reverse=True)

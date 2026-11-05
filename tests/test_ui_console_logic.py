@@ -65,6 +65,20 @@ def test_failure_of_a_node_that_later_succeeded_is_not_reported():  # [DT-E1] [D
     assert got["node"] == "b" and "died" in got["error"]
 
 
+def test_old_release_approval_wait_explains_itself():  # [DT-E6]
+    got = runs.failure(_rec("waiting_hitl"), None)
+    assert "Telegram" in got["error"] and "stop" in got["hint"].lower()
+
+
+def test_approval_wait_with_a_pending_request_is_no_failure():  # [DT-A1]
+    assert runs.failure(_rec("waiting_hitl"), {"id": "x"}) is None
+
+
+def test_token_total_does_not_count_cache_twice():  # [DT-D6]
+    # input_tokens is litellm's prompt_tokens, which already holds both cache counts.
+    assert runs.tokens_total({"input": 1000, "output": 50, "cache_read": 300, "cache_creation": 200}) == 1050
+
+
 def test_failure_stopped_has_text_without_any_error():  # [DT-F3]
     assert runs.failure(_rec("stopped"), None)["error"] and runs.failure(_rec("stopped"), None)["node"] is None
 
@@ -72,7 +86,6 @@ def test_failure_stopped_has_text_without_any_error():  # [DT-F3]
 def test_failure_only_for_ended_not_ok_and_old_waits():  # [DT-E6] [DT-D1]
     assert runs.failure(_rec("done"), None) is None
     assert runs.failure(_rec("running"), None) is None
-    assert runs.failure(_rec("waiting_hitl"), None) is None
     assert runs.failure(_rec("waiting_reply"), {"id": "x"}) is None
     old = runs.failure(_rec("waiting_reply"), None)
     assert "older release" in old["error"] and "stop" in old["hint"]

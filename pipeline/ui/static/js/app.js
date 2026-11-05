@@ -8,12 +8,13 @@ import * as drawer from './drawer.js';
 import * as telemetry from './telemetry.js';
 import * as debug from './debug.js';
 import * as operability from './operability.js';
+import * as views from './views.js';
 
 const POLL_MS = 1000;
 const $ = (id) => document.getElementById(id);
 
 // The C7 event set; any other name throws.
-const EVENTS = ['run:selected', 'run:updated', 'node:selected', 'graph:loaded', 'ui:error'];
+const EVENTS = ['run:selected', 'run:updated', 'node:selected', 'graph:loaded', 'ui:error', 'view:changed'];
 const listeners = new Map(EVENTS.map((e) => [e, []]));
 const bus = {
   on: (event, fn) => listeners.get(event).push(fn),
@@ -74,7 +75,7 @@ bus.on('run:selected', (id) => {
   state.runId = id;
   state.run = null;
   clearError('ui');
-  history.replaceState(null, '', `#/runs/${encodeURIComponent(id)}`);
+  history.replaceState(null, '', views.routeFor(id, state.view));
   clearTimeout(timer);
   graphReady.then(() => poll(id));
 });
@@ -82,6 +83,7 @@ bus.on('run:selected', (id) => {
 const hash = /^#\/runs\/([^/]+)/.exec(location.hash); // operability owns the /output suffix
 state.runId = hash && decodeURIComponent(hash[1]);
 
+views.mount($('viewtabs'), ctx);
 dag.mount($('dag'), ctx);
 launch.mount($('launch'), ctx);
 drawer.mount($('drawer'), ctx);
