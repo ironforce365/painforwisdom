@@ -1,4 +1,4 @@
-"""install-pipeline-units.sh and deploy-live.sh in a tmp tree with git, docker, curl, systemctl and sleep stubbed."""
+"""install-pipeline-units.sh and both deploy-live.sh scripts in a tmp tree with git, docker, curl, systemctl and sleep stubbed."""
 from __future__ import annotations
 
 import json
@@ -13,9 +13,10 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 INSTALLER = REPO / "pipeline/scripts/install-pipeline-units.sh"
 DEPLOY = REPO / "services/coach/scripts/deploy-live.sh"
+PIPELINE_DEPLOY = REPO / "pipeline/scripts/deploy-live.sh"
 CONSOLE_UNIT = "painforwisdom-console.service"
 STUBS = {
-    "git": 'case "$*" in *"branch -r"*) echo "  origin/release/1.2.3";; *rev-parse*) echo abc123;; esac\n',
+    "git": 'case "$*" in *"branch -r"*) echo "  origin/release/1.2.3";; *rev-parse*) echo abc123;; *merge-base*) exit "${ANCESTOR_RC:-0}";; esac\n',
     "docker": "",
     "curl": 'case "$*" in *api/graph*) exit "${GRAPH_RC:-0}";; esac\n',
     "systemctl": "",
@@ -64,6 +65,10 @@ class Tree:
 
     def deploy(self, **env: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(["bash", str(DEPLOY), "v1.2.3"], env={**self.env, **env},
+                              capture_output=True, text=True)
+
+    def pipeline_deploy(self, tag: str = "pipeline-v1.2.3", **env: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(["bash", str(PIPELINE_DEPLOY), tag], env={**self.env, **env},
                               capture_output=True, text=True)
 
     def run_json(self, run_id: str, status: str, pid: int, root: Path | None = None) -> None:
@@ -198,19 +203,35 @@ def test_deploy_fails_when_console_never_answers(tree: Tree) -> None:
     assert f"systemctl --user restart {CONSOLE_UNIT}" in tree.calls()
 
 
-def test_deploy_skip_coach_never_touches_docker_or_coach_health(tree: Tree) -> None:
+def test_pipeline_deploy_never_touches_docker_or_coach_health(tree: Tree) -> None:
     (tree.live / "services/coach/.env.coach").unlink()
-    r = tree.deploy(DEPLOY_SKIP_COACH="1")
+    r = tree.pipeline_deploy()
     assert r.returncode == 0, r.stdout + r.stderr
     calls = tree.calls()
     assert not any(c.startswith("docker") or "8800/health" in c for c in calls)
-    assert any("checkout --detach tags/v1.2.3" in c for c in calls)
+    assert any("checkout --detach tags/pipeline-v1.2.3" in c for c in calls)
     assert f"systemctl --user restart {CONSOLE_UNIT}" in calls
     assert "curl -fsS -m 2 http://127.0.0.1:8820/api/graph" in calls
 
 
-def test_deploy_skip_coach_keeps_active_run_refusal(tree: Tree) -> None:
+def test_pipeline_deploy_keeps_active_run_refusal(tree: Tree) -> None:
     tree.run_json("run-1", "running", os.getpid())
-    r = tree.deploy(DEPLOY_SKIP_COACH="1")
+    r = tree.pipeline_deploy()
     assert r.returncode == 1
     assert "pipeline run run-1 active" in r.stdout
+    assert tree.calls() == []
+
+
+def test_pipeline_deploy_refuses_tag_off_main_before_checkout(tree: Tree) -> None:
+    r = tree.pipeline_deploy(ANCESTOR_RC="1")
+    assert r.returncode == 1
+    assert "not reachable from origin/main" in r.stdout
+    assert not any("checkout" in c or "systemctl" in c for c in tree.calls())
+
+
+@pytest.mark.parametrize("tag", ["v1.2.3", "pipeline-1.2.3", "pipeline-v1.2"])
+def test_pipeline_deploy_refuses_other_tag_shapes(tree: Tree, tag: str) -> None:
+    r = tree.pipeline_deploy(tag)
+    assert r.returncode == 1
+    assert "bad tag" in r.stdout
+    assert tree.calls() == []

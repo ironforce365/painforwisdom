@@ -3,7 +3,7 @@
 # augment-research.
 #
 # Units run code from the tag-pinned LIVE checkout (painforwisdom-live, moved by
-# services/coach/scripts/deploy-live.sh) and read/write state under the dev
+# either deploy-live.sh, pipeline or coach) and read/write state under the dev
 # folder via PAINFORWISDOM_STATE_ROOT. Enables and restarts the console. Timers
 # are copied only, never enabled (`systemctl --user enable --now <name>.timer`).
 #
@@ -43,7 +43,7 @@ done
 # (no .env, empty books/), so refuse until a tag carrying it is deployed.
 if ! grep -q PAINFORWISDOM_STATE_ROOT "$LIVE_DIR/pipeline/runtime.py" 2>/dev/null; then
     echo "ERROR: $LIVE_DIR/pipeline/runtime.py lacks PAINFORWISDOM_STATE_ROOT." >&2
-    echo "Ship a tag containing it first (services/coach/scripts/ship-it.sh)." >&2
+    echo "Ship a tag containing it first (pipeline/scripts/shipit.sh)." >&2
     exit 1
 fi
 if [[ ! -f "$STATE_ROOT/.env" ]]; then

@@ -5,6 +5,9 @@ reviewed PR; shipping cuts a release from a commit already on `origin/main`,
 bumps the version on its own release branch (main is never bumped), and deploys
 from origin.
 
+The pipeline has its own release line, `pipeline-vX.Y.Z` tags (`OPERATIONS.md` §9);
+its tags never affect the coach version.
+
 ## Concepts
 
 - **Tag:** `vX.Y.Z`. The next version derives from the latest `v*` tag, not from
