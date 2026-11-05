@@ -77,19 +77,19 @@ os.environ["PIPELINE_PROFILE"] = _PROFILE  # nodes read it through pipeline.publ
 if _PROFILE == "sandbox":
     os.environ["TELEGRAM_MESSAGE_PREFIX"] = "[SANDBOX] "
 
-from langgraph.types import Command  # noqa: E402
-
 from pipeline import hitl  # noqa: E402
 from pipeline.contracts import InputContractError  # noqa: E402
 from pipeline.graph import _error_text, build_graph  # noqa: E402
 from pipeline.run import (  # noqa: E402
     VIDEO_EXTENSIONS,
+    _answer_interrupt,
     _approval_request,
     _classify_non_recoverable,
     _format_error_prompt,
     _get_pending_interrupt,
     _last_failed_node,
     _move_into,
+    _pending_work,
     _refuse_unattended_curator,
     _require_finished,
     _write_run_record,
@@ -143,10 +143,9 @@ def _is_terminal(graph, run_id: str) -> bool:
     Used to skip threads that already completed (would no-op on resume).
     """
     try:
-        snap = graph.get_state({"configurable": {"thread_id": run_id}})
+        return not _pending_work(graph, {"configurable": {"thread_id": run_id}})
     except Exception:  # noqa: BLE001
         return False
-    return not snap.next
 
 
 def _find_run_id_for_video(graph, video_path: Path, root: Path = PROCESSED_ROOT) -> Optional[str]:
@@ -262,7 +261,8 @@ def _resume_graph(
             hitl_wait += time.time() - t_wait
             _update_record(run_dir, status="running", hitl_wait_s=prior_wait + hitl_wait)
         print(f"[retry] resume reply: {reply!r}")
-        pending = Command(resume=reply)  # type: ignore[assignment]
+        _answer_interrupt(graph, config, reply)
+        pending = None
 
 
 # --- One-target retry -------------------------------------------------------
@@ -306,7 +306,7 @@ def _retry_one(
             print(f"[retry] archived stale quarantine video → {source_dir / video.name}")
         return 0 if verdict in {"PASS", "PARTIAL"} else 2
 
-    next_nodes = list(getattr(graph.get_state(config), "next", []) or [])
+    next_nodes = _pending_work(graph, config)
     print(f"[retry] resuming at next={next_nodes or '?'}")
     rc = telegram_send(
         f"🔁 Pipeline retry — run_id `{run_id}`\n"

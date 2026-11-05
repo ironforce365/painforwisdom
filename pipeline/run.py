@@ -81,7 +81,7 @@ if _PROFILE == "sandbox":
     os.environ["TELEGRAM_MESSAGE_PREFIX"] = "[SANDBOX] "
 
 # Heavy imports must come after env load.
-from langgraph.types import Command  # noqa: E402
+from langgraph._internal._constants import RESUME  # noqa: E402
 
 from pipeline import hitl  # noqa: E402
 from pipeline.contracts import InputContractError  # noqa: E402
@@ -152,6 +152,19 @@ def _get_pending_interrupt(graph, config) -> Optional[Dict[str, Any]]:
         for intr in task.interrupts:
             return intr.value if hasattr(intr, "value") else intr
     return None
+
+
+def _answer_interrupt(graph, config, reply: str) -> None:
+    """Store the answer on the interrupted task: the next invoke(None) replays the node and its interrupt() returns it.
+
+    Not Command(resume=reply): that stays in the checkpoint as a thread-wide value, and a later invoke(None) hands it
+    to the next interrupt() nobody answered. Here a failure keeps the answer, and a new question still gets asked.
+    """
+    snap = graph.get_state(config)
+    task = next(t for t in snap.tasks if t.interrupts)
+    writes = graph.checkpointer.get_tuple(snap.config).pending_writes
+    answered = next((v for tid, channel, v in writes if tid == task.id and channel == RESUME), [])
+    graph.checkpointer.put_writes(snap.config, [(RESUME, [*answered, reply])], task.id)
 
 
 def _pending_work(graph, config) -> List[str]:
@@ -367,7 +380,8 @@ def _drive_graph(
             hitl_wait += time.time() - t_wait
             _write_run_record(run_dir, status="running", hitl_wait_s=hitl_wait)
         print(f"[run] resume reply: {reply!r}")
-        pending = Command(resume=reply)  # type: ignore[assignment]
+        _answer_interrupt(graph, config, reply)
+        pending = None
 
 
 def _process_one_video(

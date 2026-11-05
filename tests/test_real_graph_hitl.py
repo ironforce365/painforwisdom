@@ -219,3 +219,104 @@ def test_a_retry_that_stops_with_pending_work_is_never_recorded_done(rig, monkey
     monkeypatch.setattr(retry, "_get_pending_interrupt", lambda graph, config: None)
     assert rig.retry() == 2
     assert rig.record()["status"] == "failed" and "kb_curator" in rig.record()["error"]
+
+
+# --- defect: retry saw `next == ()` on a task holding an error, and called the run terminal --------------------
+
+
+def test_retry_after_an_answered_approval_then_a_failure_resumes(rig):  # [DT-F1]
+    """The answered approval's write makes `next` empty while the failed task is still there to run."""
+    boom = {"on": True}
+
+    def llm(replies, n):
+        if not replies:
+            return THEME_A
+        if boom["on"]:
+            return RuntimeError("the LLM fell over")
+        return _proceed("entry-a", "theme-a")
+
+    rig.llm = llm
+    rig.replies = ["yes", "abort"]
+    with pytest.raises(RuntimeError, match="fell over"):
+        rig.start()
+    rec = rig.record()
+    assert rec["status"] == "failed" and "fell over" in rec["error"] and "writer" not in rig.ran
+
+    boom["on"] = False
+    assert rig.retry() == 0
+    assert rig.llm_calls[-1] == ["yes"], "the reply given before the failure is kept"
+    assert "writer" in rig.ran and rig.entries() == ["entry-a"]
+    rec = rig.record()
+    assert rec["status"] == "done" and rec["verdict"] == "PASS" and rec["error"] is None
+
+
+def test_retry_of_a_failed_run_with_no_new_answer_asks_nothing_again(rig):  # [DT-E1]
+    boom = {"on": True}
+
+    def llm(replies, n):
+        if not replies:
+            return THEME_A
+        return RuntimeError("boom") if boom["on"] else _proceed("entry-a", "theme-a")
+
+    rig.llm = llm
+    rig.replies = ["yes", "abort"]
+    with pytest.raises(RuntimeError):
+        rig.start()
+    asked = len(rig.prompts)
+    boom["on"] = False
+    assert rig.retry() == 0
+    assert len(rig.prompts) == asked
+
+
+def test_retry_of_a_run_stopped_at_its_second_question_asks_it_again(rig, monkeypatch):  # [DT-F3]
+    rig.llm = _refine
+    rig.replies = ["call it theme-b"]
+    answered = hitl.ask
+
+    def ask(run_dir, request, interval, max_reminders=None):
+        if "theme-b" in request["prompt"]:
+            raise SystemExit(143)  # what hitl.ask turns a SIGTERM into
+        return answered(run_dir, request, interval, max_reminders)
+
+    monkeypatch.setattr(hitl, "ask", ask)
+    with pytest.raises(SystemExit):
+        rig.start()
+    assert rig.record()["status"] == "failed"
+
+    monkeypatch.setattr(hitl, "ask", answered)
+    rig.replies = ["yes"]
+    assert rig.retry() == 0
+    assert "theme-b" in rig.prompts[-1]["prompt"]
+    assert "writer" in rig.ran and rig.entries() == ["entry-b"]
+    assert rig.record()["status"] == "done"
+
+
+def test_a_kept_answer_does_not_answer_a_new_question(rig):  # [DT-F1]
+    """The answer kept across the failure is for the question it answered: the next one still reaches the user."""
+    boom = {"on": True}
+
+    def llm(replies, n):
+        if not replies:
+            return THEME_A
+        if boom["on"]:
+            return RuntimeError("boom")
+        return THEME_B if replies == ["yes"] else _proceed("entry-b", "theme-b")
+
+    rig.llm = llm
+    rig.replies = ["yes", "abort"]
+    with pytest.raises(RuntimeError):
+        rig.start()
+    boom["on"] = False
+    rig.replies = ["go"]
+    assert rig.retry() == 0
+    assert "theme-b" in rig.prompts[-1]["prompt"]
+    assert rig.llm_calls[-1] == ["yes", "go"]
+    assert rig.entries() == ["entry-b"]
+
+
+def test_retry_of_a_finished_thread_still_says_terminal(rig):  # [DT-D1]
+    assert rig.start() == 0
+    ran = list(rig.ran)
+    assert rig.retry() == 0
+    assert rig.ran == ran
+    assert rig.record()["status"] == "done"

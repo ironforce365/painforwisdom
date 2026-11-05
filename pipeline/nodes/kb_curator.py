@@ -6,7 +6,7 @@ labelled YAML-ish blocks, and this node parses + applies it.
 
 If the plan proposes a new theme or framework, we suspend the graph via
 `interrupt(...)` so the orchestrator (run.py) can prompt Gonzalo via Telegram
-and resume with `Command(resume=<reply>)`. We then re-prompt the LLM with the
+and resume with his reply. We then re-prompt the LLM with the
 approval reply baked in and apply the resulting plan.
 """
 from __future__ import annotations
@@ -533,7 +533,7 @@ def node_kb_curator(state: State) -> Dict[str, Any]:
         proposal_msg = payload["proposal"]
         print(f"[kb-curator] suspending for approval:\n{proposal_msg}")
         # interrupt() suspends the graph; orchestrator handles the human round-trip
-        # and resumes with Command(resume=<reply text>).
+        # and resumes the graph with the reply text.
         reply: Optional[str] = interrupt(payload)
         reply = (reply or "").strip()
         print(f"[kb-curator] resumed with reply: {reply!r}")
