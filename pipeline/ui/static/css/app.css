@@ -217,7 +217,7 @@ body[data-view="output"] #operability { display: block; overflow: hidden auto; }
 .rl-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; font-size: 13px; }
 .rl-state { color: var(--c); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rl-when { flex: none; color: var(--muted); }
-.rl-bot { justify-content: flex-start; overflow: hidden; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rl-bot { justify-content: flex-start; flex-wrap: wrap; row-gap: 0; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .rl-cost { color: var(--text); }
 .rl-tokens:empty { display: none; }
 .rl-needs { display: none; margin-left: auto; color: var(--pause); font-weight: 600; }

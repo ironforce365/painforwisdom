@@ -121,6 +121,7 @@ test('the rows use the width they are given and stay readable at both widths', a
   for (const [width, min] of [[1280, 200], [3440, 300]]) {
     await page.setViewportSize({ width, height: 800 });
     await page.goto('/#/runs/fx-failed');
+    await page.addStyleTag({ content: '.run * { letter-spacing: .12em; }' }); // fonts differ by machine: CI's run wider
     await expect(page.getByTestId('run-fx-failed').getByTestId('rl-cost')).toBeVisible();
     const list = await page.getByTestId('run-list').boundingBox();
     expect(list.width).toBeGreaterThanOrEqual(min);
