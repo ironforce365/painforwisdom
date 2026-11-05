@@ -17,6 +17,9 @@ from pipeline import telegram as _telegram
 
 POLL_S = 1.0
 KILL_WAIT_S = 2.0
+RESPAWN_BACKOFF_S = 5.0
+RESPAWN_BACKOFF_MAX_S = 300.0
+POST_FAILED = 75  # telegram_io.sh `ask`: the question never went out
 
 
 def pending_path(run_dir: Path) -> Path:
@@ -94,6 +97,14 @@ def _post(prompt: str) -> Optional[subprocess.Popen]:
         return None
 
 
+def _listen() -> Optional[subprocess.Popen]:
+    try:
+        return _telegram.wait_process()
+    except (OSError, RuntimeError) as exc:
+        print(f"[hitl] telegram wait unavailable: {exc}")
+        return None
+
+
 def _telegram_answer(child: subprocess.Popen) -> Optional[str]:
     try:
         out, _ = child.communicate(timeout=KILL_WAIT_S)
@@ -147,6 +158,9 @@ def ask(run_dir: Path, request: dict, reminder_interval: float, max_reminders: O
     try:
         posts = 1
         deadline = time.monotonic() + reminder_interval
+        posted = False  # the current reminder reached Telegram, as far as the child's exit code tells
+        backoff = RESPAWN_BACKOFF_S
+        respawn_at: Optional[float] = None
         while True:
             answer = _take_reply(run_dir, pending["id"])
             if answer:
@@ -154,10 +168,18 @@ def ask(run_dir: Path, request: dict, reminder_interval: float, max_reminders: O
                 return answer
             if child is not None and child.poll() is not None:
                 answer = _telegram_answer(child)
-                child = None  # a failed post (no token, no network) waits for the next reminder: no busy loop
+                posted = posted or child.returncode != POST_FAILED
+                returncode, child = child.returncode, None
                 if answer:
                     print("[hitl] answered on telegram")
                     return answer
+                # Without a child nothing hears Telegram. A backoff, as no token or no network kills each one at once.
+                print(f"[hitl] telegram child exited rc={returncode}, next try in {backoff:.0f} s")
+                respawn_at = time.monotonic() + backoff
+                backoff = min(backoff * 2, RESPAWN_BACKOFF_MAX_S)
+            if respawn_at is not None and time.monotonic() >= respawn_at:
+                respawn_at = None
+                child = _listen() if posted else _post(pending["prompt"])
             left = deadline - time.monotonic()
             if left <= 0:
                 _kill(child)
@@ -168,6 +190,7 @@ def ask(run_dir: Path, request: dict, reminder_interval: float, max_reminders: O
                 print(f"[hitl] no answer after {posts} posts, re-posting")
                 posts += 1
                 deadline += reminder_interval
+                posted, backoff, respawn_at = False, RESPAWN_BACKOFF_S, None
                 if telegram:
                     child = _post(pending["prompt"])
                 continue

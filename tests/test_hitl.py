@@ -143,6 +143,88 @@ def test_telegram_failure_does_not_stop_the_console_wait(tmp_path, monkeypatch):
     assert out["reply"] == "retry"
 
 
+def _modes(tmp_path: Path) -> list[str]:
+    log = tmp_path / "modes"
+    return log.read_text().split() if log.exists() else []
+
+
+def _modal(tmp_path: Path, monkeypatch, body: str, backoff: float = 0.05, backoff_max: float = 0.05) -> None:
+    """A stub that logs how it was called."""
+    _stub(tmp_path, monkeypatch, f"echo \"$1\" >> {tmp_path}/modes\n{body}")
+    monkeypatch.setattr(hitl, "RESPAWN_BACKOFF_S", backoff)
+    monkeypatch.setattr(hitl, "RESPAWN_BACKOFF_MAX_S", backoff_max)
+
+
+def test_a_dead_poller_comes_back_without_posting_again_and_hears_the_reply(tmp_path, monkeypatch):  # [DT-A4]
+    _modal(tmp_path, monkeypatch, 'if [ "$1" = ask ]; then exit 28; fi\necho " yes "')
+    assert hitl.ask(tmp_path, REQ, reminder_interval=30, poll_s=0.01) == "yes"
+    assert _modes(tmp_path) == ["ask", "wait_reply"]
+
+
+def test_a_failed_post_is_posted_again_after_the_backoff(tmp_path, monkeypatch):  # [DT-A4]
+    """Exit 75: the prompt never went out, so a wait alone would leave the user unaware until the next reminder."""
+    _modal(tmp_path, monkeypatch, f'n=$(wc -l < {tmp_path}/modes)\nif [ "$n" -lt 3 ]; then exit 75; fi\necho yes')
+    assert hitl.ask(tmp_path, REQ, reminder_interval=30, poll_s=0.01) == "yes"
+    assert _modes(tmp_path) == ["ask", "ask", "ask"]
+
+
+def test_after_a_failed_post_succeeds_a_death_only_waits(tmp_path, monkeypatch):  # [DT-A4]
+    _modal(tmp_path, monkeypatch, f'n=$(wc -l < {tmp_path}/modes)\nif [ "$n" = 1 ]; then exit 75; fi\n'
+                                  f'if [ "$n" = 2 ]; then exit 28; fi\necho yes')
+    assert hitl.ask(tmp_path, REQ, reminder_interval=30, poll_s=0.01) == "yes"
+    assert _modes(tmp_path) == ["ask", "ask", "wait_reply"]
+
+
+def test_a_child_that_keeps_dying_backs_off(tmp_path, monkeypatch):  # [DT-A1]
+    """No token: every spawn dies at once. The wait neither spins nor stops answering the console."""
+    _modal(tmp_path, monkeypatch, "exit 1", backoff=0.1, backoff_max=0.4)
+    out = _ask_async(tmp_path, reminder_interval=30)
+    _wait_for(tmp_path / "pending.json")
+    time.sleep(1.2)  # 0.1 + 0.2 + 0.4 + 0.4 of backoff fit: 5 spawns at most, and 1200 at the poll rate
+    spawns = len(_modes(tmp_path))
+    assert 3 <= spawns <= 6, spawns
+    assert out["thread"].is_alive()
+    assert hitl.write_reply(tmp_path, json.loads((tmp_path / "pending.json").read_text())["id"], "yes")
+    out["thread"].join(5)
+    assert out["reply"] == "yes"
+
+
+def test_the_reminder_cadence_survives_a_dying_child(tmp_path, monkeypatch):  # [DT-E5]
+    _modal(tmp_path, monkeypatch, "exit 28")
+    assert hitl.ask(tmp_path, REQ, reminder_interval=0.3, max_reminders=3, poll_s=0.01) is None
+    assert len([m for m in _modes(tmp_path) if m == "ask"]) == 3, "one post per reminder, none from the respawns"
+    assert "wait_reply" in _modes(tmp_path)
+
+
+def test_a_reminder_kills_the_respawned_poller(tmp_path, monkeypatch):  # [DT-E5]
+    _modal(tmp_path, monkeypatch, 'if [ "$1" = ask ]; then exit 28; fi\nsleep 60 & wait')
+    assert hitl.ask(tmp_path, REQ, reminder_interval=0.3, max_reminders=2, poll_s=0.01) is None
+    for pid in map(int, (tmp_path / "pids").read_text().split()):
+        end = time.monotonic() + 3
+        while _alive(pid) and time.monotonic() < end:
+            time.sleep(0.01)
+        assert not _alive(pid)
+
+
+def test_console_reply_wins_over_a_respawned_poller(tmp_path, monkeypatch):  # [DT-A1]
+    _modal(tmp_path, monkeypatch, 'if [ "$1" = ask ]; then exit 28; fi\nsleep 60 & wait')
+    out = _ask_async(tmp_path)
+    end = time.monotonic() + 5
+    while "wait_reply" not in _modes(tmp_path):
+        assert time.monotonic() < end
+        time.sleep(0.01)
+    assert hitl.write_reply(tmp_path, json.loads((tmp_path / "pending.json").read_text())["id"], "no")
+    out["thread"].join(5)
+    assert out["reply"] == "no"
+
+
+def test_wait_process_runs_wait_reply_in_its_own_group(tmp_path, monkeypatch):  # [DT-A4]
+    _stub(tmp_path, monkeypatch, 'echo "$1"')
+    proc = telegram.wait_process()
+    out, _ = proc.communicate(timeout=5)
+    assert out.strip() == "wait_reply" and proc.pid != os.getpgrp()
+
+
 def test_missing_telegram_script_does_not_stop_the_console_wait(tmp_path, monkeypatch):  # [DT-A1]
     monkeypatch.setattr(telegram, "TELEGRAM_IO", tmp_path / "nope.sh")
     out = _ask_async(tmp_path)

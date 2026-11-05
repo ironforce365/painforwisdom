@@ -3,6 +3,7 @@
 Two operations exposed:
   - send(text): fire-and-forget notification
   - ask(prompt, timeout): post a question and wait for the next reply
+  - ask_process(prompt), wait_process(): the same wait as a killable child
 
 Both shell out to ./telegram_io.sh; we don't reimplement Telegram API calls.
 """
@@ -93,9 +94,18 @@ def ask(prompt: str, timeout_seconds: int = 1800) -> Optional[str]:
 
 def ask_process(prompt: str) -> subprocess.Popen:
     """`ask` as a killable child in its own process group, which pipeline.hitl races against the console."""
+    return _child("ask", _prefix(prompt))
+
+
+def wait_process() -> subprocess.Popen:
+    """`wait_reply` as such a child: listens for the reply to a question already posted."""
+    return _child("wait_reply")
+
+
+def _child(*argv: str) -> subprocess.Popen:
     _check()
     return subprocess.Popen(
-        [str(TELEGRAM_IO), "ask", _prefix(prompt)],
+        [str(TELEGRAM_IO), *argv],
         cwd=str(PROJECT_ROOT),
         env=os.environ.copy(),
         stdin=subprocess.DEVNULL,
