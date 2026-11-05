@@ -476,6 +476,50 @@ test.describe('reading and editing in place', () => {
     await expect(page.getByTestId('artifact-notice-research_report.csv')).toHaveText('Saved');
   });
 
+  test('[DT-D4] a CRLF file loads clean, follows the disk and keeps its line endings when saved', async ({ page }) => {
+    const csv = langgraph('fx-done', 'painforwisdom-writer', 'crlf.csv');
+    const file = page.getByTestId('file-crlf.csv');
+    fs.writeFileSync(csv, 'a,b\r\n1,2\r\n');
+    await deep(page, 'fx-done');
+    await nav(page, 'files').click();
+    await file.click();
+    await expect(editor(page, 'crlf.csv')).toHaveValue('a,b\n1,2\n');
+    await expect(page.getByTestId('artifact-crlf.csv')).toHaveAttribute('data-dirty', 'false');
+    await expect(file).toHaveAttribute('data-dirty', 'false');
+    await expect(dirty(page, 'files')).toBeHidden();
+    await expect(saveBtn(page, 'crlf.csv')).toBeDisabled();
+
+    // Not dirty, so a change on disk reaches it at the next listing.
+    fs.writeFileSync(csv, 'a,b\r\n30,40\r\n');
+    await page.getByTestId('view-tab-graph').click();
+    const listed = page.waitForResponse((r) => r.url().endsWith('/artifacts'));
+    await page.getByTestId('view-tab-output').click();
+    await listed;
+    await expect(editor(page, 'crlf.csv')).toHaveValue('a,b\n30,40\n');
+
+    // Saved edits go back to disk as CRLF, the unedited lines byte for byte, and read clean again.
+    await editor(page, 'crlf.csv').fill('a,b\n3,5\n');
+    await expect(page.getByTestId('artifact-crlf.csv')).toHaveAttribute('data-dirty', 'true');
+    await saveBtn(page, 'crlf.csv').click();
+    await expect(page.getByTestId('artifact-notice-crlf.csv')).toHaveText('Saved');
+    await expect(page.getByTestId('artifact-crlf.csv')).toHaveAttribute('data-dirty', 'false');
+    expect(fs.readFileSync(csv, 'utf8')).toBe('a,b\r\n3,5\r\n');
+  });
+
+  test('[DT-D4] a file with mixed line endings is not rewritten to CRLF', async ({ page }) => {
+    const csv = langgraph('fx-done', 'painforwisdom-writer', 'mixed.csv');
+    fs.writeFileSync(csv, 'a,b\r\n"two\nlines",2\r\n');
+    await deep(page, 'fx-done');
+    await nav(page, 'files').click();
+    await page.getByTestId('file-mixed.csv').click();
+    await expect(editor(page, 'mixed.csv')).toHaveValue('a,b\n"two\nlines",2\n');
+    await expect(page.getByTestId('artifact-mixed.csv')).toHaveAttribute('data-dirty', 'false');
+    await editor(page, 'mixed.csv').fill('a,b\n"two\nlines",3\n');
+    await saveBtn(page, 'mixed.csv').click();
+    await expect(page.getByTestId('artifact-notice-mixed.csv')).toHaveText('Saved');
+    expect(fs.readFileSync(csv, 'utf8')).toBe('a,b\n"two\nlines",3\n');
+  });
+
   test('[DT-D4] polling never overwrites an edit; switching section keeps it; a clean editor follows the disk', async ({ page }) => {
     const blog = langgraph('fx-done', 'painforwisdom-writer', 'blog_post.md');
     await go(page, 'fx-done', 'blog');

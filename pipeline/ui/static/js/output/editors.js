@@ -3,6 +3,11 @@ import { artifactEl, el, RENDER } from '../drawer.js';
 import { editable, reasonOf } from './model.js';
 import { button } from './ui.js';
 
+/** What a textarea makes of the text: `value` only ever holds LF, so compare against this and not the raw file. */
+const asTextarea = (text) => text.replace(/\r\n?/g, '\n');
+/** Every line ends in CRLF. A mixed file (a CSV with a line break inside a cell) saves as LF rather than growing CRs in its cells. */
+const isCrlf = (text) => /\r\n/.test(text) && !/(^|[^\r])\n/.test(text);
+
 function artifactEditor(first, env) {
   const { id, name, kind } = first;
   const input = el('textarea', { class: 'ed-input', 'data-testid': `artifact-edit-${name}`, 'aria-label': `edit ${name}`, spellcheck: 'false' });
@@ -14,6 +19,7 @@ function artifactEditor(first, env) {
     el('div', { class: 'ed-head' }, el('span', { class: 'ed-name' }, name), notice, error, save),
     el('div', { class: 'ed-panes' }, input, preview));
   let original = '';
+  let crlf = false;
   let bytes = null;
   let busy = false;
 
@@ -28,8 +34,10 @@ function artifactEditor(first, env) {
   const load = () => fetch(env.api.artifactUrl(env.runId, id))
     .then((r) => (r.ok ? r.text() : Promise.reject(new Error(`HTTP ${r.status}`))))
     .then((text) => {
-      if (!dirty()) input.value = text; // typed while this was on its way: the edit wins
-      original = text;
+      const shown = asTextarea(text);
+      if (!dirty()) input.value = shown; // typed while this was on its way: the edit wins
+      original = shown;
+      crlf = isCrlf(text);
       root.dataset.state = 'ready';
       draw();
     }, (e) => {
@@ -49,7 +57,7 @@ function artifactEditor(first, env) {
     notice.textContent = '';
     error.textContent = '';
     paint();
-    env.api.saveArtifact(env.runId, id, text).then((res) => {
+    env.api.saveArtifact(env.runId, id, crlf ? text.replace(/\n/g, '\r\n') : text).then((res) => {
       original = text;
       bytes = res.bytes;
       notice.textContent = 'Saved';
