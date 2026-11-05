@@ -191,7 +191,7 @@ Keep existing testids where the behaviour is unchanged; rewrite specs where this
 |---|---|---|
 | Unit | `tests/unit_*` or `tests/test_*` with no server/subprocess | Pure logic |
 | Integration | `@pytest.mark.integration`: FastAPI `TestClient`, real fake-runner subprocess | Routes, runner, mailbox |
-| Browser (UAT) | `pipeline/ui/e2e/tests/` and `tests/uat/*.spec.js`, one flow per decision-tree branch | Fake runner |
+| Browser (UAT) | `pipeline/ui/e2e/tests/`, with flows in `uat.spec.js`, one flow per decision-tree branch | Fake runner |
 
 CI jobs, each short and independently re-runnable, all PR checks:
 

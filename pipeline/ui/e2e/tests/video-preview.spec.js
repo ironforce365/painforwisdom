@@ -28,5 +28,5 @@ test('[DT-P3] a video the browser decodes shows no notice', async ({ page, error
   errors.allow(/asset\/video/);
   const video = await openVideo(page);
   await loaded(video, 640);
-  await expect(page.getByTestId('asset-undecodable-youtube-video')).toHaveCount(0);
+  await expect(page.getByTestId('asset-undecodable-youtube-video')).toBeHidden();
 });

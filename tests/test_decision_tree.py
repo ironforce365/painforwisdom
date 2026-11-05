@@ -6,7 +6,7 @@ level it requires. Stdlib + pytest only, no server: this file is the `decision t
 Tags count where a test actually runs:
 - unit: on a pytest test (decorators to last line) that is not marked integration;
 - integration: on a pytest test marked integration, by the file's `pytestmark` or by its own decorator or class's;
-- browser: in the title of a `test(...)` under `pipeline/ui/e2e/tests` or `pipeline/ui/e2e/uat`.
+- browser: in the title of a `test(...)` under `pipeline/ui/e2e/tests`, the only folder Playwright runs.
 A skipped test, a comment, a describe title or `real.spec.js` (not in the normal Playwright run) count for nothing.
 """
 from __future__ import annotations
@@ -22,7 +22,7 @@ SPEC = "docs/superpowers/specs/2026-11-05-console-end-to-end.md"
 TREE = "pipeline/ui/e2e/decision_tree.json"
 CI = ".github/workflows/ci.yml"
 THIS_FILE = "tests/test_decision_tree.py"
-BROWSER_ROOTS = ("pipeline/ui/e2e/tests", "pipeline/ui/e2e/uat")
+BROWSER_ROOTS = ("pipeline/ui/e2e/tests",)
 NOT_IN_THE_BROWSER_RUN = {"real.spec.js"}  # testIgnore in playwright.config.js
 LEVELS = ("unit", "integration", "browser")
 
@@ -207,11 +207,11 @@ def test_a_nested_uat_spec_counts(tmp_path):
     assert problems(root) == []
 
 
-def test_the_uat_folder_counts(tmp_path):
+def test_a_spec_playwright_never_runs_does_not_count(tmp_path):
     root = _tree(tmp_path, browser="")
-    (root / BROWSER_ROOTS[1]).mkdir()
-    (root / BROWSER_ROOTS[1] / "flow.spec.js").write_text("test('[DT-A1] flow', async () => {});\n")
-    assert problems(root) == []
+    (root / "pipeline/ui/e2e/uat").mkdir()
+    (root / "pipeline/ui/e2e/uat/flow.spec.js").write_text("test('[DT-A1] flow', async () => {});\n")
+    assert problems(root) != []
 
 
 def test_an_unknown_id_fails(tmp_path):

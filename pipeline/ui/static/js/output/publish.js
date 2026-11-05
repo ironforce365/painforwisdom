@@ -69,9 +69,10 @@ function assetEl(env, target, asset) {
   const figure = el('figure', { class: 'asset', 'data-testid': `asset-${id}`, title: asset.path }, media, el('figcaption', {}, base(asset.path)));
   media.addEventListener('error', () => figure.append(el('small', { class: 'error', 'data-testid': `asset-missing-${id}` }, 'This file cannot be shown here.')), { once: true });
   // HEVC from a phone: audio plays over a black box and no error event fires.
-  media.addEventListener('loadedmetadata', () => {
-    if (media.videoWidth === 0) figure.append(el('small', { class: 'notice', 'data-testid': `asset-undecodable-${id}` }, 'This browser cannot decode this video, so it plays audio only here. The upload sends the original file and is not affected.'));
-  }, { once: true });
+  const notice = el('small', { class: 'notice', 'data-testid': `asset-undecodable-${id}` }, 'This browser cannot decode this video, so it plays audio only here. The upload sends the original file and is not affected.');
+  notice.hidden = true;
+  figure.append(notice);
+  media.addEventListener('loadedmetadata', () => { notice.hidden = media.videoWidth !== 0; });
   return figure;
 }
 
