@@ -320,3 +320,133 @@ def test_retry_of_a_finished_thread_still_says_terminal(rig):  # [DT-D1]
     assert rig.retry() == 0
     assert rig.ran == ran
     assert rig.record()["status"] == "done"
+
+
+# --- defect: interrupt() replays the node from its top, and each replay asked the LLM again ---------------------
+
+
+def test_a_reject_is_honoured_when_the_replayed_plan_would_be_proceed(rig):  # [DT-A2]
+    """Without a memo the replay gets a fresh answer to the empty history, and this one drops the user's `no`."""
+
+    def llm(replies, n):
+        if "no" in replies:
+            return _proceed("entry-existing")
+        return THEME_A if n == 1 else _proceed("entry-new-theme", "theme-a")
+
+    rig.llm = llm
+    rig.replies = ["no"]
+    assert rig.start() == 0
+    assert rig.entries() == ["entry-existing"]
+    assert rig.llm_calls == [[], ["no"]]
+
+
+def test_yes_applies_to_the_proposal_the_user_saw(rig):  # [DT-A1]
+    """The replay must not swap the proposal: a stored `yes` would approve a theme nobody saw."""
+
+    def llm(replies, n):
+        if replies:
+            return _proceed("entry-x", "theme-a" if "theme-a" in rig.llm_prompts[-1] else "theme-b")
+        return THEME_A if n == 1 else THEME_B
+
+    rig.llm_prompts = []
+    real = kb_curator.call_llm
+
+    def spying(model, system, user, max_tokens=0):
+        rig.llm_prompts.append(user)
+        return real(model, system, user, max_tokens=max_tokens)
+
+    kb_curator.call_llm = spying  # the fixture's monkeypatch restores the original at teardown
+    rig.llm = llm
+    rig.replies = ["yes"]
+    assert rig.start() == 0
+    assert "theme-a" in rig.prompts[0]["prompt"]
+    assert "- Proposal:" in rig.llm_prompts[-1] and "theme-a" in rig.llm_prompts[-1]
+    assert "theme-b" not in rig.llm_prompts[-1]
+    assert (rig.vault / "themes" / "theme-a.md").is_file() and not (rig.vault / "themes" / "theme-b.md").exists()
+
+
+def _three_rounds(replies: List[str], n: int) -> Dict[str, Any]:
+    return _proceed("entry-3") if len(replies) >= 3 else [THEME_A, THEME_B, THEME_A][len(replies)]
+
+
+def test_three_rounds_make_exactly_four_llm_calls_and_the_metrics_agree(rig):  # [DT-A3]
+    rig.llm = _three_rounds
+    rig.replies = ["first", "second", "third"]
+    assert rig.start() == 0
+    assert rig.llm_calls == [[], ["first"], ["first", "second"], ["first", "second", "third"]]
+    metric = rig.metric()
+    assert metric["llm_calls"] == 4 and metric["approvals"] == 3
+    assert [c["phase"] for c in metric["per_call"]] == ["initial", "resume_1", "resume_2", "resume_3"]
+    assert metric["total_cost_usd"] == pytest.approx(0.04)
+
+
+def test_a_retry_reuses_the_plans_the_user_answered(rig):  # [DT-F1]
+    boom = {"on": True}
+
+    def llm(replies, n):
+        if len(replies) >= 2 and boom["on"]:
+            return RuntimeError("boom")
+        return _three_rounds(replies + ["pad"], n) if len(replies) >= 2 else [THEME_A, THEME_B][len(replies)]
+
+    rig.llm = llm
+    rig.replies = ["first", "second", "abort"]
+    with pytest.raises(RuntimeError):
+        rig.start()
+    assert rig.llm_calls == [[], ["first"], ["first", "second"]]
+    boom["on"] = False
+    assert rig.retry() == 0
+    assert rig.llm_calls[3:] == [["first", "second"]], "only the plan that failed is asked for again"
+    assert rig.metric()["llm_calls"] == 3
+
+
+def test_a_format_retry_counts_as_two_real_calls(rig):  # [DT-A1]
+    n_calls = {"n": 0}
+    real = kb_curator.call_llm
+
+    def flaky(model, system, user, max_tokens=0):
+        n_calls["n"] += 1
+        if n_calls["n"] == 1:
+            return {**_reply(json.dumps(THEME_A)), "text": "no markers"}
+        return real(model, system, user, max_tokens=max_tokens)
+
+    kb_curator.call_llm = flaky
+    rig.llm = lambda replies, n: _proceed("entry-y") if replies else THEME_A
+    rig.replies = ["yes"]
+    assert rig.start() == 0
+    assert n_calls["n"] == 3 and rig.metric()["llm_calls"] == 3
+
+
+def test_a_plan_that_fails_validation_is_not_kept_for_the_retry(rig):  # [DT-E1]
+    """Nobody answered a PROCEED plan: replaying a broken one would make every retry fail the same way."""
+    good = {"on": False}
+
+    def llm(replies, n):
+        return _proceed("entry-z") if good["on"] else {"action": "PROCEED", "entry_slug": "entry-z"}
+
+    rig.llm = llm
+    rig.replies = ["abort"]
+    with pytest.raises(RuntimeError, match="invalid plan"):
+        rig.start()
+    good["on"] = True
+    assert rig.retry() == 0
+    assert rig.entries() == ["entry-z"] and len(rig.llm_calls) == 2
+    metric = rig.metric()
+    assert metric["llm_calls"] == 2, "both calls happened, the thrown-away plan's too"
+    assert metric["total_cost_usd"] == pytest.approx(0.02)
+
+
+def test_a_plan_with_a_yaml_date_replays_to_the_same_proposal(rig):  # [DT-A5]
+    """YAML reads an unquoted date as a date, JSON stores a string: the proposal, so the memo's key, must not differ."""
+    dated = {**ALREADY, "date": "2026-11-05"}
+    real = kb_curator.call_llm
+
+    def unquoted(model, system, user, max_tokens=0):
+        out = real(model, system, user, max_tokens=max_tokens)
+        out["text"] = out["text"].replace("'2026-11-05'", "2026-11-05")
+        return out
+
+    kb_curator.call_llm = unquoted
+    rig.llm = lambda replies, n: _proceed("entry-d") if replies == ["skip"] else (dated if not replies else ALREADY)
+    rig.replies = ["skip"]
+    assert rig.start() == 0
+    assert rig.llm_calls == [[], ["skip"]]

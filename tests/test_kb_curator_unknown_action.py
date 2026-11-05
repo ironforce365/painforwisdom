@@ -18,7 +18,8 @@ CONFIG = {"configurable": {"thread_id": "t"}}
 
 
 @pytest.fixture
-def curator(monkeypatch):
+def curator(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)  # run_dir "x" holds kb-curator/plans.json
     histories: List[list] = []
     applied: List[dict] = []
     plans: List[Dict[str, Any]] = []
