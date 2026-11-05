@@ -12,6 +12,8 @@ from pipeline.ui import artifacts
 from pipeline.ui.app import create_app, read_version
 from pipeline.ui.settings import Settings
 
+pytestmark = pytest.mark.integration
+
 FIX = Path(__file__).parent / "fixtures" / "ui"
 
 

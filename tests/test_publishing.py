@@ -24,6 +24,8 @@ from pipeline.ui import fake_runner, launcher
 from pipeline.ui.app import create_app
 from pipeline.ui.settings import Settings
 
+pytestmark = pytest.mark.integration
+
 FIX = Path(__file__).parent / "fixtures" / "ui"
 REPO = Path(__file__).resolve().parent.parent
 GOOD = {"title": "T", "body": "B", "excerpt": "", "tags": ["a"], "categories": [], "status": "draft", "youtube_url": ""}

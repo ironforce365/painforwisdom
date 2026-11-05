@@ -12,12 +12,17 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from pipeline.image_extractor import (  # noqa: E402
     ImageExtractionError,
     sample_candidate_timestamps,
 )
+
+
+pytestmark = pytest.mark.integration
 
 
 class SampleTimestampsTest(unittest.TestCase):

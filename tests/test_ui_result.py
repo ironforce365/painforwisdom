@@ -14,6 +14,8 @@ from pipeline.ui import result
 from pipeline.ui.app import create_app
 from pipeline.ui.settings import Settings
 
+pytestmark = pytest.mark.integration
+
 FIX = Path(__file__).parent / "fixtures" / "ui"
 
 

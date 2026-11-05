@@ -4,6 +4,8 @@
   "type": "module",
   "scripts": {
     "test": "playwright test",
+    "test:shard": "PFW_COVERAGE_MERGE=1 playwright test",
+    "coverage:merge": "node merge-coverage.js",
     "test:real": "playwright test -c playwright.real.config.js"
   },
   "devDependencies": {

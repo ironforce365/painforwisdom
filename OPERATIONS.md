@@ -345,7 +345,13 @@ Tests (from `pipeline/ui/e2e/`):
 
 ```bash
 npm ci && npx playwright install chromium
-npm test        # fake runner + fixtures, 100% browser coverage gate; what CI runs
+npm test        # fake runner + fixtures, whole suite, 100% browser coverage gate
+# What CI runs: `console browser (i/4)` shards, then `console coverage gate` merges their raw coverage.
+# Locally, one shard after another (parallel runs in one checkout collide in test-results/):
+rm -rf coverage-shards
+npm run test:shard -- --shard=1/2   # raw coverage to coverage-shards/1-of-2, no gate
+npm run test:shard -- --shard=2/2
+npm run coverage:merge              # needs every shard of the split; throws below 100%
 # Real sandbox runs through the UI (transcript, then video). Minutes per run; never in CI.
 # Needs .env.sandbox at the repo root; resets the sandbox before each run.
 PYTHON=/home/gonzalo/miniconda3/envs/painforwisdom-poc/bin/python \

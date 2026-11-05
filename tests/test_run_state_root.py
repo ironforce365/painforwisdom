@@ -16,6 +16,8 @@ import pytest
 
 os.environ.setdefault("CHECKPOINT_DB_PATH", str(Path(tempfile.mkdtemp()) / "checkpoints.db"))
 
+pytestmark = pytest.mark.integration
+
 REPO = Path(__file__).resolve().parent.parent
 
 
