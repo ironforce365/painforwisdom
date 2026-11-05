@@ -10,7 +10,7 @@ import pytest
 
 from pipeline import publishing_config
 from pipeline.publish import package, specs
-from pipeline.ui import actions, launcher, publish, research, runs
+from pipeline.ui import actions, artifacts, fake_runner, launcher, publish, research, runs
 from pipeline.ui.settings import Settings
 
 FIX = Path(__file__).parent / "fixtures" / "ui"
@@ -263,3 +263,89 @@ def test_dead_publisher_reads_failed(root):  # [DT-P11]
     package.lock_path(rd, "wordpress").write_text("99999999")
     got = publish.overview(_settings(root), rd)["targets"]["wordpress"]
     assert got["status"] == "failed" and got["error"] == publish.PUBLISHER_DIED
+
+
+def test_publish_writes_the_fields_locks_and_spawns_then_lands_with_a_link(root, monkeypatch):  # [DT-P4]
+    spawned: list = []
+    monkeypatch.setattr(launcher, "spawn", lambda argv, log: spawned.append(argv) or os.getpid())
+    rd = root / "fx-done" / "langgraph"
+    fields = {**package.read(rd, "wordpress")["fields"], "title": "Edited"}
+    got = publish.confirm(_settings(root), "fx-done", "wordpress", fields)
+    assert got["status"] == "publishing" and package.read(rd, "wordpress")["fields"]["title"] == "Edited"
+    assert "publish" in spawned[0] and package.lock_pid(rd, "wordpress") == os.getpid()
+    assert fake_runner.fake_publish(rd, "wordpress", 0) == 0
+    done = package.read(rd, "wordpress")
+    assert done["status"] == "published" and done["result"]["url"].startswith("https://")
+    assert not package.lock_path(rd, "wordpress").exists()
+
+
+def test_a_held_lock_refuses_save_publish_and_prepare(root):  # [DT-P9]
+    rd = root / "fx-done" / "langgraph"
+    fields = package.read(rd, "wordpress")["fields"]
+    assert package.acquire_lock(rd, "wordpress", os.getpid())
+    for call in (lambda: publish.save(_settings(root), "fx-done", "wordpress", fields),
+                 lambda: publish.confirm(_settings(root), "fx-done", "wordpress", fields)):
+        with pytest.raises(publish.PublishError) as refused:
+            call()
+        assert refused.value.status == 409 and refused.value.body["detail"] == "publishing"
+    assert package.read(rd, "wordpress")["status"] == "pending"
+
+
+# --- start -------------------------------------------------------------------
+
+
+def test_an_empty_or_missing_inbox_lists_nothing(tmp_path):  # [DT-S1]
+    assert launcher.list_inputs(tmp_path / "missing") == []
+    assert launcher.list_inputs(tmp_path) == []
+
+
+def test_an_input_names_the_runs_that_used_it(root, tmp_path):  # [DT-S3]
+    used = next(r["input"]["name"] for r in runs.list_runs(root) if r["input"]["name"])
+    expected = [r["run_id"] for r in runs.list_runs(root) if r["input"]["name"] == used]
+    (tmp_path / used).write_bytes(b"x")
+    (tmp_path / "never_ran.txt").write_bytes(b"x")
+    got = {i["name"]: i["previous_runs"] for i in launcher.list_inputs(tmp_path, root)}
+    assert got == {used: expected, "never_ran.txt": []}
+
+
+@pytest.mark.parametrize("name", [".hidden.txt", "notes.md", "../x.txt", "a\\b.txt", "noext"])
+def test_a_bad_upload_name_is_refused(tmp_path, name):  # [DT-S5]
+    with pytest.raises(launcher.LaunchError) as refused:
+        launcher.upload_target(tmp_path, name)
+    assert refused.value.status == 400
+
+
+def test_an_upload_never_overwrites_and_leaves_no_part(tmp_path):  # [DT-S5]
+    part, target = tmp_path / ".t.txt.part", tmp_path / "t.txt"
+    part.write_text("new")
+    target.write_text("keep")
+    with pytest.raises(launcher.LaunchError) as refused:
+        launcher.publish_upload(part, target)
+    assert refused.value.status == 409 and target.read_text() == "keep" and not part.exists()
+
+
+# --- ended, ok ---------------------------------------------------------------
+
+
+@pytest.mark.parametrize("verdict", ["PARTIAL", "FAIL"])
+def test_a_bad_verdict_is_no_failure_and_the_output_stays_usable(root, verdict):  # [DT-D2]
+    assert runs.failure({**_rec("done"), "verdict": verdict}, None) is None
+    _set(root, "fx-unpackaged", verdict=verdict)
+    offers = _offer(root, "fx-unpackaged")["actions"]
+    assert "retry" not in offers and "restart" not in offers
+    rd = root / "fx-unpackaged" / "langgraph"
+    assert publish.overview(_settings(root), rd)["prepare"]["wordpress"]["can"] is True
+
+
+def test_saving_a_text_output_replaces_it_whole_and_keeps_its_mode(tmp_path):  # [DT-D4]
+    target = tmp_path / "blog_post.md"
+    target.write_text("old")
+    os.chmod(target, 0o640)
+    artifacts.write_text({"path": target}, "new é".encode())
+    assert target.read_text() == "new é" and target.stat().st_mode & 0o777 == 0o640
+    assert [p.name for p in tmp_path.iterdir()] == ["blog_post.md"]
+
+
+def test_a_package_file_is_not_an_editable_output():  # [DT-D4]
+    assert artifacts.is_package_file({"name": "package.json"}) and artifacts.is_package_file({"name": "publish.lock"})
+    assert not artifacts.is_package_file({"name": "blog_post.md"})

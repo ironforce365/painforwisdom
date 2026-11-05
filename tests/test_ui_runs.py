@@ -111,7 +111,7 @@ def test_last_event_wins_and_never_started_is_pending():
                        "result": {}, "outputs": {}, "facts": {}, "skip_reason": None}
 
 
-def test_error_state_carries_message():
+def test_error_state_carries_message():  # [DT-R2]
     evs = [_ev("a", "start", 1), _ev("a", "error", 2, error="X: y")]
     st = runs.node_states(evs, ["a"], finished=True, input_kind="video")["a"]
     assert st["state"] == "error" and st["error"] == "X: y" and st["ended_at"] == 2
@@ -345,7 +345,7 @@ def test_load_run_unknown_is_none(root, bad):
 
 # ---------- artifacts ----------
 
-def test_fx_done_artifacts_one_of_each_kind(root):
+def test_fx_done_artifacts_one_of_each_kind(root):  # [DT-R2] [DT-D3]
     arts = artifacts.list_artifacts(root / "fx-done" / "langgraph")
     kinds = {a["kind"] for a in arts}
     assert kinds == {"markdown", "csv", "json", "text", "image", "other"}

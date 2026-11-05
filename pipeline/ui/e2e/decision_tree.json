@@ -1,0 +1,434 @@
+{
+  "S1": {
+    "title": "Inbox empty",
+    "user_action": "Upload a file from the launch popup",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "S2": {
+    "title": "Inbox has inputs",
+    "user_action": "Choose an input tile; toggle auto-approve",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "S3": {
+    "title": "Input already ran",
+    "user_action": "Read the tile's warning naming the runs; start anyway",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "S4": {
+    "title": "Another run active",
+    "user_action": "Launch is locked; follow the link to the active run",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "S5": {
+    "title": "Bad upload (name, exists)",
+    "user_action": "Read the error; the other files continue",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "R1": {
+    "title": "Watch a running run",
+    "user_action": "Watch the live graph, metrics and logs",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "R2": {
+    "title": "Inspect any node",
+    "user_action": "Open a node: facts, findings, artifacts, error",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "R3": {
+    "title": "Stop the run",
+    "user_action": "Press stop, confirm in place; status becomes stopped",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "A1": {
+    "title": "Approval: approve",
+    "user_action": "Press Approve",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "A2": {
+    "title": "Approval: reject",
+    "user_action": "Press Reject",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "A3": {
+    "title": "Approval: free-text answer",
+    "user_action": "Type an answer and send; the node re-plans and may ask again",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "A4": {
+    "title": "Approval answered on Telegram",
+    "user_action": "Nothing: the console reflects the answer",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "A5": {
+    "title": "Unknown curator action (ALREADY_PROCESSED)",
+    "user_action": "Answer the question the curator asks instead of a crash",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "E1": {
+    "title": "Node error, recoverable: retry succeeds",
+    "user_action": "Press Retry; the run continues",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "E2": {
+    "title": "Node error, recoverable: retry fails again",
+    "user_action": "Asked again: press Retry or Abort",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "E3": {
+    "title": "Node error, recoverable: abort",
+    "user_action": "Press Abort; the run is failed",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "E4": {
+    "title": "Node error, non-recoverable",
+    "user_action": "Read the reason; only Abort is offered",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "E5": {
+    "title": "No answer before the reminder budget",
+    "user_action": "Nothing: the run ends failed, then the failed branch applies",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "E6": {
+    "title": "Run waits under an old release with no pending.json",
+    "user_action": "Read the reason; stop is offered",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "F1": {
+    "title": "Failed",
+    "user_action": "Read reason and node; retry from checkpoint",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "F2": {
+    "title": "Crashed (dead pid)",
+    "user_action": "Read the reason; retry from checkpoint",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "F3": {
+    "title": "Stopped",
+    "user_action": "Retry from checkpoint",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "F4": {
+    "title": "Any ended-not-ok run",
+    "user_action": "Restart from scratch with the same input",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "F5": {
+    "title": "Input file gone",
+    "user_action": "Restart is refused with the reason",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "F6": {
+    "title": "No checkpoint",
+    "user_action": "Retry is refused with the reason",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "F7": {
+    "title": "Dismiss",
+    "user_action": "Dismiss the run from needs-you",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "D1": {
+    "title": "Verdict PASS",
+    "user_action": "Read the verdict",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "D2": {
+    "title": "Verdict PARTIAL/FAIL",
+    "user_action": "Read the failing checks; the output stays usable",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "D3": {
+    "title": "Read every output in place",
+    "user_action": "Read thumbnail, blog, KB entry, research, audit and artifacts",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "D4": {
+    "title": "Edit a text output in place",
+    "user_action": "Edit blog, KB or any text artifact and save",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "D5": {
+    "title": "Open research",
+    "user_action": "Follow an http link or a local book; a row with no link says so",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "D6": {
+    "title": "Cost per node and run",
+    "user_action": "Read the cost (API-equivalent under subscription)",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "P1": {
+    "title": "Publish mode off",
+    "user_action": "Read the reason; no action",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "P2": {
+    "title": "No package, can prepare",
+    "user_action": "Press prepare (older runs), then P3",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "P3": {
+    "title": "Package pending: edit",
+    "user_action": "Edit fields and save without publishing",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "P4": {
+    "title": "Package pending: publish",
+    "user_action": "Press publish; publishing; published with link",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "P5": {
+    "title": "Publish failed",
+    "user_action": "Read the error, edit, publish again",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "P6": {
+    "title": "Published",
+    "user_action": "Read-only package with its link",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "P7": {
+    "title": "Cannot prepare (no video, no blog post)",
+    "user_action": "Read the reason",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "P8": {
+    "title": "Validation error",
+    "user_action": "Read the per-field error and correct it",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "P9": {
+    "title": "Another publish holds the lock",
+    "user_action": "Read the error",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "P10": {
+    "title": "Auto mode",
+    "user_action": "Read published or failed; no action unless failed",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "P11": {
+    "title": "Publisher died",
+    "user_action": "Package reads failed; publish again",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "N1": {
+    "title": "Needs-you bar",
+    "user_action": "Read every run wanting a decision; one click to it",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "N2": {
+    "title": "Deep links",
+    "user_action": "Open #/runs/<id>/{graph,output,logs}; reload keeps the view",
+    "levels": {
+      "unit": "Hash routing lives entirely in views.js and app.js; there is no Python to unit test.",
+      "integration": "The server never sees the hash fragment; a route test could not reach this branch.",
+      "browser": true
+    }
+  },
+  "N3": {
+    "title": "Output navigation",
+    "user_action": "Section nav, keyboard, no long scroll, full width",
+    "levels": {
+      "unit": "Section nav, keys and layout live entirely in js/output and CSS; there is no Python to unit test.",
+      "integration": "The server is not involved: nav, keys and geometry exist only in the browser.",
+      "browser": true
+    }
+  },
+  "N4": {
+    "title": "Graph navigation",
+    "user_action": "Zoom, pan, fit; the panel never hides the graph",
+    "levels": {
+      "unit": "Zoom, pan, fit and docking live entirely in dag.js, drawer.js and CSS; there is no Python to unit test.",
+      "integration": "The server is not involved: this is pointer input and geometry, which exist only in the browser.",
+      "browser": true
+    }
+  },
+  "N5": {
+    "title": "Backend unreachable",
+    "user_action": "Read the badge",
+    "levels": {
+      "unit": "The badge lives entirely in app.js and api.js; there is no Python to unit test.",
+      "integration": "The premise is that the server does not answer, so a route test has nothing to call.",
+      "browser": true
+    }
+  }
+}

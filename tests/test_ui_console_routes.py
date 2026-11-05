@@ -126,6 +126,15 @@ def test_another_active_run_blocks_retry_and_restart(client, processed):  # [DT-
     assert "fx-running" in run["action_blockers"]["retry"] and "fx-running" in run["action_blockers"]["restart"]
 
 
+def test_inspecting_a_node_gives_its_error_and_its_files(client):  # [DT-R2]
+    node = client.get("/api/runs/fx-failed").json()["nodes"]["research"]
+    assert node["state"] == "error" and "no rows" in node["error"]
+    arts = client.get("/api/runs/fx-done").json()["nodes"]["writer"]
+    assert arts["state"] == "done" and arts["error"] is None and arts["outputs"]
+    listed = client.get("/api/runs/fx-done/artifacts").json()["artifacts"]
+    assert "blog_post.md" in {a["name"] for a in listed if a["node"] == "writer"}
+
+
 def test_partial_verdict_is_not_a_failure(client, processed):  # [DT-D2]
     set_rec(processed, "fx-unpackaged", verdict="PARTIAL")
     run = client.get("/api/runs/fx-unpackaged").json()
@@ -737,7 +746,7 @@ def test_inputs_with_no_runs(tmp_path, processed):  # [DT-S2]
 # --- secrets -----------------------------------------------------------------
 
 
-def test_the_console_server_imports_no_secret_reading_client():  # [DT-P2]
+def test_the_console_server_imports_no_secret_reading_client():
     code = ("import sys, pipeline.ui.app;"
             "from pipeline.ui import actions, publish, research, routes_actions, routes_publish;"
             "bad = {'pipeline.wordpress_client', 'pipeline.notion_client', 'pipeline.youtube_client',"
@@ -749,7 +758,7 @@ def test_the_console_server_imports_no_secret_reading_client():  # [DT-P2]
     assert out.returncode == 0, out.stderr
 
 
-def test_specs_are_stdlib_and_the_nodes_share_them():  # [DT-P8]
+def test_specs_are_stdlib_and_the_nodes_share_them():
     code = ("import sys, pipeline.publish.specs as s;"
             "bad = {'httpx', 'dotenv', 'litellm', 'langgraph'} & set(sys.modules);"
             "sys.exit(str(bad) if bad else 0)")
@@ -762,14 +771,14 @@ def test_specs_are_stdlib_and_the_nodes_share_them():  # [DT-P8]
     assert youtube_metadata.TITLE_MAX == specs.YOUTUBE["title"]["max"]
 
 
-def test_config_path_honours_the_env():  # [DT-P1]
+def test_config_path_honours_the_env():
     code = "from pipeline import publishing_config as c; print(c.CONFIG_PATH)"
     out = subprocess.run([sys.executable, "-c", code], cwd=REPO, capture_output=True, text=True,
                          env={**os.environ, "PIPELINE_PUBLISHING_CONFIG": "/tmp/x.json"})
     assert out.stdout.strip() == "/tmp/x.json"
 
 
-def test_books_root_settings(monkeypatch):  # [DT-D5]
+def test_books_root_settings(monkeypatch):
     from pipeline import runtime
 
     s = Settings.from_env_and_args([], env={})

@@ -301,9 +301,10 @@ def test_fake_runner_spawned_to_completion(processed):
 
 # --- upload ------------------------------------------------------------------
 
-def test_upload_201_lands_in_inbox_and_lists_first(processed, tmp_path):
+def test_upload_201_lands_in_inbox_and_lists_first(processed, tmp_path):  # [DT-S1]
     inbox = tmp_path / "new-inbox"  # missing: created on first upload
     client = _client(processed, inbox=inbox)
+    assert client.get("/api/inputs").json()["inputs"] == []
     res = client.put("/api/inputs/run.MP4", content=b"x" * 2048)
     assert res.status_code == 201
     assert {k: res.json()[k] for k in ("name", "kind", "bytes")} == {"name": "run.MP4", "kind": "video", "bytes": 2048}
@@ -312,7 +313,7 @@ def test_upload_201_lands_in_inbox_and_lists_first(processed, tmp_path):
     assert client.get("/api/inputs").json()["inputs"][0]["name"] == "run.MP4"
 
 
-def test_upload_409_never_overwrites(processed, tmp_path):
+def test_upload_409_never_overwrites(processed, tmp_path):  # [DT-S5]
     inbox = tmp_path / "inbox"
     inbox.mkdir()
     (inbox / "t.txt").write_text("keep")
@@ -332,7 +333,7 @@ def test_publish_upload_race_is_409_and_drops_part(tmp_path):
 
 
 @pytest.mark.parametrize("name", [".hidden.txt", "notes.md", "a\\b.txt", "noext"])
-def test_upload_bad_name_is_400(processed, tmp_path, name):
+def test_upload_bad_name_is_400(processed, tmp_path, name):  # [DT-S5]
     inbox = tmp_path / "inbox"
     res = _client(processed, inbox=inbox).put(f"/api/inputs/{name}", content=b"x")
     assert res.status_code == 400
