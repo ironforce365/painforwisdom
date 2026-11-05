@@ -91,6 +91,7 @@ from pipeline.run import (  # noqa: E402
     _last_failed_node,
     _move_into,
     _refuse_unattended_curator,
+    _require_finished,
     _write_run_record,
 )
 from pipeline.telegram import send as telegram_send  # noqa: E402
@@ -246,6 +247,7 @@ def _resume_graph(
 
         payload = _get_pending_interrupt(graph, config)
         if payload is None:
+            _require_finished(graph, config)
             return last_state, hitl_wait
         rounds += 1
         print(f"[retry] HITL interrupt #{rounds}: {payload.get('kind')}")

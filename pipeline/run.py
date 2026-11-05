@@ -146,13 +146,25 @@ def _format_error_prompt(
 
 
 def _get_pending_interrupt(graph, config) -> Optional[Dict[str, Any]]:
-    snap = graph.get_state(config)
-    if not snap.next:
-        return None
-    for task in snap.tasks:
+    # Not gated on `snap.next`: it leaves out a task that holds writes, and an answered interrupt is one, so a node
+    # that asks a second time has `next == ()` with the interrupt on its task.
+    for task in graph.get_state(config).tasks:
         for intr in task.interrupts:
             return intr.value if hasattr(intr, "value") else intr
     return None
+
+
+def _pending_work(graph, config) -> List[str]:
+    """The nodes still to run. `snap.next` alone misses a task with writes: answered, or failed after an answer."""
+    snap = graph.get_state(config)
+    return sorted({*snap.next, *(task.name for task in snap.tasks)})
+
+
+def _require_finished(graph, config) -> None:
+    """invoke() returned and nothing asks: only a finished graph may be recorded `done`."""
+    left = _pending_work(graph, config)
+    if left:
+        raise RuntimeError(f"the graph stopped with work pending in {', '.join(left)}: the run did not finish")
 
 
 _APPROVAL_TITLES = {
@@ -340,6 +352,7 @@ def _drive_graph(
         # Check for HITL interrupts (kb_curator approval).
         payload = _get_pending_interrupt(graph, config)
         if payload is None:
+            _require_finished(graph, config)
             return last_state, hitl_wait
         rounds += 1
         print(f"[run] HITL interrupt #{rounds}: {payload.get('kind')}")
