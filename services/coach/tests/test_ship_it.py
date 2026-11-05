@@ -98,3 +98,11 @@ def test_dry_run_changes_nothing(tmp_path):
     assert "v0.2.0" in r.stdout
     assert _git(tmp_path / "origin.git", "tag", "-l", "v0.2.0") == ""
     assert not (tmp_path / "deploy.log").exists()
+
+
+def test_pipeline_tags_do_not_move_the_coach_version(tmp_path):
+    repo = _make_repo(tmp_path)
+    _git(repo, "tag", "-a", "pipeline-v9.9.9", "-m", "pipeline")
+    r = _ship(repo)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert (tmp_path / "deploy.log").read_text().strip() == "v0.1.16"

@@ -19,8 +19,7 @@
 #   5. Install the pipeline units from the new tag, restart the console, wait
 #      for its /api/graph to return 200.
 #
-# DEPLOY_SKIP_COACH=1 ships the pipeline only: skips steps 3, 4 and the disk
-# reclaim, leaving the coach containers as they are.
+# Pipeline-only releases use pipeline/scripts/ instead; this script always deploys the coach.
 #
 # Durable state — the vault RAG index, mem0 postgres, user memories (docker
 # volumes), the host allowlist (COACH_ACCESS_HOST_PATH) and the vault bind
@@ -35,45 +34,16 @@ REMOTE="${COACH_DEPLOY_REMOTE:-origin}"
 PROJECT="${COACH_COMPOSE_PROJECT:-coach}"
 HEALTH_URL="${COACH_HEALTH_URL:-http://127.0.0.1:8800/health}"
 RELEASE_PREFIX="${COACH_RELEASE_PREFIX:-origin/release/}"
-PROCESSED_ROOT="${PFW_PROCESSED_ROOT:-$LIVE_DIR/processed}"
-CONSOLE_UNIT=painforwisdom-console.service
-CONSOLE_URL="http://127.0.0.1:8820/api/graph"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=pipeline/scripts/deploy-lib.sh
+. "$SCRIPT_DIR/../../../pipeline/scripts/deploy-lib.sh"
 
 # G1: strict semver tag.
 [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "G1 FAIL: bad tag '$TAG' (want vX.Y.Z)"; exit 1; }
 [ -d "$LIVE_DIR/.git" ] || { echo "FAIL: COACH_LIVE_DIR is not a git checkout: $LIVE_DIR"; exit 1; }
 
-# Prints the run_id of the first run.json with an active status and a live pid
-# (same rule as pipeline/ui/runs.py; contract C2).
-active_pipeline_run() {
-  python3 - "$PROCESSED_ROOT" <<'PY'
-import glob, json, os, sys
-
-for path in sorted(glob.glob(os.path.join(sys.argv[1], "*", "langgraph", "run.json"))):
-    try:
-        with open(path) as f:
-            rec = json.load(f)
-        pid = rec["pid"]
-        if rec["status"] not in ("running", "waiting_hitl", "waiting_reply") or not isinstance(pid, int) or pid <= 0:
-            continue
-        os.kill(pid, 0)
-    except PermissionError:
-        pass
-    except (OSError, OverflowError, ValueError, KeyError, TypeError):
-        continue
-    print(path.split(os.sep)[-3])
-    break
-PY
-}
-
-# Agent prompts are read from disk at node time: a checkout mid-run would mix versions.
-if [ "${DEPLOY_IGNORE_ACTIVE_RUN:-0}" != "1" ]; then
-  ACTIVE_RUN="$(active_pipeline_run)"
-  if [ -n "$ACTIVE_RUN" ]; then
-    echo "pipeline run $ACTIVE_RUN active; retry after it ends"
-    exit 1
-  fi
-fi
+refuse_active_run
 
 echo "==> fetch $REMOTE tags in $LIVE_DIR"
 git -C "$LIVE_DIR" fetch --tags --prune "$REMOTE"
@@ -91,7 +61,6 @@ if [ "${DEPLOY_FORCE_LEGACY:-0}" != "1" ]; then
   fi
 fi
 
-SKIP_COACH="${DEPLOY_SKIP_COACH:-0}"
 COMPOSE_DIR="$LIVE_DIR/services/coach"
 ENV_FILE="$COMPOSE_DIR/.env.coach"
 
@@ -100,51 +69,24 @@ dc() {
     --env-file "$ENV_FILE" -f "$COMPOSE_DIR/docker-compose.yml" "$@"
 }
 
-if [ "$SKIP_COACH" != "1" ]; then
-  [ -f "$ENV_FILE" ] || { echo "FAIL: missing $ENV_FILE (copy it from a configured checkout; it is gitignored)"; exit 1; }
+[ -f "$ENV_FILE" ] || { echo "FAIL: missing $ENV_FILE (copy it from a configured checkout; it is gitignored)"; exit 1; }
 
-  echo "==> build"
-  dc build
-  echo "==> up -d"
-  dc up -d
+echo "==> build"
+dc build
+echo "==> up -d"
+dc up -d
 
-  echo "==> wait for health ($HEALTH_URL)"
-  for i in $(seq 1 45); do
-    if curl -fsS -m 5 "$HEALTH_URL" >/dev/null 2>&1; then
-      echo "healthy after $((i * 2))s"
-      break
-    fi
-    if [ "$i" = 45 ]; then echo "FAIL: health timeout at $HEALTH_URL"; exit 1; fi
-    sleep 2
-  done
-fi
-
-echo "==> install pipeline units from $TAG"
-PFW_LIVE_DIR="$LIVE_DIR" bash "$LIVE_DIR/pipeline/scripts/install-pipeline-units.sh" --no-restart
-echo "==> restart $CONSOLE_UNIT"
-systemctl --user restart "$CONSOLE_UNIT"
-
-echo "==> wait for console ($CONSOLE_URL)"
-CONSOLE_UP=0
-SECONDS=0
-for _ in $(seq 1 30); do
-  if curl -fsS -m 2 "$CONSOLE_URL" >/dev/null 2>&1; then
-    CONSOLE_UP=1
-    echo "console up after ${SECONDS}s"
+echo "==> wait for health ($HEALTH_URL)"
+for i in $(seq 1 45); do
+  if curl -fsS -m 5 "$HEALTH_URL" >/dev/null 2>&1; then
+    echo "healthy after $((i * 2))s"
     break
   fi
-  if [ "$SECONDS" -ge 30 ]; then break; fi
-  sleep 1
+  if [ "$i" = 45 ]; then echo "FAIL: health timeout at $HEALTH_URL"; exit 1; fi
+  sleep 2
 done
-if [ "$CONSOLE_UP" != 1 ]; then
-  echo "FAIL: console timeout at $CONSOLE_URL (journalctl --user -u $CONSOLE_UNIT -n 50)"
-  exit 1
-fi
 
-if [ "$SKIP_COACH" = "1" ]; then
-  echo "==> deployed $TAG (pipeline only, coach untouched) from $LIVE_DIR"
-  exit 0
-fi
+deploy_console "$TAG"
 
 echo "==> deployed $TAG to project '$PROJECT' from $LIVE_DIR"
 dc ps

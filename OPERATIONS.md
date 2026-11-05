@@ -201,7 +201,7 @@ The Telegram message uses the **direct audio CDN URL** (`audio_url` field return
 
 `TELEGRAM_DAILY_SUMMARY_CHAT_ID` in `.env` routes daily-summarizer messages to a dedicated channel (`daily_summary` = `-1003515954802`), so the main `content_pipeline` chat stays focused on per-transcript pipeline progress. If unset, daily messages fall back to `TELEGRAM_CHAT_ID`. The bot must be a member of the channel with post permission before this works.
 
-Unit files: source in `pipeline/systemd/`, installed to `~/.config/systemd/user/` by `pipeline/scripts/install-pipeline-units.sh`. Both units run code from the tag-pinned `~/workspace/painforwisdom-live` (moved by the coach ship, `services/coach/scripts/deploy-live.sh`) with `PAINFORWISDOM_STATE_ROOT` = dev folder, so `.env`, `books/`, `briefs/`, `reports/` and vault reads stay there.
+Unit files: source in `pipeline/systemd/`, installed to `~/.config/systemd/user/` by `pipeline/scripts/install-pipeline-units.sh`. Both units run code from the tag-pinned `~/workspace/painforwisdom-live` (moved by a pipeline or coach ship) with `PAINFORWISDOM_STATE_ROOT` = dev folder, so `.env`, `books/`, `briefs/`, `reports/` and vault reads stay there.
 
 ### Inspect
 
@@ -295,11 +295,11 @@ python -m pipeline.ui --profile sandbox --inbox /path/to/inbox
 
 Prod runs as `painforwisdom-console.service` (systemd `--user`, `--profile prod`, code from `~/workspace/painforwisdom-live`, state from the dev folder). Runs and their history live in the live checkout's `processed/`.
 
-Every ship deploys it: `services/coach/scripts/deploy-live.sh`, after the coach health check, runs `pipeline/scripts/install-pipeline-units.sh --no-restart` from the new tag, restarts the service and waits up to 30 s for `GET http://127.0.0.1:8820/api/graph` to return 200. A timeout fails the deploy, with the coach already up on the tag.
+**Ship the pipeline:** `pipeline/scripts/shipit.sh [patch|minor|major|X.Y.Z] [--base <40-char sha>] [--dry-run]`. Tags `pipeline-vX.Y.Z` on an `origin/main` commit (no release branch, nothing bumped), pushes it, publishes a GitHub release, deploys, notifies Telegram. Never builds, restarts or health-checks the coach. After a failed deploy, rerun `pipeline/scripts/deploy-live.sh <tag>`, not the ship; it refuses a tag not reachable from `origin/main`.
 
-Deploys refuse with `pipeline run <run_id> active; retry after it ends` while a run in `<live>/processed/` is active with a live pid, because agent prompts are read from disk at node time. Retry `deploy-live.sh <tag>` after it ends. `DEPLOY_IGNORE_ACTIVE_RUN=1` overrides. A restart alone never kills a run (`KillMode=process`).
+Both lines deploy the console, because both move the same checkout: `deploy-live.sh` (pipeline, or coach after its health check) runs `pipeline/scripts/install-pipeline-units.sh --no-restart` from the new tag, restarts the service and waits up to 30 s for `GET http://127.0.0.1:8820/api/graph` to return 200. A coach ship therefore also moves pipeline code. A pipeline ship moves the checkout the coach watchdog composes from, while coach images stay as built.
 
-**Pipeline-only ship:** `DEPLOY_SKIP_COACH=1 services/coach/scripts/ship-it.sh [bump] [--base <sha>]`, or `DEPLOY_SKIP_COACH=1 services/coach/scripts/deploy-live.sh <tag>` for an existing tag. Moves the live checkout and redeploys the console; never builds, restarts or health-checks the coach containers.
+Deploys refuse with `pipeline run <run_id> active; retry after it ends` while a run in `<live>/processed/` is active with a live pid, because agent prompts are read from disk at node time. Retry the same `deploy-live.sh <tag>` after it ends. `DEPLOY_IGNORE_ACTIVE_RUN=1` overrides. A restart alone never kills a run (`KillMode=process`).
 
 **Before the first install, stop the hand-started console.** It holds port 8820, so the service could not bind and the deploy's health check would pass against the old process. Its runs are detached, so killing the server does not kill them:
 
