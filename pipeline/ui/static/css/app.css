@@ -50,6 +50,7 @@ body {
 }
 .logo { display: inline-flex; color: var(--run); }
 .logo .icon { width: 26px; height: 26px; }
+.version { color: var(--muted); font-size: 12px; }
 .slot-launch { margin-left: auto; display: flex; align-items: center; }
 .badge-error {
   display: inline-flex;

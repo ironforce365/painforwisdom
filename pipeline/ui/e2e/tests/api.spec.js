@@ -6,6 +6,8 @@ test.afterEach(() => freshServerState());
 test('api.js has one working function per C3 endpoint', async ({ page, errors }) => {
   errors.allow(/status of 404/);
   await page.goto('/#/runs/fx-done');
+  const { version } = await (await page.request.get('/api/version')).json();
+  await expect(page.getByTestId('version')).toHaveText(version);
   const out = await page.evaluate(async () => {
     const api = await import('/static/js/api.js');
     const runs = (await api.listRuns()).runs.length;
