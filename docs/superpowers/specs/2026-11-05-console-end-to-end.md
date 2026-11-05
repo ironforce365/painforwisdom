@@ -20,7 +20,7 @@ Builds on `2026-10-31-pipeline-console-ui.md` and `2026-11-03-console-operabilit
 
 ## 2. Decision tree
 
-Each leaf has an id. `pipeline/ui/e2e/decision_tree.json` is the machine-readable copy. `tests/test_decision_tree.py` fails unless every id is tagged `[DT-x]` in at least one unit test, one integration test and one browser spec (leaves marked `no-unit` or `no-int` in the JSON are exempt from that level, with the reason recorded there).
+Each leaf has an id. `pipeline/ui/e2e/decision_tree.json` is the machine-readable copy. `tests/test_decision_tree.py` fails unless every id is tagged `[DT-x]` in at least one unit test, one integration test and one browser spec (a leaf's `levels.unit` or `levels.integration` in the JSON may hold the reason for an exemption instead of `true`; browser is never exempt).
 
 ```
 START

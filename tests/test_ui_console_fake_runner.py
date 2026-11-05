@@ -20,6 +20,31 @@ from pipeline.ui.settings import Settings
 FIX = Path(__file__).parent / "fixtures" / "ui"
 
 
+def test_topology_builds_the_graph_once_per_version_of_graph_py(tmp_path, monkeypatch):
+    """Importing pipeline.graph costs seconds per fake run; the suite starts hundreds of them."""
+    built: list[str] = []
+    monkeypatch.setattr(fake_runner.tempfile, "tempdir", str(tmp_path))
+    monkeypatch.setattr(fake_runner, "_build_topology", lambda kind: built.append(kind) or {"a": set(), "b": {"a"}})
+    source = tmp_path / "graph.py"
+    source.write_text("one")
+    monkeypatch.setattr(fake_runner, "GRAPH_SOURCE", source)
+    expected = {"a": set(), "b": {"a"}}
+    assert fake_runner.topology("video") == expected and fake_runner.topology("video") == expected
+    assert built == ["video"]
+    assert fake_runner.topology("transcript") == expected and built == ["video", "transcript"]
+    source.write_text("two")
+    assert fake_runner.topology("video") == expected and built == ["video", "transcript", "video"]
+
+
+def test_a_broken_topology_cache_is_rebuilt(tmp_path, monkeypatch):
+    built: list[str] = []
+    monkeypatch.setattr(fake_runner.tempfile, "tempdir", str(tmp_path))
+    monkeypatch.setattr(fake_runner, "_build_topology", lambda kind: built.append(kind) or {"a": set()})
+    assert fake_runner.topology("video") == {"a": set()}
+    next(p for p in tmp_path.iterdir() if "topology" in p.name).write_text("{not json")
+    assert fake_runner.topology("video") == {"a": set()} and built == ["video", "video"]
+
+
 @pytest.fixture(autouse=True)
 def _env(tmp_path, monkeypatch):
     from pipeline import graph
@@ -329,7 +354,7 @@ def test_stop_a_real_fake_run_then_restart(live):  # [DT-R3] [DT-F3] [DT-F4]
 
 
 @pytest.mark.integration
-def test_launch_accepts_the_new_scenarios_and_wait(tmp_path, monkeypatch):  # [DT-E5]
+def test_launch_accepts_the_new_scenarios_and_wait(tmp_path, monkeypatch):
     calls: list = []
     monkeypatch.setattr(launcher, "spawn", lambda argv, log: calls.append(argv) or os.getpid())
     client = TestClient(create_app(Settings(processed_root=tmp_path, inbox=FIX / "inbox", runner="fake")))

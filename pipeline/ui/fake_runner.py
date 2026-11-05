@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
 import json
 import os
 import sys
@@ -34,6 +35,7 @@ FAIL_NODE = "research"
 ASK_FAILURES = {"error": 1, "error_twice": 2, "non_recoverable": 1}  # failures that ask for retry or abort
 NON_RECOVERABLE = "auth credentials rejected after in-call refresh — retry would re-fail"
 POLL_S = 0.05
+GRAPH_SOURCE = Path(__file__).resolve().parents[1] / "graph.py"
 _PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")
 
@@ -221,7 +223,22 @@ class FakeRun:
 
 
 def topology(kind: str) -> dict[str, set[str]]:
-    """node: predecessors, from the real graph. A tmp checkpoint keeps the real checkpoints.db untouched."""
+    """node: predecessors, kept per version of graph.py: importing the graph costs seconds, on each fake run otherwise."""
+    digest = hashlib.sha256(GRAPH_SOURCE.read_bytes()).hexdigest()[:16]
+    cache = Path(tempfile.gettempdir()) / f"pfw-fake-topology-{os.getuid()}-{digest}-{kind}.json"
+    try:
+        return {node: set(preds) for node, preds in json.loads(cache.read_text()).items()}
+    except (OSError, ValueError):
+        pass
+    preds = _build_topology(kind)
+    tmp = cache.with_name(f"{cache.name}.{uuid.uuid4().hex}.tmp")
+    tmp.write_text(json.dumps({node: sorted(p) for node, p in preds.items()}))
+    os.replace(tmp, cache)
+    return preds
+
+
+def _build_topology(kind: str) -> dict[str, set[str]]:
+    """From the real graph. A tmp checkpoint keeps the real checkpoints.db untouched."""
     from pipeline import graph
 
     real_db = graph.CHECKPOINT_DB

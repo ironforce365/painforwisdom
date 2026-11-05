@@ -89,7 +89,7 @@ def test_unknown_run_is_404(client):
     assert client.get("/api/runs/nope/artifacts/abc").status_code == 404
 
 
-def test_artifacts_list_and_fetch(client):
+def test_artifacts_list_and_fetch(client):  # [DT-R2] [DT-D3]
     arts = client.get("/api/runs/fx-done/artifacts").json()["artifacts"]
     assert all(set(a) == {"id", "node", "name", "kind", "bytes"} for a in arts)
     by_kind = {a["kind"]: a for a in arts}

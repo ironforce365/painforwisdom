@@ -83,8 +83,9 @@ test('[DT-R1] numbers grow with the run poll on a fake run, then settle', async 
   await page.goto(`/#/runs/${id}`);
   await expect.poll(() => numberOf(page, 'tokens'), { timeout: 20_000 }).toBeGreaterThan(0);
   const first = await numberOf(page, 'tokens');
-  await expect.poll(() => numberOf(page, 'tokens'), { timeout: 20_000 }).toBeGreaterThan(first);
+  // The approval holds the run: a first reading taken at the pause can only grow once it is answered.
   await answerPending(request, id);
+  await expect.poll(() => numberOf(page, 'tokens'), { timeout: 20_000 }).toBeGreaterThan(first);
   await expect(page.getByTestId(`run-${id}`)).toHaveAttribute('data-status', 'done', { timeout: 30_000 });
   await expect(m(page, 'bar')).toHaveAttribute('data-live', 'false');
   await expect(m(page, 'inflight')).toHaveText('0');

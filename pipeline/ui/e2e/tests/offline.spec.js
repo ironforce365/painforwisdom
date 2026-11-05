@@ -1,6 +1,6 @@
 import { test, expect, freshServerState } from '../fixtures.js';
 
-test('backend unreachable at boot: badge shows, graph and list retry, badge clears on recovery', async ({ page, errors }) => {
+test('[DT-N5] backend unreachable at boot: badge shows, graph and list retry, badge clears on recovery', async ({ page, errors }) => {
   freshServerState();
   errors.allow(/requestfailed: .*\/api\//);
   errors.allow(/ERR_FAILED/);

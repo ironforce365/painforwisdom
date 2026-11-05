@@ -6,12 +6,6 @@ import { test, expect, freshServerState, PROCESSED } from '../fixtures.js';
 
 const JS_OUTPUT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../static/js/output');
 const SECTIONS = ['summary', 'blog', 'youtube', 'wordpress', 'kb', 'research', 'audit', 'files'];
-// The sibling's shell fills the centre column; this stands in for it where a spec needs a real box.
-const SHELL = `
-  body[data-view="output"] .layout { grid-template-rows: minmax(0, 1fr); }
-  body[data-view="output"] .layout > :not(.runs, #operability) { display: none; }
-  body[data-view="output"] #operability { grid-column: 2; grid-row: 1; min-width: 0; min-height: 0; }
-`;
 
 const output = (page) => page.getByTestId('output');
 const nav = (page, name) => page.getByTestId(`output-nav-${name}`);
@@ -52,16 +46,8 @@ const patchRun = (page, run, patch) => page.route(`**/api/runs/${run}`, async (r
 const mockPublish = (page, run, targets, prepare = {}) => page.route(`**/api/runs/${run}/publish`,
   (route) => route.fulfill({ json: { targets, prepare } }));
 
-test.beforeEach(async ({ page, errors }) => {
+test.beforeEach(({ errors }) => {
   freshServerState();
-  // Survives a reload. Without it the old shell's debug strip sits over the panel and takes its clicks.
-  await page.addInitScript((css) => {
-    document.addEventListener('DOMContentLoaded', () => {
-      const style = document.createElement('style');
-      style.textContent = css;
-      document.head.append(style);
-    });
-  }, SHELL);
   // Fixture packages name assets that do not exist; the panel handles that, Chromium still logs it.
   errors.allow(/status of 404.*\/asset\//);
 });
