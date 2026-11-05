@@ -261,6 +261,16 @@ test.describe('running', () => {
   });
 });
 
+test('between nodes the banner names the status alone', async ({ page }) => {
+  await page.route('**/api/runs/fx-modeoff', async (route) => {
+    const res = await route.fetch();
+    await route.fulfill({ response: res, json: { ...(await res.json()), status: 'running', actions: ['stop'], action_blockers: {} } });
+  });
+  await page.goto('/#/runs/fx-modeoff');
+  await expect(page.getByTestId('action-title')).toHaveText('Running');
+  await expect(page.getByTestId('action-stop')).toBeVisible();
+});
+
 test.describe('ended, not ok', () => {
   test('[DT-F1] failed: reason and node shown, retry from checkpoint selects the run', async ({ page }) => {
     await page.goto('/#/runs/fx-failed');
@@ -423,8 +433,10 @@ test.describe('failed API calls show their detail', () => {
       await held;
       await r.fulfill({ status: 409, json: { detail: 'late' } });
     });
+    let releaseOk;
+    const heldOk = new Promise((r) => { releaseOk = r; });
     await page.route('**/api/runs/fx-crashed/retry', async (r) => {
-      await held;
+      await heldOk;
       await r.fulfill({ status: 202, json: { run_id: 'fx-crashed' } });
     });
     await page.goto('/#/runs/fx-stopped');
@@ -437,6 +449,10 @@ test.describe('failed API calls show their detail', () => {
     await page.getByTestId('run-fx-crashed').click();
     await page.getByTestId('action-retry').click();
     await page.getByTestId('run-fx-nocheckpoint').click();
+    await expect(page.getByTestId('failure-node')).toHaveText('extract');
+    const answered = page.waitForResponse('**/api/runs/fx-crashed/retry');
+    releaseOk();
+    await (await answered).finished();
     await page.evaluate(() => fetch('/health'));
     await expect(page).toHaveURL(/fx-nocheckpoint$/);
   });

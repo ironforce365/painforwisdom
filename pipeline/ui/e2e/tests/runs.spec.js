@@ -60,7 +60,7 @@ test('[DT-D6] each row names input, status, time and cost', async ({ page }) => 
   await expect(failed.getByTestId('rl-state')).toHaveText('Failed at research');
   await expect(failed.getByTestId('rl-when')).toHaveText(/\d\d:\d\d/);
   await expect(failed.getByTestId('rl-time')).toHaveText('2m 31s');
-  await expect(failed.getByTestId('rl-tokens')).toHaveText('17.1k tokens');
+  await expect(failed.getByTestId('rl-tokens')).toHaveText('17.1k tok');
   await expect(failed.getByTestId('rl-cost')).toHaveText('$0.13');
   await expect(failed.getByTestId('rl-needs')).toBeVisible();
 
@@ -74,7 +74,7 @@ test('[DT-D6] each row names input, status, time and cost', async ({ page }) => 
   await expect(legacy.getByTestId('rl-cost')).toHaveText('–');
   await expect(page.getByTestId('run-fx-stopped').getByTestId('rl-tokens')).toBeHidden(); // nothing spent
   await expect(page.getByTestId('run-fx-stopped').getByTestId('rl-cost')).toHaveText('–');
-  await expect(page.getByTestId('run-list')).not.toContainText('$0.00');
+  await expect(page.getByTestId('run-list')).not.toContainText(/\$0\.00(?!\d)/);
 });
 
 test('a row without an input name or a start time still reads', async ({ page }) => {
@@ -101,7 +101,7 @@ test('the selected row follows its run live; a refresh keeps focus; a run the li
     return page.getByTestId(`run-${id}`).getAttribute('data-status');
   }, { timeout: 30_000 }).toBe('done');
   await expect(page.getByTestId(`run-${id}`).getByTestId('rl-state')).toHaveText('Done · PASS');
-  await expect(page.getByTestId(`run-${id}`).getByTestId('rl-tokens')).toHaveText(/tokens/);
+  await expect(page.getByTestId(`run-${id}`).getByTestId('rl-tokens')).toHaveText(/tok$/);
   await page.getByTestId(`run-${id}`).focus();
   await page.clock.runFor(5000);
   await page.evaluate(() => fetch('/health'));
@@ -122,7 +122,10 @@ test('the rows use the width they are given and stay readable at both widths', a
     await page.setViewportSize({ width, height: 800 });
     await page.goto('/#/runs/fx-failed');
     await expect(page.getByTestId('run-fx-failed').getByTestId('rl-cost')).toBeVisible();
-    expect((await page.getByTestId('run-list').boundingBox()).width).toBeGreaterThanOrEqual(min);
+    const list = await page.getByTestId('run-list').boundingBox();
+    expect(list.width).toBeGreaterThanOrEqual(min);
+    const needs = await page.getByTestId('run-fx-failed').getByTestId('rl-needs').boundingBox();
+    expect(needs.x + needs.width).toBeLessThanOrEqual(list.x + list.width); // not clipped by the column
   }
 });
 

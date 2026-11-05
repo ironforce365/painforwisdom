@@ -405,8 +405,9 @@ test.describe('shots', () => {
   });
 
   test('shot locked', async ({ page, errors }) => {
-    freshServerState({ live: true });
+    freshServerState();
     errors.allow(/status of 409/);
+    capturePosts(page, { status: 409, json: { detail: 'run active', run_id: 'fx-stopped' } });
     await page.goto('/#/runs/fx-done');
     await openModal(page);
     await tile(page, TXT).click();

@@ -65,7 +65,7 @@ function fillItem(item, run) {
   setText(item, 'rl-state', stateText(run));
   setText(item, 'rl-when', fmtWhen(run.started_at));
   setText(item, 'rl-time', fmtDuration(run.total_s));
-  setText(item, 'rl-tokens', run.tokens ? `${fmtCount(run.tokens)} tokens` : '');
+  setText(item, 'rl-tokens', run.tokens ? `${fmtCount(run.tokens)} tok` : '');
   setText(item, 'rl-cost', fmtCost(run.cost_usd, run.cost_estimated));
   item.querySelector('[data-testid="rl-cost"]').title = costTip(run.cost_usd, run.cost_estimated);
 }

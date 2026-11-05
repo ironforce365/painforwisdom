@@ -199,6 +199,23 @@ test('a poll does not drop a selection in the table', async ({ page }) => {
   expect(await page.evaluate(() => getSelection().toString().length)).toBe(length);
 });
 
+test('millions read as M; a run with no elapsed span divides by nothing', async ({ page }) => {
+  await page.route('**/api/runs/fx-done', async (route) => {
+    const res = await route.fetch();
+    const run = await res.json();
+    run.telemetry.tokens.input = 2_400_000;
+    run.telemetry.total_s = 0;
+    for (const n of Object.values(run.nodes)) Object.assign(n, { started_at: null, ended_at: null });
+    Object.assign(run.nodes.writer, { started_at: run.started_at, ended_at: run.started_at });
+    await route.fulfill({ response: res, json: run });
+  });
+  await page.goto('/#/runs/fx-done');
+  await expect(m(page, 'tokens')).toHaveText(/^2\.4M$/);
+  await m(page, 'toggle').click();
+  await expect(m(page, 'span-writer')).toBeAttached();
+  expect(await m(page, 'span-writer').evaluate((n) => n.style.left)).toBe('0%');
+});
+
 test('hidden until a run is selected', async ({ page }) => {
   await page.route('**/api/runs', (route) => route.fulfill({ json: { runs: [] } }));
   await page.goto('/');
