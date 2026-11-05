@@ -602,6 +602,20 @@ def test_prepare_youtube_from_the_metadata_and_input(client):  # [DT-P2]
     assert pkg["assets"] == [{"role": "video", "path": str(REPO / "tests/fixtures/ui/inbox/PXL_20261030_070000000.mp4")}]
 
 
+def test_prepare_youtube_with_empty_metadata_starts_from_the_blog(client, processed):  # [DT-P2]
+    # Real case: a run from before the metadata node has title "" and description "".
+    meta = processed / "fx-unpackaged" / "langgraph" / "youtube-upload" / "metadata.json"
+    meta.write_text(json.dumps({"title": "", "description": "", "tags": ["painforwisdom"]}))
+    pkg = client.post("/api/runs/fx-unpackaged/publish/youtube/prepare").json()
+    assert pkg["fields"]["title"] == "The road stopped arguing"
+    assert pkg["fields"]["description"].startswith("I ran until the road stopped arguing")
+    assert "blog post" in pkg["readonly"]["warning"]
+
+
+def test_prepare_youtube_with_metadata_has_no_warning(client):  # [DT-P2]
+    assert "warning" not in client.post("/api/runs/fx-unpackaged/publish/youtube/prepare").json()["readonly"]
+
+
 def test_prepare_youtube_uses_the_archive_when_input_moved(client, processed):  # [DT-P2]
     set_rec(processed, "fx-unpackaged", input={"kind": "video", "path": "/nonexistent/a.mp4"})
     source = processed / "fx-unpackaged" / "source"

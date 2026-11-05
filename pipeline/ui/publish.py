@@ -122,16 +122,32 @@ def _wordpress_package(rd: Path, rec: dict, config: dict, source: tuple[str, str
     return package.new_package("wordpress", "manual", fields, specs.WORDPRESS, readonly=readonly, assets=assets)
 
 
+def _blog_summary(rd: Path, body: str) -> str:
+    """The bundle's excerpt, else the post's opening words without its rule and its dated, italic header lines."""
+    excerpt = _read_json(rd / "wordpress-draft" / "meta.json").get("excerpt")
+    if isinstance(excerpt, str) and excerpt:
+        return excerpt
+    lines = [ln for ln in body.splitlines() if ln.strip() != "---" and not re.fullmatch(r"\s*\*[^*]+\*\s*", ln)]
+    return " ".join(" ".join(lines).split()[:_EXCERPT_WORDS])
+
+
 def _youtube_package(rd: Path, config: dict, video: Path) -> dict:
     meta = _read_json(rd / "youtube-upload" / "metadata.json")
+    title, description = meta.get("title"), meta.get("description")
+    readonly: dict[str, Any] = {"duration_s": None}
+    if not meta:
+        readonly["warning"] = "no metadata.json"
+    blog = _blog_source(rd)
+    if blog and not (title and description):  # a run older than the metadata node recorded both empty
+        title, description = title or blog[0], description or _blog_summary(rd, blog[1])
+        readonly["warning"] = "Title or description comes from the blog post: review it before publishing."
     fields = {
-        "title": _capped(meta.get("title"), "title", specs.YOUTUBE),
-        "description": _capped(meta.get("description"), "description", specs.YOUTUBE),
+        "title": _capped(title, "title", specs.YOUTUBE),
+        "description": _capped(description, "description", specs.YOUTUBE),
         "tags": _strs(meta.get("tags")),
         "privacy_status": config["privacy_status"],
         "kind": config["kind"],
     }
-    readonly = {"duration_s": None, **({} if meta else {"warning": "no metadata.json"})}
     return package.new_package("youtube", "manual", fields, specs.YOUTUBE, readonly=readonly,
                                assets=[{"role": "video", "path": str(video)}])
 
