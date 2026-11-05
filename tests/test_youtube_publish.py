@@ -307,6 +307,47 @@ def _package(tmp_path: Path, duration=42.0, **fields) -> dict:
                                assets=[{"role": "video", "path": str(video)}])
 
 
+def test_adapter_measures_a_prepared_package_and_refuses_a_long_short(tmp_path, monkeypatch):  # [DT-P2] [DT-P5]
+    """A prepared package records no duration: the 180 s check must still run, never upload it tagged #Shorts."""
+    uploads = _uploader(monkeypatch)
+    seen = []
+    monkeypatch.setattr(adapter, "get_duration_seconds", lambda path: seen.append(path) or 600.5)
+    pkg = _package(tmp_path, duration=None)
+    with pytest.raises(ValueError, match=r"600\.5 s.*set kind to video"):
+        adapter.publish(tmp_path, pkg)
+    assert not uploads and seen == [Path(pkg["assets"][0]["path"])]
+
+
+def test_adapter_uploads_a_measured_short_tagged(tmp_path, monkeypatch):  # [DT-P4]
+    uploads = _uploader(monkeypatch)
+    monkeypatch.setattr(adapter, "get_duration_seconds", lambda _: 59.0)
+    adapter.publish(tmp_path, _package(tmp_path, duration=None))
+    assert len(uploads) == 1 and uploads[0]["description"].endswith("#Shorts")
+
+
+def test_adapter_unmeasurable_video_uploads_with_a_warning(tmp_path, monkeypatch, capsys):  # [DT-P4]
+    uploads = _uploader(monkeypatch)
+    monkeypatch.setattr(adapter, "get_duration_seconds", lambda _: (_ for _ in ()).throw(OSError("no ffprobe")))
+    adapter.publish(tmp_path, _package(tmp_path, duration=None))
+    assert len(uploads) == 1
+    out = capsys.readouterr().out
+    assert "WARN" in out and "no ffprobe" in out and "180" in out
+
+
+def test_adapter_uses_a_recorded_duration_without_measuring(tmp_path, monkeypatch):  # [DT-P4]
+    uploads = _uploader(monkeypatch)
+    monkeypatch.setattr(adapter, "get_duration_seconds", lambda _: pytest.fail("already known"))
+    adapter.publish(tmp_path, _package(tmp_path, duration=42.0))
+    assert len(uploads) == 1
+
+
+def test_adapter_does_not_measure_for_a_plain_video(tmp_path, monkeypatch):  # [DT-P4]
+    uploads = _uploader(monkeypatch)
+    monkeypatch.setattr(adapter, "get_duration_seconds", lambda _: pytest.fail("no limit to check"))
+    adapter.publish(tmp_path, _package(tmp_path, duration=None, kind="video"))
+    assert len(uploads) == 1
+
+
 def test_adapter_short_appends_shorts_tag_and_returns_the_result(tmp_path, monkeypatch):
     _config(monkeypatch, tmp_path, category_id="27", made_for_kids=True)
     uploads = _uploader(monkeypatch)
