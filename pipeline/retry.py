@@ -251,7 +251,7 @@ def _resume_graph(
         rounds += 1
         print(f"[retry] HITL interrupt #{rounds}: {payload.get('kind')}")
         if args.auto_approve:
-            _refuse_unattended_curator(payload)
+            _refuse_unattended_curator(payload, rounds)
             reply = "yes"
             print("[retry] --auto-approve: bypassing Telegram, resuming with 'yes'")
         else:

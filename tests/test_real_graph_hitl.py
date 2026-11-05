@@ -191,6 +191,20 @@ def test_yes_on_a_re_emitted_unknown_action_asks_again(rig):  # [DT-A5]
     assert rig.record()["verdict"] == "PASS"
 
 
+def test_auto_approve_gives_up_on_endless_proposals(rig):  # [DT-A1]
+    # Each `yes` buys another LLM call: unattended, an endless proposer must fail instead of spending forever.
+    def llm(replies, n):
+        assert n < 30, "still asking the LLM"
+        return THEME_A
+
+    rig.llm = llm
+    with pytest.raises(RuntimeError, match="gave up"):
+        rig.start(auto_approve=True)
+    record = rig.record()
+    assert record["status"] == "failed" and "auto-approve" in record["error"]
+    assert len(rig.llm_calls) <= 11
+
+
 def test_a_second_theme_under_auto_approve_is_answered_too(rig):  # [DT-A1]
     def llm(replies, n):
         return [THEME_A, THEME_B, _proceed("entry-ab", "theme-a", "theme-b")][min(len(replies), 2)]

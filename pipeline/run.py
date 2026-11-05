@@ -200,10 +200,15 @@ def _approval_request(graph, config, payload: Dict[str, Any]) -> Dict[str, Any]:
                                  _format_proposal(payload))
 
 
-def _refuse_unattended_curator(payload: Dict[str, Any]) -> None:
-    """--auto-approve answers `yes` forever: an action only a human can settle would loop on the LLM."""
+MAX_AUTO_APPROVALS = 10
+
+
+def _refuse_unattended_curator(payload: Dict[str, Any], rounds: int = 0) -> None:
+    """--auto-approve answers `yes` forever: an action only a human can settle, or a proposer that never stops, would loop on the LLM."""
     if payload.get("kind") == "curator":
         raise RuntimeError(f"kb-curator needs a decision, --auto-approve cannot give one: {payload.get('proposal', '')}")
+    if rounds > MAX_AUTO_APPROVALS:
+        raise RuntimeError(f"--auto-approve gave up after {MAX_AUTO_APPROVALS} approvals: the node keeps asking")
 
 
 def _last_failed_node(graph, config) -> str:
@@ -370,7 +375,7 @@ def _drive_graph(
         rounds += 1
         print(f"[run] HITL interrupt #{rounds}: {payload.get('kind')}")
         if args.auto_approve:
-            _refuse_unattended_curator(payload)
+            _refuse_unattended_curator(payload, rounds)
             reply = "yes"
             print("[run] --auto-approve: bypassing Telegram, resuming with 'yes'")
         else:
