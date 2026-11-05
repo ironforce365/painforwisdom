@@ -4,6 +4,8 @@ const escapeHtml = (s) => s.replace(/[&<>"']/g, (c) => ESC[c]);
 
 // Only http(s) targets become hrefs: Notion rows and LLM output can carry javascript: and other schemes.
 export const isHttp = (url) => /^https?:\/\//i.test(url);
+// The console's own run routes (a local book) are the only other target an output link may open.
+export const isConsoleRoute = (url) => /^\/api\/runs\/[^/]/.test(url);
 
 const INLINE = /`([^`]+)`|\[([^\]]+)\]\(([^)\s]+)\)|\*\*(.+?)\*\*|\*(?=\S)(.+?)(?<=\S)\*|(?<!\w)_(?=\S)(.+?)(?<=\S)_(?!\w)/g;
 

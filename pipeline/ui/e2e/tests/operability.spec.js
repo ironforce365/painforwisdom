@@ -32,10 +32,12 @@ const go = async (page, run, name) => {
   await nav(page, name).click();
   await expect(section(page, name)).toBeVisible();
 };
-const shell = (page) => page.addStyleTag({ content: SHELL });
 const langgraph = (run, ...rest) => path.join(PROCESSED, run, 'langgraph', ...rest);
 const readPkg = (run, dir) => JSON.parse(fs.readFileSync(langgraph(run, dir, 'package.json'), 'utf8'));
-const writePkg = (run, dir, pkg) => fs.writeFileSync(langgraph(run, dir, 'package.json'), JSON.stringify(pkg));
+const writePkg = (run, dir, pkg) => {
+  fs.mkdirSync(langgraph(run, dir), { recursive: true });
+  fs.writeFileSync(langgraph(run, dir, 'package.json'), JSON.stringify(pkg));
+};
 const setRecord = (run, fields) => {
   const file = langgraph(run, 'run.json');
   fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), ...fields }));
@@ -50,8 +52,16 @@ const patchRun = (page, run, patch) => page.route(`**/api/runs/${run}`, async (r
 const mockPublish = (page, run, targets, prepare = {}) => page.route(`**/api/runs/${run}/publish`,
   (route) => route.fulfill({ json: { targets, prepare } }));
 
-test.beforeEach(({ errors }) => {
+test.beforeEach(async ({ page, errors }) => {
   freshServerState();
+  // Survives a reload. Without it the old shell's debug strip sits over the panel and takes its clicks.
+  await page.addInitScript((css) => {
+    document.addEventListener('DOMContentLoaded', () => {
+      const style = document.createElement('style');
+      style.textContent = css;
+      document.head.append(style);
+    });
+  }, SHELL);
   // Fixture packages name assets that do not exist; the panel handles that, Chromium still logs it.
   errors.allow(/status of 404.*\/asset\//);
 });
@@ -94,7 +104,6 @@ test.describe('navigation', () => {
   test('[DT-N3] the panel uses the full width of its container, with no centring', async ({ page }) => {
     await page.setViewportSize({ width: 3440, height: 1300 });
     await deep(page, 'fx-done');
-    await shell(page);
     await nav(page, 'blog').click();
     await expect(editor(page, 'blog_post.md')).toBeVisible();
     const box = await page.locator('#operability').evaluate((root) => {
@@ -120,7 +129,6 @@ test.describe('navigation', () => {
     fs.writeFileSync(langgraph('fx-done', 'painforwisdom-writer', 'blog_post.md'), `# Long\n\n${'A line.\n\n'.repeat(600)}`);
     await page.setViewportSize({ width: 1280, height: 720 });
     await deep(page, 'fx-done');
-    await shell(page);
     await nav(page, 'blog').click();
     await expect(page.getByTestId('artifact-preview-blog_post.md').locator('h1')).toHaveText('Long');
     const metrics = await page.evaluate(() => {
@@ -173,6 +181,20 @@ test.describe('navigation', () => {
     await expect(section(page, 'research')).toBeVisible();
     await expect(page.getByTestId('research-link-1')).toBeVisible();
     expect(new URL(page.url()).hash).toBe('#/runs/fx-unpackaged/output');
+  });
+
+  test('[DT-N2] a run opened on the graph loads its output only when the tab opens', async ({ page }) => {
+    let lists = 0;
+    page.on('request', (r) => { if (r.url().endsWith('/fx-done/artifacts')) lists += 1; });
+    const detail = page.waitForResponse((r) => r.url().endsWith('/api/runs/fx-done'));
+    await page.goto('/#/runs/fx-done');
+    await detail;
+    await expect(page.getByTestId('run-fx-done')).toHaveAttribute('aria-pressed', 'true');
+    await expect(output(page)).toBeHidden();
+    expect(lists).toBe(0);
+    await page.getByTestId('view-tab-output').click();
+    await expect(page.getByTestId('summary-verdict')).toBeVisible();
+    await expect.poll(() => lists).toBeGreaterThan(0);
   });
 
   test('[DT-N2] output without a selected run says so', async ({ page }) => {
@@ -300,19 +322,26 @@ test.describe('summary', () => {
     await expect(page.getByTestId('summary-cost')).toContainText('≈$');
     await expect(page.getByTestId('summary-cost-row-kb_curator')).toContainText('≈$');
     await expect(page.getByTestId('summary-cost-row-writer')).toContainText('tokens only');
+    await expect(page.getByTestId('summary-cost-row-wordpress_draft')).toHaveCount(0);
   });
 
   test('[DT-D6] a billed cost has no estimate mark, an unpriced run shows tokens only', async ({ page }) => {
     await patchRun(page, 'fx-done', (run) => {
       run.telemetry = { cost_usd: 1.5, cost_estimated: false, tokens: { input: 1, output: 1, cache_read: 0, cache_creation: 0 },
-        per_node: { writer: { cost_usd: 1.5, cost_estimated: false, input_tokens: 1, output_tokens: 1, cache_read_tokens: 0, cache_creation_tokens: 0 } } };
+        per_node: {
+          writer: { cost_usd: 1.5, cost_estimated: false, input_tokens: 1, output_tokens: 1, cache_read_tokens: 0, cache_creation_tokens: 0 },
+          extract: { cost_usd: 0.0042, cost_estimated: false, input_tokens: 1, output_tokens: 1, cache_read_tokens: 0, cache_creation_tokens: 0 },
+        } };
     });
     await patchRun(page, 'fx-published', (run) => {
+      run.input.path = null;
       run.telemetry = { cost_usd: null, cost_estimated: false, tokens: { input: 1, output: 1, cache_read: 0, cache_creation: 0 }, per_node: {} };
     });
     await deep(page, 'fx-done');
     await expect(page.getByTestId('summary-cost')).toHaveText('$1.50');
+    await expect(page.getByTestId('summary-cost-row-extract')).toContainText('$0.0042');
     await deep(page, 'fx-published');
+    await expect(page.getByTestId('summary-input')).toHaveText('unknown input');
     await expect(page.getByTestId('summary-cost')).toHaveText('tokens only (2)');
   });
 });
@@ -403,13 +432,17 @@ test.describe('reading and editing in place', () => {
     await page.route('**/api/runs/fx-done/artifacts', async (route) => {
       const res = await route.fetch();
       const body = await res.json();
-      body.artifacts.find((a) => a.name === 'telegram.txt').bytes = 3 * 1024 * 1024;
+      Object.assign(body.artifacts.find((a) => a.name === 'telegram.txt'), { bytes: 3 * 1024 * 1024, node: null });
       await route.fulfill({ response: res, json: body });
     });
     await go(page, 'fx-done', 'files');
+    await expect(page.getByTestId('file-group-other')).toContainText('telegram.txt');
     await page.getByTestId('file-telegram.txt').click();
     await expect(page.getByTestId('artifact-telegram.txt')).toHaveAttribute('data-state', 'ready');
     await expect(editor(page, 'telegram.txt')).toHaveCount(0);
+    await nav(page, 'summary').click();
+    await nav(page, 'files').click();
+    await expect(page.getByTestId('artifact-telegram.txt')).toHaveAttribute('data-state', 'ready');
   });
 
   test('[DT-D4] edit the blog in place beside its preview, save writes the file', async ({ page }) => {
@@ -486,6 +519,32 @@ test.describe('reading and editing in place', () => {
     await expect(edit).toHaveValue('# Mine');
   });
 
+  test('[DT-D4] text typed while the disk version is on its way wins', async ({ page }) => {
+    const list = await (await page.request.get('/api/runs/fx-done/artifacts')).json();
+    const { id } = list.artifacts.find((a) => a.name === 'blog_post.md');
+    await go(page, 'fx-done', 'blog');
+    const edit = editor(page, 'blog_post.md');
+    await expect(edit).toHaveValue(/./);
+    let release;
+    const held = new Promise((resolve) => { release = resolve; });
+    await page.route(`**/api/runs/fx-done/artifacts/${id}`, async (route) => {
+      await held;
+      await route.continue();
+    });
+    fs.writeFileSync(langgraph('fx-done', 'painforwisdom-writer', 'blog_post.md'), '# From disk');
+    await page.getByTestId('view-tab-graph').click();
+    const asked = page.waitForRequest((r) => r.url().endsWith(id));
+    await page.getByTestId('view-tab-output').click();
+    await asked;
+    await edit.fill('# Typed first');
+    const answered = page.waitForResponse((r) => r.url().endsWith(id));
+    release();
+    await answered;
+    await expect(saveBtn(page, 'blog_post.md')).toBeEnabled();
+    await expect(edit).toHaveValue('# Typed first');
+    await expect(dirty(page, 'blog')).toBeVisible();
+  });
+
   test('[DT-D4] a failed save keeps the text and shows why; 409 while the run is active', async ({ page, errors }) => {
     errors.allow(/status of 409/);
     errors.allow(/ERR_FAILED/);
@@ -533,8 +592,7 @@ test.describe('reading and editing in place', () => {
     await page.getByTestId('output-unsaved-discard-fx-done').click();
     await expect(warn).toHaveCount(0);
     await page.getByTestId('run-fx-done').click();
-    await expect(page.getByTestId('summary-verdict')).toBeVisible();
-    await nav(page, 'blog').click();
+    await expect(section(page, 'blog')).toBeVisible();
     await expect(editor(page, 'blog_post.md')).not.toHaveValue('# Unsaved');
     await expect(editor(page, 'blog_post.md')).toHaveValue(/./);
     expect(dialogs).toBe(0);
@@ -674,6 +732,7 @@ test.describe('publish', () => {
     const video = page.getByTestId('youtube-video');
     await expect(video).toHaveAttribute('src', '/api/runs/fx-unpackaged/publish/youtube/asset/video');
     await expect(video).toHaveAttribute('controls');
+    await expect(page.getByTestId('readonly-youtube')).toContainText('duration_s–');
     expect((await request.get('/api/runs/fx-unpackaged/publish/youtube/asset/video')).status()).toBe(200);
 
     await nav(page, 'wordpress').click();
@@ -986,6 +1045,9 @@ test.describe('publish', () => {
     await expect(page.getByTestId('publish-youtube')).toBeHidden();
     await expect(page.getByTestId('save-youtube')).toBeHidden();
     await expect(page.getByTestId('field-youtube-title')).toBeDisabled();
+    await nav(page, 'summary').click();
+    await expect(page.getByTestId('summary-next-none')).toBeVisible();
+    await nav(page, 'youtube').click();
     state = { ...base, status: 'failed', error: 'quota exceeded' };
     await toggle();
     await expect(page.getByTestId('publish-error-youtube')).toHaveText('quota exceeded');
@@ -1052,7 +1114,6 @@ test.describe('output shots', () => {
       await page.setViewportSize({ width, height: width === 1280 ? 800 : 1300 });
       const shoot = (name) => page.screenshot({ path: path.join(DIR, `output-${name}-${width}.png`) });
       await deep(page, 'fx-unpackaged');
-      await shell(page);
       await shoot('summary');
       await nav(page, 'blog').click();
       await expect(page.getByTestId('artifact-preview-blog_post.md').locator('.md')).toBeVisible();
