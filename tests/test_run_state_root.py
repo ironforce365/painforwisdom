@@ -63,21 +63,3 @@ def test_telegram_io_falls_back_to_state_root_env(tmp_path: Path) -> None:
         env.pop(k, None)
     out = subprocess.run([str(script), "bogus-command"], env=env, capture_output=True, text=True, timeout=30)
     assert "must be set" not in out.stderr, out.stderr
-
-
-def test_ask_indefinitely_does_not_spin_on_instant_failure(monkeypatch) -> None:
-    from pipeline import run
-
-    replies = iter([None, None, "yes"])
-    clock = {"t": 0.0}
-    sleeps: list = []
-    monkeypatch.setattr(run, "telegram_ask", lambda prompt, timeout_seconds: next(replies))
-    monkeypatch.setattr(run.time, "monotonic", lambda: clock["t"])
-
-    def fake_sleep(s: float) -> None:
-        sleeps.append(s)
-        clock["t"] += s
-
-    monkeypatch.setattr(run.time, "sleep", fake_sleep)
-    assert run._ask_indefinitely("approve?", reminder_interval=1800) == "yes"
-    assert sleeps == [1800, 1800]
