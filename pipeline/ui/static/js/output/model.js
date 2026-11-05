@@ -86,10 +86,10 @@ const money = (cost, estimated) => {
   if (cost == null) return null;
   return `${estimated ? '≈' : ''}$${cost.toFixed(cost < 0.01 ? 4 : 2)}`;
 };
-const sum = (values) => values.reduce((a, b) => a + b, 0);
 
+// Input already holds both cache counts (pipeline/llm.py).
 export const runCost = ({ cost_usd: cost, cost_estimated: estimated, tokens }) => money(cost, estimated)
-  ?? `tokens only (${sum(Object.values(tokens))})`;
+  ?? `tokens only (${tokens.input + tokens.output})`;
 
 export const nodeCost = (p) => money(p.cost_usd, p.cost_estimated)
-  ?? `tokens only (${sum([p.input_tokens, p.output_tokens, p.cache_read_tokens, p.cache_creation_tokens])})`;
+  ?? `tokens only (${p.input_tokens + p.output_tokens})`;

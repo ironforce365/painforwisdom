@@ -330,6 +330,16 @@ test.describe('summary', () => {
     await expect(page.getByTestId('summary-input')).toHaveText('unknown input');
     await expect(page.getByTestId('summary-cost')).toHaveText('tokens only (2)');
   });
+
+  test('[DT-D6] tokens only counts input and output: input already holds the cache counts', async ({ page }) => {
+    await patchRun(page, 'fx-published', (run) => {
+      run.telemetry = { cost_usd: null, cost_estimated: false, tokens: { input: 100, output: 20, cache_read: 70, cache_creation: 10 },
+        per_node: { writer: { cost_usd: null, cost_estimated: false, input_tokens: 100, output_tokens: 20, cache_read_tokens: 70, cache_creation_tokens: 10 } } };
+    });
+    await deep(page, 'fx-published');
+    await expect(page.getByTestId('summary-cost')).toHaveText('tokens only (120)');
+    await expect(page.getByTestId('summary-cost-row-writer')).toContainText('tokens only (120)');
+  });
 });
 
 test.describe('reading and editing in place', () => {
