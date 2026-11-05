@@ -21,7 +21,7 @@ const PATHS = {
   models: 'M7 7h10v10H7z M10 3v4 M14 3v4 M10 17v4 M14 17v4 M3 10h4 M3 14h4 M17 10h4 M17 14h4',
 };
 const fmtRatio = (r) => (r === null ? '–' : `${Math.round(r * 100)}%`);
-const fmtCost = (c) => `$${c.toFixed(3)}`;
+const fmtCost = (c) => (c === null ? '–' : `$${c.toFixed(3)}`); // null: no price for the model
 const fmtModels = (models) => models.join(', ') || '–';
 const FIELDS = [
   ['input', 'tokens in', fmtCount],

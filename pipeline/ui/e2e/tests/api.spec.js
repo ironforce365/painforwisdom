@@ -33,7 +33,7 @@ test('api.js has one working function per C3 endpoint', async ({ page, errors })
     };
   });
   expect(out).toEqual({
-    nodes: 16, runs: 7, run: 'PASS', arts: expect.any(Number), fileOk: true, result: 'ready', inputs: 2,
+    nodes: 16, runs: 13, run: 'PASS', arts: expect.any(Number), fileOk: true, result: 'ready', inputs: 2,
     missing: { status: 404, detail: 'unknown input', name: 'ApiError' }, launched: 'string',
   });
   expect(out.arts).toBeGreaterThan(0);

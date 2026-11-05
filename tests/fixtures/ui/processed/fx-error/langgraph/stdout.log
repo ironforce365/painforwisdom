@@ -1,0 +1,2 @@
+[run] run_id=fx-error
+[run] pipeline raised in research: RuntimeError: research agent returned no rows

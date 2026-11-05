@@ -458,6 +458,7 @@ def _apply_proceed(state: State, plan: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+_RAW_PLAN_CAP = 2000
 _REPLY_HINT = (
     "Reply freely. Examples:\n"
     "  • `yes` — approve as-is\n"
@@ -487,6 +488,24 @@ def _proposal_text(plan: Dict[str, Any]) -> str:
     )
 
 
+def _unknown_action_text(plan: Dict[str, Any]) -> str:
+    raw = yaml.safe_dump(plan, sort_keys=False, allow_unicode=True)
+    return (
+        f"⚠️ CURATOR — unknown action `{plan.get('action')}`\n"
+        f"Reason: {plan.get('reason')}\n\n"
+        f"Plan:\n{raw[:_RAW_PLAN_CAP]}\n\n"
+        "Reply with what the curator should do: your answer goes back to it and it plans again."
+    )
+
+
+def _interrupt_payload(plan: Dict[str, Any]) -> Dict[str, Any]:
+    action = plan.get("action")
+    if not (isinstance(action, str) and action.startswith("NEEDS_APPROVAL")):
+        return {"kind": "curator", "proposal": _unknown_action_text(plan), "raw_plan": plan}
+    return {"kind": "theme" if action == "NEEDS_APPROVAL_THEME" else "framework", "proposal": _proposal_text(plan),
+            "raw_plan": plan}
+
+
 def node_kb_curator(state: State) -> Dict[str, Any]:
     assert_inputs("kb_curator", state)
     t0 = time.time()
@@ -508,18 +527,14 @@ def node_kb_curator(state: State) -> Dict[str, Any]:
         }
     )
 
-    while plan.get("action", "").startswith("NEEDS_APPROVAL"):
-        proposal_msg = _proposal_text(plan)
+    # Any action but PROCEED asks: an unknown one (ALREADY_PROCESSED) must not crash a run that a retry would repeat.
+    while plan.get("action") != "PROCEED":
+        payload = _interrupt_payload(plan)
+        proposal_msg = payload["proposal"]
         print(f"[kb-curator] suspending for approval:\n{proposal_msg}")
-        # interrupt() suspends the graph; orchestrator handles Telegram round-trip
+        # interrupt() suspends the graph; orchestrator handles the human round-trip
         # and resumes with Command(resume=<reply text>).
-        reply: Optional[str] = interrupt(
-            {
-                "kind": "theme" if plan["action"] == "NEEDS_APPROVAL_THEME" else "framework",
-                "proposal": proposal_msg,
-                "raw_plan": plan,
-            }
-        )
+        reply: Optional[str] = interrupt(payload)
         reply = (reply or "").strip()
         print(f"[kb-curator] resumed with reply: {reply!r}")
         approval_history.append((proposal_msg, reply))
@@ -535,9 +550,6 @@ def node_kb_curator(state: State) -> Dict[str, Any]:
                 "phase": f"resume_{len(approval_history)}",
             }
         )
-
-    if plan.get("action") != "PROCEED":
-        raise RuntimeError(f"kb-curator: unexpected terminal action: {plan.get('action')}")
 
     out = _apply_proceed(state, plan)
     duration = time.time() - t0

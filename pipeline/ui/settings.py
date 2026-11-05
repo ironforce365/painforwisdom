@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import argparse
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping, Optional, Sequence
 
@@ -22,6 +22,7 @@ class Settings:
     profile: str = "sandbox"
     host: str = "127.0.0.1"
     port: int = 8820
+    books_root: Path = field(default_factory=lambda: runtime.STATE_ROOT / "books")
 
     @classmethod
     def from_env_and_args(cls, argv: Optional[Sequence[str]] = None,
@@ -47,4 +48,5 @@ class Settings:
             notion_fixtures=Path(fixtures) if fixtures else None,
             profile=profile,
             port=args.port or int(env.get("PIPELINE_UI_PORT") or 8820),
+            books_root=Path(env.get("PIPELINE_UI_BOOKS_ROOT") or runtime.STATE_ROOT / "books"),
         )

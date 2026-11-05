@@ -80,9 +80,10 @@ function renderStrip(view, run) {
     seg.style.flexBasis = `${(counts[i] / (sum || 1)) * 100}%`;
     seg.title = `${SEGMENTS[i].replace('_', ' ')} ${fmtCount(counts[i])}`;
   });
-  view.cost.textContent = `$${t.cost_usd.toFixed(2)}`;
-  view.cost.dataset.value = t.cost_usd;
-  view.costBox.hidden = !t.cost_usd; // subscription billing logs 0 everywhere
+  const cost = t.cost_usd ?? 0; // null: no price for the model
+  view.cost.textContent = `$${cost.toFixed(2)}`;
+  view.cost.dataset.value = cost;
+  view.costBox.hidden = !cost;
 }
 
 export function mount(root, ctx) {

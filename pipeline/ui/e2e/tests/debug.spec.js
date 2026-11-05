@@ -1,6 +1,6 @@
 // Live debug panel (spec 2026-11-03-console-operability §5.2).
 import path from 'node:path';
-import { test, expect, freshServerState } from '../fixtures.js';
+import { test, expect, freshServerState, answerPending } from '../fixtures.js';
 
 test.beforeEach(() => freshServerState());
 
@@ -81,6 +81,7 @@ test('numbers grow with the run poll on a fake run, then settle', async ({ page,
   await expect.poll(() => numberOf(page, 'total'), { timeout: 20_000 }).toBeGreaterThan(0);
   const first = await numberOf(page, 'total');
   await expect.poll(() => numberOf(page, 'total'), { timeout: 20_000 }).toBeGreaterThan(first);
+  await answerPending(request, id);
   await expect(page.getByTestId(`run-${id}`)).toHaveAttribute('data-status', 'done', { timeout: 30_000 });
   await expect(page.getByTestId('debug')).toHaveAttribute('data-live', 'false');
   await expect(page.getByTestId('debug-in-flight')).toHaveText('0');

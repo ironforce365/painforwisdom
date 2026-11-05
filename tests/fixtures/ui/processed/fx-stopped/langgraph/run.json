@@ -1,0 +1,15 @@
+{
+  "run_id": "fx-stopped",
+  "status": "stopped",
+  "verdict": null,
+  "pid": 0,
+  "profile": "sandbox",
+  "input": {
+    "kind": "transcript",
+    "path": "tests/fixtures/ui/inbox/transcript_2026-10-30.txt"
+  },
+  "started_at": 1793202000.0,
+  "ended_at": 1793202100.0,
+  "hitl_wait_s": 0.0,
+  "error": "Stopped from the console."
+}

@@ -15,12 +15,13 @@ from typing import Any, Dict, List, Optional
 
 from pipeline.contracts import assert_inputs
 from pipeline.llm import call_llm
+from pipeline.publish.specs import YOUTUBE_TAGS_MAX_CHARS, YOUTUBE_TITLE_MAX
 from pipeline.publishing_config import current_profile, load
 from pipeline.runtime import DEFAULT_MODEL, append_metric, load_agent_prompt, run_telemetry_path
 from pipeline.state import State
 
-TITLE_MAX = 100
-TAGS_MAX_CHARS = 500
+TITLE_MAX = YOUTUBE_TITLE_MAX
+TAGS_MAX_CHARS = YOUTUBE_TAGS_MAX_CHARS
 LLM_ATTEMPTS = 2
 MAX_TOKENS = 1000
 _TOKEN_FIELDS = ("input_tokens", "output_tokens", "cache_read_tokens", "cache_creation_tokens", "cost_usd")

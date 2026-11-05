@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlparse
 
+from pipeline.publish.specs import field_spec  # noqa: F401 - historical home
+
 NODE_DIRS = {"wordpress": "wordpress-draft", "youtube": "youtube-upload"}
 
 
@@ -48,11 +50,6 @@ def new_package(target: str, mode: str, fields: dict, field_specs: dict, readonl
     return {"schema": 1, "target": target, "mode": mode, "status": "pending", "fields": fields,
             "field_specs": field_specs, "readonly": readonly or {}, "assets": assets or [], "result": None,
             "error": None, "updated_at": time.time()}
-
-
-def field_spec(type_: str, label: str, max_: Optional[int] = None, options: Optional[list[str]] = None,
-               required: bool = False) -> dict:
-    return {"type": type_, "label": label, "max": max_, "options": options, "required": required}
 
 
 def acquire_lock(run_dir: Path, target: str, pid: int) -> bool:
@@ -93,7 +90,7 @@ def _valid_url(value: str) -> bool:
     return parsed.scheme in {"http", "https"} and bool(parsed.netloc) and not any(c in value for c in ' \t\r\n"<>')
 
 
-def _field_errors(name: str, spec: dict, value: Any) -> list[str]:
+def _field_errors(name: str, spec: dict, value: Any, required: bool = True) -> list[str]:
     type_, max_ = spec["type"], spec.get("max")
     if type_ == "tags":
         if not isinstance(value, list) or not all(isinstance(t, str) for t in value):
@@ -103,7 +100,7 @@ def _field_errors(name: str, spec: dict, value: Any) -> list[str]:
         return [f"{name}: must be a string"]
     else:
         empty, size = not value.strip(), len(value)
-    if spec.get("required") and empty:
+    if required and spec.get("required") and empty:
         return [f"{name}: required"]
     if max_ is not None and size > max_:
         return [f"{name}: over max {max_}"]
@@ -114,13 +111,16 @@ def _field_errors(name: str, spec: dict, value: Any) -> list[str]:
     return []
 
 
-def validate_fields(package: dict, fields: dict) -> list[str]:
-    """One `<field>: <problem>` string per bad field; empty means valid. A `tags` max counts total characters."""
+def validate_fields(package: dict, fields: dict, required: bool = True) -> list[str]:
+    """One `<field>: <problem>` string per bad field; empty means valid. A `tags` max counts total characters.
+
+    `required=False` is a save: types and max only, a draft may be incomplete.
+    """
     specs = package["field_specs"]
     errors = [f"{name}: unknown field" for name in fields if name not in specs]
     for name, spec in specs.items():
         if name in fields:
-            errors += _field_errors(name, spec, fields[name])
-        elif spec.get("required"):
+            errors += _field_errors(name, spec, fields[name], required)
+        elif required and spec.get("required"):
             errors.append(f"{name}: required")
     return errors

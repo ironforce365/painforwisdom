@@ -1,0 +1,15 @@
+{
+  "run_id": "fx-error",
+  "status": "waiting_reply",
+  "verdict": null,
+  "pid": 0,
+  "profile": "sandbox",
+  "input": {
+    "kind": "transcript",
+    "path": "tests/fixtures/ui/inbox/transcript_2026-10-30.txt"
+  },
+  "started_at": 1793203000.0,
+  "ended_at": null,
+  "hitl_wait_s": 0.0,
+  "error": null
+}

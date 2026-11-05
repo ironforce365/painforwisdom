@@ -75,10 +75,12 @@ def test_runs_list(client):
 def test_run_detail(client):
     r = client.get("/api/runs/fx-done").json()
     assert set(r) == {"run_id", "status", "verdict", "profile", "input", "started_at", "ended_at",
-                      "hitl_wait_s", "error", "nodes", "telemetry"}
+                      "hitl_wait_s", "error", "nodes", "telemetry", "pending", "failure", "actions", "action_blockers",
+                      "dismissed"}
     assert r["status"] == "done" and r["profile"] == "sandbox"
     assert len(r["nodes"]) == 16
-    assert set(r["telemetry"]) == {"total_s", "work_s", "tokens", "cost_usd", "calls", "in_flight", "per_node"}
+    assert set(r["telemetry"]) == {"total_s", "work_s", "tokens", "cost_usd", "cost_estimated", "calls", "in_flight",
+                                   "per_node"}
 
 
 def test_unknown_run_is_404(client):

@@ -17,7 +17,7 @@ from pipeline.ui.settings import Settings
 # Copy of pipeline.run.VIDEO_EXTENSIONS; importing run.py would call load_dotenv.
 VIDEO_EXTENSIONS = (".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi")
 CHECKOUT_ROOT = runtime.PROJECT_ROOT
-FAKE_DEFAULTS = {"scenario": "ok", "step_ms": 200}
+FAKE_DEFAULTS = {"scenario": "ok", "step_ms": 200, "wait_s": 120}
 
 _lock = threading.Lock()
 
@@ -35,16 +35,21 @@ def input_kind(name: str) -> Optional[str]:
     return "transcript" if suffix == ".txt" else None
 
 
-def list_inputs(inbox: Path) -> list[dict]:
+def list_inputs(inbox: Path, processed_root: Optional[Path] = None) -> list[dict]:
+    """With `processed_root`, each input names the runs that already used it, newest first (S3)."""
     if not inbox.is_dir():
         return []
+    previous: dict[str, list[str]] = {}
+    for run in runs.list_runs(processed_root) if processed_root else ():
+        previous.setdefault(run["input"]["name"], []).append(run["run_id"])
     out = []
     for p in inbox.iterdir():
         kind = input_kind(p.name)
         if kind is None or p.name.startswith(".") or not p.is_file():
             continue
         st = p.stat()
-        out.append({"name": p.name, "kind": kind, "bytes": st.st_size, "mtime": st.st_mtime})
+        item = {"name": p.name, "kind": kind, "bytes": st.st_size, "mtime": st.st_mtime}
+        out.append({**item, "previous_runs": previous.get(p.name, [])} if processed_root else item)
     out.sort(key=lambda i: (i["mtime"], i["name"]), reverse=True)
     return out
 
@@ -79,18 +84,29 @@ def build_argv(settings: Settings, run_id: str, path: Path, kind: str, auto_appr
                fake: Optional[dict]) -> list[str]:
     if settings.runner == "fake":
         f = {**FAKE_DEFAULTS, **(fake or {})}
-        return [sys.executable, "-m", "pipeline.ui.fake_runner", "--run-id", run_id,
+        argv = [sys.executable, "-m", "pipeline.ui.fake_runner", "--run-id", run_id,
                 "--processed-root", str(settings.processed_root), "--input", str(path),
-                "--scenario", f["scenario"], "--step-ms", str(f["step_ms"])]
+                "--scenario", f["scenario"], "--step-ms", str(f["step_ms"]), "--wait-s", str(f["wait_s"])]
+        return argv + ["--auto-approve"] if auto_approve else argv
     flag = "--video" if kind == "video" else "--from-transcript"
     argv = [sys.executable, "-m", "pipeline.run", "--profile", settings.profile, "--run-id", run_id,
             "--processed-root", str(settings.processed_root), flag, str(path)]
     return argv + ["--auto-approve"] if auto_approve else argv
 
 
+def build_retry_argv(settings: Settings, run_id: str, profile: Optional[str], auto_approve: bool) -> list[str]:
+    root = str(settings.processed_root)
+    if settings.runner == "fake":
+        return [sys.executable, "-m", "pipeline.ui.fake_runner", "retry", "--run-id", run_id, "--processed-root", root,
+                "--step-ms", str(FAKE_DEFAULTS["step_ms"])]
+    # --no-archive: the run's input and its packages keep pointing at the file.
+    argv = [sys.executable, "-m", "pipeline.retry", "--profile", profile or settings.profile, "--run-id", run_id,
+            "--processed-root", root, "--no-archive"]
+    return argv + ["--auto-approve"] if auto_approve else argv
+
+
 def active_run(root: Path) -> Optional[str]:
-    # list_runs already derives `crashed` for dead pids (pid <= 0 included).
-    return next((r["run_id"] for r in runs.list_runs(root) if r["status"] in runs.ACTIVE), None)
+    return runs.active_run_id(root)
 
 
 def spawn(argv: list[str], log_path: Path) -> int:
@@ -120,7 +136,10 @@ def launch(settings: Settings, name: str, auto_approve: bool, fake: Optional[dic
     match = next((i for i in list_inputs(settings.inbox) if i["name"] == name), None)
     if match is None:
         raise LaunchError(404, "unknown input")
-    path = (settings.inbox / match["name"]).resolve()
+    return launch_path(settings, (settings.inbox / match["name"]).resolve(), match["kind"], auto_approve, fake)
+
+
+def launch_path(settings: Settings, path: Path, kind: str, auto_approve: bool, fake: Optional[dict]) -> str:
     with _lock:
         busy = active_run(settings.processed_root)
         if busy is not None:
@@ -128,10 +147,10 @@ def launch(settings: Settings, name: str, auto_approve: bool, fake: Optional[dic
         run_id = new_run_id(settings.processed_root)
         rd = settings.processed_root / run_id / "langgraph"
         rd.mkdir(parents=True)
-        pid = spawn(build_argv(settings, run_id, path, match["kind"], auto_approve, fake), rd / "stdout.log")
+        pid = spawn(build_argv(settings, run_id, path, kind, auto_approve, fake), rd / "stdout.log")
         write_provisional(rd, {
             "run_id": run_id, "status": "running", "verdict": None, "pid": pid, "profile": settings.profile,
-            "input": {"kind": match["kind"], "path": str(path)}, "started_at": time.time(), "ended_at": None,
+            "input": {"kind": kind, "path": str(path)}, "started_at": time.time(), "ended_at": None,
             "hitl_wait_s": 0.0, "error": None,
         })
     return run_id

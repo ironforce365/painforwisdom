@@ -11,7 +11,7 @@ test('list is newest first with live runs on top and a spinner on them', async (
   await expect(items(page)).toHaveCount(api.length);
   const ids = await items(page).evaluateAll((els) => els.map((e) => e.dataset.runId));
   expect(ids).toEqual([...live, ...rest].map((r) => r.run_id));
-  expect(live.map((r) => r.run_id)).toEqual(['fx-running', 'fx-hitl']);
+  expect(live.map((r) => r.run_id)).toEqual(['fx-running', 'fx-hitl', 'fx-error', 'fx-oldwait']);
   await expect(page.getByTestId('run-fx-running')).toHaveAttribute('data-status', 'running');
   await expect(page.getByTestId('run-fx-running').getByTestId('spinner')).toBeVisible();
   await expect(page.getByTestId('run-fx-done').getByTestId('spinner')).toBeHidden();

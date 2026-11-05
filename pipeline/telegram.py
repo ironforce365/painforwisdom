@@ -89,3 +89,18 @@ def ask(prompt: str, timeout_seconds: int = 1800) -> Optional[str]:
         return None
     reply = (proc.stdout or "").strip()
     return reply or None
+
+
+def ask_process(prompt: str) -> subprocess.Popen:
+    """`ask` as a killable child in its own process group, which pipeline.hitl races against the console."""
+    _check()
+    return subprocess.Popen(
+        [str(TELEGRAM_IO), "ask", _prefix(prompt)],
+        cwd=str(PROJECT_ROOT),
+        env=os.environ.copy(),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        start_new_session=True,
+    )

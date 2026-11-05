@@ -185,7 +185,7 @@ function buildView(ctx, runId) {
     if (polling) timer = setTimeout(refreshPublish, POLL_MS);
   };
   const renderPackages = (body) => {
-    targets = body.targets ?? {};
+    targets = body.targets;
     PACKAGES.filter((t) => targets[t]).forEach((t) => sync(slots[t].body, JSON.stringify(targets[t]), () => {
       editors[t] = packageEditor(targets[t], ctx, runId, refreshPublish);
       return [editors[t].root];

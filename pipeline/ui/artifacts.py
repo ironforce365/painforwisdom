@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import hashlib
+import os
+import uuid
 from pathlib import Path
 from typing import Optional
 
@@ -60,3 +62,17 @@ def list_artifacts(rd: Path) -> list[dict]:
 
 def find_artifact(rd: Path, artifact_id: str) -> Optional[dict]:
     return next((a for a in list_artifacts(rd) if a["id"] == artifact_id), None)
+
+
+def is_package_file(art: dict) -> bool:
+    """package.json and publish.lock have their own state machine: the publish routes are the only way to change them."""
+    return art["name"] in {"package.json", "publish.lock"}
+
+
+def write_text(art: dict, body: bytes) -> None:
+    """Atomic replace next to the target. `body` is already checked as UTF-8."""
+    path = Path(art["path"])
+    tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    tmp.write_bytes(body)
+    os.chmod(tmp, path.stat().st_mode)
+    os.replace(tmp, path)

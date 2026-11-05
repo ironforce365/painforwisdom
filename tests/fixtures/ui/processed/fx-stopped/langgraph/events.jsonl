@@ -1,0 +1,5 @@
+{"ts": 1793202000.0, "node": "extract", "event": "start", "attempt": 1}
+{"ts": 1793202005.0, "node": "extract", "event": "end", "attempt": 1, "duration_s": 5.0, "noop": false, "outputs": {}}
+{"ts": 1793202010.0, "node": "kb_curator", "event": "start", "attempt": 1}
+{"ts": 1793202015.0, "node": "kb_curator", "event": "end", "attempt": 1, "duration_s": 5.0, "noop": false, "outputs": {}}
+{"ts": 1793202030.0, "node": "writer", "event": "start", "attempt": 1}
