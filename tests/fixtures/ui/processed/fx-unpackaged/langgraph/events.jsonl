@@ -1,0 +1,14 @@
+{"ts": 1793200500.0, "node": "transcribe", "event": "start", "attempt": 1}
+{"ts": 1793200505.0, "node": "transcribe", "event": "end", "attempt": 1, "duration_s": 5.0, "noop": false, "outputs": {}}
+{"ts": 1793200510.0, "node": "extract", "event": "start", "attempt": 1}
+{"ts": 1793200515.0, "node": "extract", "event": "end", "attempt": 1, "duration_s": 5.0, "noop": false, "outputs": {}}
+{"ts": 1793200520.0, "node": "kb_curator", "event": "start", "attempt": 1}
+{"ts": 1793200525.0, "node": "kb_curator", "event": "end", "attempt": 1, "duration_s": 5.0, "noop": false, "outputs": {}}
+{"ts": 1793200530.0, "node": "writer", "event": "start", "attempt": 1}
+{"ts": 1793200535.0, "node": "writer", "event": "end", "attempt": 1, "duration_s": 5.0, "noop": false, "outputs": {}}
+{"ts": 1793200540.0, "node": "research", "event": "start", "attempt": 1}
+{"ts": 1793200545.0, "node": "research", "event": "end", "attempt": 1, "duration_s": 5.0, "noop": false, "outputs": {}}
+{"ts": 1793200550.0, "node": "wordpress_draft", "event": "start", "attempt": 1}
+{"ts": 1793200555.0, "node": "wordpress_draft", "event": "end", "attempt": 1, "duration_s": 5.0, "noop": false, "outputs": {}}
+{"ts": 1793200560.0, "node": "youtube_upload", "event": "start", "attempt": 1}
+{"ts": 1793200565.0, "node": "youtube_upload", "event": "end", "attempt": 1, "duration_s": 5.0, "noop": false, "outputs": {}}

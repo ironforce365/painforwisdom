@@ -47,6 +47,8 @@ export default defineConfig({
       PIPELINE_UI_PROCESSED_ROOT: path.join(TMP, 'processed'),
       PIPELINE_UI_INBOX: path.join(TMP, 'inbox'),
       CHECKPOINT_DB_PATH: path.join(TMP, 'checkpoints.db'),
+      PIPELINE_PUBLISHING_CONFIG: path.join(FIXTURES, 'publishing.json'),
+      PIPELINE_UI_BOOKS_ROOT: path.join(FIXTURES, 'books'),
     },
   },
 });

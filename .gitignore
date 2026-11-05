@@ -53,3 +53,7 @@ data/temp/
 services/coach/.env
 services/coach/.env.coach
 eval-runs/
+
+# Console test fixtures that the rules above would hide
+!tests/fixtures/ui/books/
+!tests/fixtures/ui/processed/*/langgraph/stdout.log

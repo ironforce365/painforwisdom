@@ -214,7 +214,8 @@ def test_rows_for_one_node_sum():
     t = runs.telemetry(rows, total_s=None, hitl_wait_s=0.0)
     assert t["per_node"] == {"summarizer": {
         "duration_s": 1.5, "input_tokens": 3, "output_tokens": 0, "cache_read_tokens": 0,
-        "cache_creation_tokens": 0, "cost_usd": 0.1, "model": None, "calls": 1, "in_flight": 0, "live": False}}
+        "cache_creation_tokens": 0, "cost_usd": 0.1, "cost_estimated": False, "model": None, "calls": 1, "in_flight": 0,
+        "live": False}}
     assert t["work_s"] is None
 
 
@@ -320,14 +321,17 @@ def test_list_runs_newest_first_and_shape(root):
     (root / "a-file").write_text("x")
     listed = runs.list_runs(root)
     ids = [r["run_id"] for r in listed]
-    assert set(ids) == {"fx-done", "fx-published", "fx-running", "fx-hitl", "fx-failed", "fx-crashed", "fx-legacy"}
+    assert set(ids) == {"fx-done", "fx-published", "fx-running", "fx-hitl", "fx-failed", "fx-crashed", "fx-legacy",
+                        "fx-error", "fx-oldwait", "fx-stopped", "fx-nocheckpoint", "fx-modeoff", "fx-unpackaged"}
     starts = [r["started_at"] for r in listed]
     assert starts == sorted(starts, reverse=True)
     done = next(r for r in listed if r["run_id"] == "fx-done")
     assert done == {"run_id": "fx-done", "status": "done", "verdict": "PASS",
                     "started_at": done["started_at"], "ended_at": done["ended_at"],
                     "input": {"kind": "transcript", "name": "transcript_2026-10-30.txt"},
-                    "total_s": pytest.approx(298.0)}
+                    "total_s": pytest.approx(298.0), "cost_usd": done["cost_usd"], "cost_estimated": False,
+                    "tokens": done["tokens"], "failed_node": None,
+                    "attention": [{"kind": "publish", "label": "wordpress: package pending"}]}
 
 
 def test_list_runs_missing_root(tmp_path):

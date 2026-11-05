@@ -6,12 +6,14 @@ import json
 import os
 import shutil
 import sys
+import threading
 import time
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
+from pipeline import hitl
 from pipeline.ui import fake_runner, launcher, runs
 from pipeline.ui.app import create_app
 from pipeline.ui.settings import Settings
@@ -105,9 +107,9 @@ def test_argv_fake_defaults_and_explicit():
     base = [sys.executable, "-m", "pipeline.ui.fake_runner", "--run-id", "r1", "--processed-root", "/p",
             "--input", "/in/t.txt"]
     assert launcher.build_argv(s, "r1", Path("/in/t.txt"), "transcript", False, None) == [
-        *base, "--scenario", "ok", "--step-ms", "200"]
-    assert launcher.build_argv(s, "r1", Path("/in/t.txt"), "transcript", True,
-                               {"scenario": "hitl", "step_ms": 5}) == [*base, "--scenario", "hitl", "--step-ms", "5"]
+        *base, "--scenario", "ok", "--step-ms", "200", "--wait-s", "120"]
+    assert launcher.build_argv(s, "r1", Path("/in/t.txt"), "transcript", True, {"scenario": "hitl", "step_ms": 5}) == [
+        *base, "--scenario", "hitl", "--step-ms", "5", "--wait-s", "120", "--auto-approve"]
 
 
 def test_new_run_id_unique(tmp_path):
@@ -205,10 +207,18 @@ def _events(rd: Path) -> list[dict]:
 def test_fake_runner_hitl_in_process(tmp_path):
     inp = tmp_path / "v.mp4"
     inp.write_bytes(b"\0")
-    rc = fake_runner.main(["--run-id", "h1", "--processed-root", str(tmp_path / "p"), "--input", str(inp),
-                           "--scenario", "hitl", "--step-ms", "10"])
     rd = tmp_path / "p" / "h1" / "langgraph"
-    assert rc == 0
+    out = {}
+    t = threading.Thread(target=lambda: out.setdefault("rc", fake_runner.main([
+        "--run-id", "h1", "--processed-root", str(tmp_path / "p"), "--input", str(inp), "--scenario", "hitl",
+        "--step-ms", "10"])))
+    t.start()
+    while (pending := hitl.read_pending(rd)) is None:
+        time.sleep(0.01)
+    time.sleep(0.05)
+    assert hitl.write_reply(rd, pending["id"], "yes")
+    t.join(30)
+    assert out["rc"] == 0
     rec = json.loads((rd / "run.json").read_text())
     assert rec["status"] == "done" and rec["verdict"] == "PASS" and rec["hitl_wait_s"] >= 0.03
     ev = _events(rd)

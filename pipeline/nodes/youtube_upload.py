@@ -12,21 +12,14 @@ from typing import Any, Dict, Optional
 
 from pipeline.contracts import assert_inputs
 from pipeline.image_extractor import get_duration_seconds
-from pipeline.nodes.youtube_metadata import TAGS_MAX_CHARS, TITLE_MAX, skip_reason
+from pipeline.nodes.youtube_metadata import skip_reason
 from pipeline.publish import package as publish_package
-from pipeline.publish import run_target
+from pipeline.publish import run_target, specs
 from pipeline.publishing_config import current_profile, load
 from pipeline.runtime import append_metric, run_telemetry_path
 from pipeline.state import State
 
-_spec = publish_package.field_spec
-FIELD_SPECS = {
-    "title": _spec("string", "Title", TITLE_MAX, required=True),
-    "description": _spec("text", "Description", 5000),
-    "tags": _spec("tags", "Tags", TAGS_MAX_CHARS),
-    "privacy_status": _spec("enum", "Privacy", options=["private", "unlisted", "public"]),
-    "kind": _spec("enum", "Kind", options=["short", "video"]),
-}
+FIELD_SPECS = specs.YOUTUBE
 
 
 def _write_marker(out_dir: Path, name: str, body: str) -> None:

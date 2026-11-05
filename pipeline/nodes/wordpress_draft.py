@@ -24,7 +24,7 @@ from typing import Any, Dict, Optional
 
 from pipeline.contracts import assert_inputs
 from pipeline.publish import package as publish_package
-from pipeline.publish import run_target
+from pipeline.publish import run_target, specs
 from pipeline.publishing_config import current_profile, load
 from pipeline.runtime import append_metric, run_telemetry_path
 from pipeline.state import State
@@ -34,17 +34,7 @@ from pipeline.wordpress_client import (
     write_dormant_bundle,
 )
 
-_spec = publish_package.field_spec
-FIELD_SPECS = {
-    "title": _spec("string", "Title", 200, required=True),
-    "body": _spec("markdown", "Body", required=True),
-    "excerpt": _spec("text", "Excerpt", 300),
-    "tags": _spec("tags", "Tags"),
-    "categories": _spec("tags", "Categories"),
-    "status": _spec("enum", "Status", options=["draft", "publish"]),
-    "youtube_url": _spec("url", "YouTube URL"),
-}
-
+FIELD_SPECS = specs.WORDPRESS
 
 
 def _write_marker(out_dir: Path, name: str, body: str) -> None:

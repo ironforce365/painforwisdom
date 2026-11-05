@@ -141,7 +141,7 @@ def test_get_publish(processed, tmp_path):
     both = client.get("/api/runs/fx-published/publish").json()["targets"]
     assert both["wordpress"]["status"] == "published" and both["youtube"]["status"] == "pending"
     assert both["wordpress"]["result"]["url"].startswith("https://")
-    assert client.get("/api/runs/fx-failed/publish").json() == {}
+    assert client.get("/api/runs/fx-failed/publish").json()["targets"] == {}
     assert client.get("/api/runs/nope/publish").status_code == 404
 
 

@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { test, expect, freshServerState } from '../fixtures.js';
+import { test, expect, freshServerState, answerPending } from '../fixtures.js';
 
 const FX = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../tests/fixtures/ui/processed');
 const TOKENS = ['input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_creation_tokens'];
@@ -144,6 +144,7 @@ test('a live paused node is hatched and bars and clock grow on a fake run', asyn
   const [w0, t0] = [Number(await bar.getAttribute('data-span')), await value(total)];
   await expect.poll(async () => Number(await bar.getAttribute('data-span')), { timeout: 10_000 }).toBeGreaterThan(w0);
   expect(await value(total)).toBeGreaterThan(t0);
+  await answerPending(request, id);
   await expect(page.getByTestId(`run-${id}`)).toHaveAttribute('data-status', 'done', { timeout: 30_000 });
   await expect(bar).toHaveAttribute('data-state', 'done');
   await expect(total).toHaveAttribute('data-live', 'false');

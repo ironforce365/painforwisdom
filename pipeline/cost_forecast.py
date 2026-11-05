@@ -23,6 +23,7 @@ from typing import Dict, List, Optional
 
 import litellm
 
+from pipeline import pricing
 from pipeline.runtime import AGENTS_DIR, DEEP_MODEL, DEFAULT_MODEL
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -34,21 +35,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 PRO_MAX5_SONNET_MSGS_PER_5H = 200       # Max 5x typical
 SONNET_ITPM_PER_MINUTE = 50_000          # documented per-org default-tier ITPM (approx)
 
-# Pricing (USD per 1M tokens), 5m cache writes: https://platform.claude.com/docs/en/about-claude/pricing (2026-10-30)
-PRICES = {
-    DEFAULT_MODEL: {
-        "input": 2.0,
-        "output": 10.0,
-        "cache_write": 2.50,
-        "cache_read": 0.10,
-    },
-    DEEP_MODEL: {
-        "input": 4.0,
-        "output": 20.0,
-        "cache_write": 5.0,
-        "cache_read": 0.20,
-    },
-}
+# One price table: config/pricing.json (USD per 1M tokens, 5m cache writes).
+PRICES = pricing.PRICES
 
 
 @dataclass

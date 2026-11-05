@@ -1,0 +1,4 @@
+{"ts": 1793202500.0, "node": "extract", "event": "start", "attempt": 1}
+{"ts": 1793202505.0, "node": "extract", "event": "end", "attempt": 1, "duration_s": 5.0, "noop": false, "outputs": {}}
+{"ts": 1793202520.0, "node": "kb_curator", "event": "start", "attempt": 1}
+{"ts": 1793202560.0, "node": "kb_curator", "event": "error", "attempt": 1, "error": "RuntimeError: kb-curator: unexpected terminal action: ALREADY_PROCESSED"}
