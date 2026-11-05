@@ -1,19 +1,23 @@
 // Research table from GET /research: filter, expand, open (spec 2026-11-05-console-end-to-end §4).
 import { el, icon } from '../drawer.js';
-import { openable, openEl, sync } from './ui.js';
+import { isHttp } from '../markdown.js';
+import { openEl, sync } from './ui.js';
 
 const SEARCHED = ['title', 'type', 'author', 'location', 'category', 'angle', 'relevance', 'theme'];
 const DETAILS = [['Location', 'location'], ['Angle', 'angle'], ['Relevance', 'relevance'], ['Author', 'author'], ['Category', 'category'],
   ['Theme', 'theme'], ['Paywall', 'paywall'], ['Reachable', 'reachable'], ['Reachable reason', 'reason']];
 const HEADERS = ['#', 'Title', 'Type', 'Author', 'Category', 'Reachable', 'Open'];
 
-function linkCell(item) {
+/** A local book opens the console's own route; only an http(s) URL from the report becomes an href. */
+function linkCell(item, env) {
   const { href, kind } = item.link;
-  if (!openable(href)) return el('span', { class: 'muted', 'data-testid': `research-nolink-${item.n}` }, 'No link');
-  return openEl(href, { 'data-testid': `research-link-${item.n}` }, icon('link'), kind === 'local' ? 'Local file' : 'Open');
+  const props = { 'data-testid': `research-link-${item.n}` };
+  if (kind === 'local') return openEl(env.api.researchFileUrl(env.runId, item.n), props, icon('link'), 'Local file');
+  if (isHttp(href)) return openEl(href, props, icon('link'), 'Open');
+  return el('span', { class: 'muted', 'data-testid': `research-nolink-${item.n}` }, 'No link');
 }
 
-export function researchSection() {
+export function researchSection(env) {
   const expanded = new Set();
   let items = [];
   const text = el('input', { type: 'search', 'data-testid': 'research-filter-text', 'aria-label': 'filter research', placeholder: 'Filter by text' });
@@ -34,7 +38,7 @@ export function researchSection() {
       draw();
     });
     const row = el('tr', { 'data-testid': `research-row-${item.n}` }, el('td', {}, String(item.n)), el('td', {}, toggle),
-      ...[item.type, item.author, item.category, item.reachable].map((v) => el('td', {}, v)), el('td', {}, linkCell(item)));
+      ...[item.type, item.author, item.category, item.reachable].map((v) => el('td', {}, v)), el('td', {}, linkCell(item, env)));
     if (!open) return [row];
     const facts = DETAILS.map(([label, key]) => el('div', {}, el('dt', {}, label), el('dd', {}, item[key] || '–')));
     const cell = el('td', { colspan: HEADERS.length }, el('dl', { class: 'research-facts' }, ...facts));

@@ -59,7 +59,7 @@ export function createView(ctx, runId, shared) {
     youtube: publishSection(env, 'youtube'),
     wordpress: publishSection(env, 'wordpress'),
     kb: kbSection(env),
-    research: researchSection(),
+    research: researchSection(env),
     audit: auditSection(env),
     files: filesSection(env),
   };

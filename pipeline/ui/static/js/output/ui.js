@@ -1,6 +1,6 @@
 // Small DOM helpers of the Output workspace.
 import { el, icon } from '../drawer.js';
-import { isConsoleRoute, isHttp } from '../markdown.js';
+import { isHttp } from '../markdown.js';
 
 const outLink = (href) => ({ href, target: '_blank', rel: 'noopener' });
 
@@ -9,8 +9,6 @@ export const linkEl = (url, props, ...children) => (isHttp(url)
   ? el('a', { ...outLink(url), ...props }, ...children)
   : el('span', props, ...children));
 
-/** http(s) or the console's own routes (a local book): nothing else ever becomes an href. */
-export const openable = (url) => isHttp(url) || isConsoleRoute(url);
 export const openEl = (url, props, ...children) => el('a', { ...outLink(url), ...props }, ...children);
 
 export const button = (label, props, glyph) => el('button', { type: 'button', class: 'btn', ...props }, icon(glyph), label);
