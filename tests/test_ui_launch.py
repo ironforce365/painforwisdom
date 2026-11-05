@@ -51,7 +51,7 @@ def spawned(monkeypatch) -> list:
 
 
 def _client(processed: Path, runner: str = "real", inbox: Path = FIX / "inbox") -> TestClient:
-    return TestClient(create_app(Settings(processed_root=processed, inbox=inbox, runner=runner)))
+    return TestClient(create_app(Settings(processed_root=processed, inbox=inbox, runner=runner)), base_url="http://127.0.0.1")
 
 
 # --- listing ---------------------------------------------------------------

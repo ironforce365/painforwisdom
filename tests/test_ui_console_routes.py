@@ -49,7 +49,7 @@ def spawned(monkeypatch) -> list:
 
 def client_for(processed: Path, runner: str = "fake", **kw) -> TestClient:
     settings = Settings(processed_root=processed, inbox=FIX / "inbox", runner=runner, books_root=FIX / "books", **kw)
-    return TestClient(create_app(settings))
+    return TestClient(create_app(settings), base_url="http://127.0.0.1")
 
 
 @pytest.fixture
@@ -541,7 +541,7 @@ def test_research_symlink_out_of_the_library_is_refused(processed, tmp_path):  #
     (rd / "research-curator" / "research_report.csv").write_text(
         f"Title,Type,Source URL\nA,Book,file://{books}/link.txt\nB,Book,file://{books}/real.txt\n"
         f"C,Book,file://{books}/sub/secret.txt\nD,Book,file://{books}/../secret.txt\n")
-    client = TestClient(create_app(Settings(processed_root=processed, inbox=FIX / "inbox", books_root=books)))
+    client = TestClient(create_app(Settings(processed_root=processed, inbox=FIX / "inbox", books_root=books)), base_url="http://127.0.0.1")
     links = [i["link"]["kind"] for i in client.get("/api/runs/fx-done/research").json()["items"]]
     assert links == ["none", "local", "none", "none"]
     assert client.get("/api/runs/fx-done/research/2/file").text == "yes"
@@ -555,7 +555,7 @@ def test_research_html_book_is_not_rendered_inline(processed, tmp_path):  # [DT-
     (books / "b.html").write_text("<script>alert(1)</script>")
     (rd_of(processed, "fx-done") / "research-curator" / "research_report.csv").write_text(
         f"Title,Type,Source URL\nA,Book,file://{books}/b.html\n")
-    client = TestClient(create_app(Settings(processed_root=processed, inbox=FIX / "inbox", books_root=books)))
+    client = TestClient(create_app(Settings(processed_root=processed, inbox=FIX / "inbox", books_root=books)), base_url="http://127.0.0.1")
     assert client.get("/api/runs/fx-done/research/1/file").headers["content-type"] == "application/octet-stream"
 
 
@@ -753,7 +753,7 @@ def test_inputs_with_no_runs(tmp_path, processed):  # [DT-S2]
     inbox = tmp_path / "in"
     inbox.mkdir()
     (inbox / "new.txt").write_text("x")
-    client = TestClient(create_app(Settings(processed_root=processed, inbox=inbox)))
+    client = TestClient(create_app(Settings(processed_root=processed, inbox=inbox)), base_url="http://127.0.0.1")
     assert client.get("/api/inputs").json()["inputs"][0]["previous_runs"] == []
 
 

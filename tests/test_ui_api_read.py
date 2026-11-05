@@ -29,7 +29,7 @@ def settings(tmp_path, monkeypatch) -> Settings:
 
 @pytest.fixture
 def client(settings) -> TestClient:
-    return TestClient(create_app(settings))
+    return TestClient(create_app(settings), base_url="http://127.0.0.1")
 
 
 def test_health_index_and_static(client):

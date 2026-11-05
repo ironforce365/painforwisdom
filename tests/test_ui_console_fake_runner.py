@@ -201,7 +201,7 @@ def test_retry_subcommand_scenario_can_fail_again(tmp_path):  # [DT-E2] [DT-F1]
 def live(tmp_path):
     shutil.copytree(FIX / "processed", tmp_path / "processed")
     settings = Settings(processed_root=tmp_path / "processed", inbox=FIX / "inbox", runner="fake", books_root=FIX / "books")
-    client = TestClient(create_app(settings))
+    client = TestClient(create_app(settings), base_url="http://127.0.0.1")
     yield client, tmp_path / "processed"
     for child in (tmp_path / "processed").iterdir():
         try:
@@ -357,7 +357,7 @@ def test_stop_a_real_fake_run_then_restart(live):  # [DT-R3] [DT-F3] [DT-F4]
 def test_launch_accepts_the_new_scenarios_and_wait(tmp_path, monkeypatch):
     calls: list = []
     monkeypatch.setattr(launcher, "spawn", lambda argv, log: calls.append(argv) or os.getpid())
-    client = TestClient(create_app(Settings(processed_root=tmp_path, inbox=FIX / "inbox", runner="fake")))
+    client = TestClient(create_app(Settings(processed_root=tmp_path, inbox=FIX / "inbox", runner="fake")), base_url="http://127.0.0.1")
     for scenario in ("error", "error_twice", "non_recoverable", "curator"):
         assert client.post("/api/runs", json={"input": "transcript_2026-10-30.txt",
                                               "fake": {"scenario": scenario, "wait_s": 7}}).status_code == 201

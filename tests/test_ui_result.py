@@ -29,7 +29,7 @@ def processed(tmp_path, monkeypatch) -> Path:
 
 
 def _client(processed: Path, fixtures: Path | None = FIX / "notion") -> TestClient:
-    return TestClient(create_app(Settings(processed_root=processed, inbox=FIX / "inbox", notion_fixtures=fixtures)))
+    return TestClient(create_app(Settings(processed_root=processed, inbox=FIX / "inbox", notion_fixtures=fixtures)), base_url="http://127.0.0.1")
 
 
 def test_done_run_ready_from_fixtures(processed):

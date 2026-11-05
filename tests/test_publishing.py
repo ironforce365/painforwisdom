@@ -52,7 +52,7 @@ def spawned(monkeypatch) -> list:
 
 
 def client_for(processed: Path, tmp_path: Path, runner: str = "real") -> TestClient:
-    return TestClient(create_app(Settings(processed_root=processed, inbox=tmp_path / "i", runner=runner)))
+    return TestClient(create_app(Settings(processed_root=processed, inbox=tmp_path / "i", runner=runner)), base_url="http://127.0.0.1")
 
 
 def rd_of(processed: Path, run: str) -> Path:
@@ -216,7 +216,7 @@ def test_spawn_failure_releases_lock_and_records_failed(processed, tmp_path, mon
     monkeypatch.setattr(launcher, "spawn", boom)
     rd = rd_of(processed, "fx-done")
     client = TestClient(create_app(Settings(processed_root=processed, inbox=tmp_path / "i")),
-                        raise_server_exceptions=False)
+                        raise_server_exceptions=False, base_url="http://127.0.0.1")
     assert client.post("/api/runs/fx-done/publish/wordpress", json={"fields": GOOD}).status_code == 500
     assert package.read(rd, "wordpress")["status"] == "failed"
     assert not package.lock_path(rd, "wordpress").exists()
