@@ -90,7 +90,12 @@ export const test = base.extend({
     page.on('console', (m) => {
       if (m.type() === 'error') errors.seen.push(`console: ${m.text()} @ ${m.location().url}`);
     });
-    page.on('requestfailed', (r) => errors.seen.push(`requestfailed: ${r.url()} ${r.failure()?.errorText}`));
+    page.on('requestfailed', (r) => {
+      const text = r.failure()?.errorText;
+      // Leaving a section detaches its <video>, and the browser cancels the load: correct, and timing-dependent.
+      if (text === 'net::ERR_ABORTED' && r.url().includes('/asset/')) return;
+      errors.seen.push(`requestfailed: ${r.url()} ${text}`);
+    });
     await page.coverage.startJSCoverage({ resetOnNavigation: false });
     await use(page);
     const coverage = await page.coverage.stopJSCoverage();
