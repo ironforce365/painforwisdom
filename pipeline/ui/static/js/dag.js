@@ -1,11 +1,25 @@
-// Animated DAG (spec 2026-10-31-pipeline-console-ui §6.2). Visuals live in css/app.css keyed on data-state.
+// Animated DAG with zoom, pan and fit (spec 2026-11-05-console-end-to-end §4). Visuals live in css/app.css keyed on data-state.
 import { SVG_NS, svgIcon } from './icons.js';
+import { fmtCost, fmtDuration } from './format.js';
 
-const COL = 120;
-const ROW = 96;
-const PAD = 56;
+const COL = 128; // minimum column gap; a wide box spreads the columns up to SPREAD times
+const SPREAD = 1.9;
+const ROW = 108;
+const PAD_X = 72;
+const PAD_Y = 48;
+const PAD_BOTTOM = 72; // room for the label and the meta line under the last row
 const R = 24;
 const CUES = { pending: 'dot', running: 'arc', paused: 'pause', done: 'tick', error: 'cross', skipped: 'dash' };
+
+const ZOOM_MIN = 0.2;
+const ZOOM_MAX = 4;
+const FIT_MAX = 2.5;
+const STEP = 1.25;
+const WHEEL_RATE = 0.0015;
+const DRAG_PX = 4;
+const TOOLBAR_H = 44; // fit keeps nodes clear of the zoom buttons
+
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
 function svgEl(tag, attrs) {
   const node = document.createElementNS(SVG_NS, tag);
@@ -30,10 +44,10 @@ function layout(graph) {
     const ps = (id) => preds.get(id).map((p) => pos.get(p).y);
     const key = (id) => ps(id).reduce((a, b) => a + b, 0) / Math.max(1, ps(id).length);
     [...ids].sort((a, b) => key(a) - key(b)).forEach((id, r) => {
-      pos.set(id, { col: c, x: PAD + c * COL, y: PAD + ((rows - 1) / 2 + r - (ids.length - 1) / 2) * ROW });
+      pos.set(id, { col: c, y: PAD_Y + ((rows - 1) / 2 + r - (ids.length - 1) / 2) * ROW });
     });
   });
-  return { pos, width: PAD * 2 + (cols.length - 1) * COL, height: PAD * 2 + (rows - 1) * ROW };
+  return { pos, cols: cols.length, height: PAD_Y + PAD_BOTTOM + (rows - 1) * ROW };
 }
 
 function edgePath(a, b) {
@@ -45,15 +59,19 @@ function nodeEl(n, p, bus) {
   const g = svgEl('g', {
     class: 'node', 'data-testid': `node-${n.id}`, 'data-col': p.col, 'data-state': 'pending', role: 'button',
     tabindex: '0', 'aria-pressed': 'false', 'aria-label': `${n.label}: pending`,
-    transform: `translate(${p.x} ${p.y})`,
   });
   const title = svgEl('title', {});
   title.textContent = `${n.label}: pending`;
+  const label = svgEl('text', { class: 'node-label', 'data-testid': 'dag-label', y: R + 19, 'text-anchor': 'middle' });
+  label.textContent = n.label;
+  const meta = svgEl('text', { class: 'node-meta', 'data-testid': 'dag-meta', y: R + 34, 'text-anchor': 'middle' });
   g.append(
     title,
     svgEl('circle', { class: 'ring', 'data-testid': 'ring', r: R + 6 }),
     svgEl('circle', { class: 'disc', r: R }),
     svgIcon(n.icon, { x: -11, y: -11, width: 22, height: 22 }),
+    label,
+    meta,
   );
   // No transform attributes below the node <g>: CSS transforms (shake, pulse) would replace them.
   const [cx, cy] = [R * 0.72, -R * 0.72];
@@ -70,44 +88,173 @@ function nodeEl(n, p, bus) {
       select();
     }
   });
-  return { g, title, label: n.label };
+  return { g, title, label: n.label, meta };
+}
+
+function metaText(node, row) {
+  const parts = [];
+  if (node.state !== 'done') parts.push(node.state);
+  const seconds = row?.duration_s ?? node.duration_s;
+  if (seconds != null) parts.push(fmtDuration(seconds));
+  const cost = fmtCost(row?.cost_usd, row?.cost_estimated);
+  if (cost !== '–') parts.push(cost);
+  return parts.join(' · ');
+}
+
+function toolbar(actions) {
+  const button = (testid, text, fn) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.dataset.testid = testid;
+    b.textContent = text;
+    b.addEventListener('click', fn);
+    return b;
+  };
+  const level = document.createElement('span');
+  level.className = 'dag-level';
+  level.dataset.testid = 'dag-zoom-level';
+  const bar = document.createElement('div');
+  bar.className = 'dag-tools';
+  bar.append(button('dag-zoom-out', 'Zoom out', actions.out), level, button('dag-zoom-in', 'Zoom in', actions.in), button('dag-fit', 'Fit', actions.fit));
+  return { bar, level };
 }
 
 export function mount(el, ctx) {
   const nodes = new Map();
   const edges = [];
+  const view = { k: 1, x: 0, y: 0 };
+  let moved = false; // the user took over: a resize no longer refits
+  let world = null;
+  let svg = null;
+  let stage = null;
+
+  const apply = (tools) => {
+    stage.setAttribute('transform', `translate(${view.x} ${view.y}) scale(${view.k})`);
+    svg.dataset.zoom = String(Math.round(view.k * 1000) / 1000);
+    tools.level.textContent = `${Math.round(view.k * 100)}%`;
+  };
+
+  /** A wide box spreads the columns, so an ultra-wide monitor is used, not letterboxed. */
+  const place = (colGap) => {
+    const at = new Map();
+    for (const [id, p] of world.pos) {
+      const point = { x: PAD_X + p.col * colGap, y: p.y };
+      at.set(id, point);
+      nodes.get(id).g.setAttribute('transform', `translate(${point.x} ${point.y})`);
+    }
+    for (const e of edges) e.path.setAttribute('d', edgePath(at.get(e.from), at.get(e.to)));
+    return PAD_X * 2 + (world.cols - 1) * colGap;
+  };
+
+  let tools;
+  const fit = () => {
+    const { width, height } = el.getBoundingClientRect();
+    if (!width || !height) return; // hidden view: the observer fits it when it shows again
+    moved = false;
+    const free = height - TOOLBAR_H;
+    const base = PAD_X * 2 + (world.cols - 1) * COL;
+    const wanted = clamp((world.height * width) / free, base, base * SPREAD);
+    const w = place((wanted - PAD_X * 2) / (world.cols - 1));
+    view.k = clamp(Math.min(width / w, free / world.height), ZOOM_MIN, FIT_MAX);
+    view.x = (width - w * view.k) / 2;
+    view.y = TOOLBAR_H + (free - world.height * view.k) / 2;
+    apply(tools);
+  };
+
+  const zoomAt = (px, py, factor) => {
+    const k = clamp(view.k * factor, ZOOM_MIN, ZOOM_MAX);
+    view.x = px - ((px - view.x) * k) / view.k;
+    view.y = py - ((py - view.y) * k) / view.k;
+    view.k = k;
+    moved = true;
+    apply(tools);
+  };
+  const zoomCentre = (factor) => {
+    const { width, height } = el.getBoundingClientRect();
+    zoomAt(width / 2, height / 2, factor);
+  };
+
+  tools = toolbar({ in: () => zoomCentre(STEP), out: () => zoomCentre(1 / STEP), fit: () => fit() });
+
+  const drag = { on: false, dragged: false, x: 0, y: 0 };
+  const wire = () => {
+    svg.addEventListener('pointerdown', (e) => {
+      Object.assign(drag, { on: true, dragged: false, x: e.clientX, y: e.clientY });
+    });
+    svg.addEventListener('pointermove', (e) => {
+      if (!drag.on) return;
+      const [dx, dy] = [e.clientX - drag.x, e.clientY - drag.y];
+      if (!drag.dragged) {
+        if (Math.hypot(dx, dy) < DRAG_PX) return;
+        drag.dragged = true;
+        svg.setPointerCapture(e.pointerId);
+      }
+      view.x += dx;
+      view.y += dy;
+      Object.assign(drag, { x: e.clientX, y: e.clientY });
+      moved = true;
+      apply(tools);
+    });
+    const end = () => { drag.on = false; };
+    svg.addEventListener('pointerup', end);
+    svg.addEventListener('pointercancel', end);
+    // Capture phase: the node's own click listener must not hear the end of a drag.
+    svg.addEventListener('click', (e) => {
+      if (drag.dragged) e.stopPropagation();
+      drag.dragged = false;
+    }, true);
+    svg.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const r = svg.getBoundingClientRect();
+      zoomAt(e.clientX - r.left, e.clientY - r.top, Math.exp(-e.deltaY * WHEEL_RATE));
+    }, { passive: false });
+  };
+
+  document.addEventListener('keydown', (e) => {
+    if (ctx.state.view !== 'graph' || !svg || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.target.closest('input, textarea, select')) return;
+    if (e.key === '+' || e.key === '=') zoomCentre(STEP);
+    else if (e.key === '-') zoomCentre(1 / STEP);
+    else if (e.key === '0') fit();
+  });
 
   ctx.bus.on('graph:loaded', (graph) => {
-    const { pos, width, height } = layout(graph);
-    const svg = svgEl('svg', { viewBox: `0 0 ${width} ${height}`, class: 'dag-svg' });
+    world = layout(graph);
+    svg = svgEl('svg', { class: 'dag-svg', 'data-zoom': '1' });
+    stage = svgEl('g', { class: 'dag-stage' });
     const edgeLayer = svgEl('g', { class: 'edges' });
     for (const e of graph.edges) {
-      const path = svgEl('path', {
-        class: 'edge', 'data-testid': `edge-${e.from}-${e.to}`, 'data-state': 'pending', d: edgePath(pos.get(e.from), pos.get(e.to)),
-      });
-      edges.push({ path, to: e.to });
+      const path = svgEl('path', { class: 'edge', 'data-testid': `edge-${e.from}-${e.to}`, 'data-state': 'pending' });
+      edges.push({ path, from: e.from, to: e.to });
       edgeLayer.append(path);
     }
-    svg.append(edgeLayer);
+    stage.append(edgeLayer);
     for (const n of graph.nodes) {
-      const view = nodeEl(n, pos.get(n.id), ctx.bus);
-      nodes.set(n.id, view);
-      svg.append(view.g);
+      const view_ = nodeEl(n, world.pos.get(n.id), ctx.bus);
+      nodes.set(n.id, view_);
+      stage.append(view_.g);
     }
-    el.replaceChildren(svg);
+    svg.append(stage);
+    el.replaceChildren(svg, tools.bar);
+    wire();
+    fit();
+    new ResizeObserver(() => {
+      if (!moved) fit();
+    }).observe(el);
   });
 
   ctx.bus.on('run:updated', (run) => {
-    for (const [id, view] of nodes) {
-      const state = run.nodes[id].state;
-      view.g.setAttribute('data-state', state);
-      view.g.setAttribute('aria-label', `${view.label}: ${state}`);
-      view.title.textContent = `${view.label}: ${state}`;
+    for (const [id, node] of nodes) {
+      const n = run.nodes[id];
+      node.g.setAttribute('data-state', n.state);
+      node.g.setAttribute('aria-label', `${node.label}: ${n.state}`);
+      node.title.textContent = `${node.label}: ${n.state}`;
+      node.meta.textContent = metaText(n, run.telemetry.per_node[id]);
     }
     for (const e of edges) e.path.setAttribute('data-state', run.nodes[e.to].state);
   });
 
   ctx.bus.on('node:selected', (id) => {
-    for (const [nid, view] of nodes) view.g.setAttribute('aria-pressed', String(nid === id));
+    for (const [nid, node] of nodes) node.g.setAttribute('aria-pressed', String(nid === id));
   });
 }

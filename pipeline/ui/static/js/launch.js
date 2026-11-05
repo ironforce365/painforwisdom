@@ -1,4 +1,4 @@
-// Launch popup (spec 2026-10-31-pipeline-console-ui §7): input tiles, POST /api/runs, busy lockout.
+// Launch popup (spec 2026-11-05-console-end-to-end S1-S5): input tiles, POST /api/runs, busy lockout with a link to the active run.
 import { svgIcon } from './icons.js';
 import { ACTIVE } from './runs.js';
 
@@ -45,6 +45,12 @@ function tileEl(input, start) {
   svgIcon('cross', { class: 'icon tile-error' }),
   el('span', { class: 'tile-name', 'data-testid': 'tile-name' }, input.name),
   el('span', { class: 'tile-age', 'data-testid': 'tile-age' }, age(input.mtime)));
+  // S3: it can still start; the tile only warns which runs already used it.
+  if (input.previous_runs?.length) {
+    const names = input.previous_runs.join(', ');
+    tile.dataset.warn = 'true';
+    tile.append(el('span', { class: 'tile-previous', 'data-testid': 'tile-previous', title: names }, `Already ran: ${names}`));
+  }
   tile.addEventListener('click', () => start(tile, input.name));
   return tile;
 }
@@ -52,27 +58,39 @@ function tileEl(input, start) {
 export function mount(root, ctx) {
   const button = el('button', {
     type: 'button', class: 'launch-button', 'data-testid': 'launch-button', 'data-state': 'idle',
-    'aria-label': 'start a run', title: 'start a run',
-  }, ownIcon('play', 'icon launch-play'), svgIcon('arc', { class: 'icon launch-spin' }));
-  root.append(button);
+  }, ownIcon('play', 'icon launch-play'), svgIcon('arc', { class: 'icon launch-spin' }), 'Start run');
+  const activeLink = (testid) => {
+    const link = el('button', { type: 'button', class: 'launch-active', 'data-testid': testid });
+    link.addEventListener('click', () => {
+      if (!modal.hidden) hide();
+      ctx.bus.emit('run:selected', busyId);
+    });
+    return link;
+  };
+  const headerLink = activeLink('launch-active-link');
+  headerLink.hidden = true;
+  root.append(headerLink, button);
 
   const auto = el('button', {
     type: 'button', class: 'launch-auto', role: 'switch', 'aria-checked': 'false', 'data-testid': 'launch-auto',
-    'aria-label': 'auto-approve HITL', title: 'auto-approve: skip the HITL pause',
-  }, svgIcon('bolt'));
-  const lock = el('span', { class: 'launch-lock', 'data-testid': 'launch-lock', role: 'img', 'aria-label': 'a run is active' },
-    ownIcon('lock', 'icon'));
+    title: 'Skip the approval pauses',
+  }, svgIcon('bolt'), 'Auto-approve');
+  const lockLink = activeLink('launch-lock-link');
+  const lock = el('span', { class: 'launch-lock', 'data-testid': 'launch-lock' },
+    ownIcon('lock', 'icon'), 'Locked: active run ', lockLink);
   const close = el('button', {
-    type: 'button', class: 'launch-close', 'data-testid': 'launch-close', 'aria-label': 'close', title: 'close',
-  }, svgIcon('cross'));
+    type: 'button', class: 'launch-close', 'data-testid': 'launch-close',
+  }, svgIcon('cross'), 'Close');
   const upload = el('button', {
     type: 'button', class: 'launch-upload', 'data-testid': 'launch-upload', 'data-state': 'idle',
-    'aria-label': 'upload into the inbox', title: 'upload a video or transcript (or drop files here)',
-  }, ownIcon('upload', 'icon launch-up'), svgIcon('arc', { class: 'icon launch-spin' }));
+    title: 'Upload a video or transcript (or drop files here)',
+  }, ownIcon('upload', 'icon launch-up'), svgIcon('arc', { class: 'icon launch-spin' }), 'Upload');
+  const failure = el('div', { class: 'launch-error', 'data-testid': 'launch-error', role: 'alert' });
+  failure.hidden = true;
   const picker = el('input', { type: 'file', multiple: '', accept: ACCEPT, hidden: '', 'data-testid': 'launch-file' });
   const tiles = el('div', { class: 'launch-tiles', 'data-testid': 'launch-tiles' });
   const panel = el('div', { class: 'launch-panel' },
-    el('div', { class: 'launch-head' }, auto, upload, picker, lock, close), tiles);
+    el('div', { class: 'launch-head' }, el('strong', { class: 'launch-title' }, 'Start a run'), auto, upload, picker, lock, close), failure, tiles);
   const modal = el('div', {
     class: 'launch-overlay', 'data-testid': 'launch-modal', role: 'dialog', 'aria-modal': 'true',
     'aria-label': 'choose an input', 'data-locked': 'false',
@@ -84,6 +102,11 @@ export function mount(root, ctx) {
   let timer;
   let closing = modal.animate([], 0);
 
+  const showFailure = (text) => {
+    failure.textContent = text;
+    failure.hidden = !text;
+  };
+
   // Own 1 s check of the blocking run: app.js only polls the selected one.
   const check = () => ctx.api.getRun(busyId).then(
     (run) => setBusy(ACTIVE.has(run.status) ? busyId : null),
@@ -94,6 +117,10 @@ export function mount(root, ctx) {
     const busy = id !== null;
     button.disabled = busy;
     button.dataset.state = busy ? 'busy' : 'idle';
+    button.lastChild.textContent = busy ? 'Run active' : 'Start run';
+    headerLink.hidden = !busy;
+    headerLink.textContent = `Go to ${id}`;
+    lockLink.textContent = String(id);
     modal.dataset.locked = String(busy);
     clearTimeout(timer);
     if (busy) timer = setTimeout(check, POLL_MS);
@@ -107,6 +134,7 @@ export function mount(root, ctx) {
 
   async function show() {
     closing.cancel();
+    showFailure('');
     modal.hidden = false;
     close.focus();
     await load(false);
@@ -123,7 +151,7 @@ export function mount(root, ctx) {
       return;
     }
     const empty = el('div', { class: 'launch-empty', 'data-testid': 'launch-empty', role: 'img', 'aria-label': 'inbox is empty' },
-      svgIcon('inbox'), el('span', { class: 'launch-path' }, body.inbox));
+      svgIcon('inbox'), 'The inbox is empty. Upload a file or drop one here.', el('span', { class: 'launch-path', 'data-testid': 'launch-path' }, body.inbox));
     tiles.replaceChildren(...(body.inputs.length ? body.inputs.map((input) => tileEl(input, start)) : [empty]));
     // Closed (or focus moved) while inputs loaded: do not pull focus back into the popup.
     if (fresh || document.activeElement === close) (tiles.querySelector('.tile') ?? close).focus();
@@ -134,14 +162,18 @@ export function mount(root, ctx) {
     upload.disabled = true;
     upload.dataset.state = 'busy';
     let sent = 0;
+    const refused = [];
     for (const file of files) {
       try {
         await ctx.api.uploadInput(file);
         sent += 1;
       } catch (e) {
-        ctx.bus.emit('ui:error', `upload failed: ${file.name} ${e.message}`);
+        const why = e.body?.detail ?? e.message;
+        refused.push(`${file.name}: ${why}`);
+        ctx.bus.emit('ui:error', `upload failed: ${file.name} ${why}`);
       }
     }
+    showFailure(refused.join(' · '));
     picker.value = '';
     upload.disabled = false;
     upload.dataset.state = sent === files.length ? 'idle' : 'error';
@@ -150,6 +182,7 @@ export function mount(root, ctx) {
 
   async function start(tile, name) {
     tile.removeAttribute('data-state');
+    showFailure('');
     try {
       const { run_id: id } = await ctx.api.launchRun({
         input: name, auto_approve: auto.getAttribute('aria-checked') === 'true',
@@ -163,7 +196,9 @@ export function mount(root, ctx) {
         return;
       }
       tile.dataset.state = 'error';
-      ctx.bus.emit('ui:error', `launch failed: ${e.message}`);
+      const why = e.body?.detail ?? e.message;
+      showFailure(`${name}: ${why}`);
+      ctx.bus.emit('ui:error', `launch failed: ${why}`);
     }
   }
 
@@ -208,5 +243,9 @@ export function mount(root, ctx) {
   });
   ctx.bus.on('run:updated', (run) => {
     if (ACTIVE.has(run.status) && busyId === null) setBusy(run.run_id);
+  });
+  ctx.bus.on('runs:listed', (runs) => {
+    const active = runs.find((r) => ACTIVE.has(r.status));
+    if (active && busyId === null) setBusy(active.run_id);
   });
 }

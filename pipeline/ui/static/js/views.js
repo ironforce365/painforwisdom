@@ -8,12 +8,19 @@ export function viewFromHash(hash) {
   return VIEWS.includes(view) ? view : 'graph';
 }
 
+/** The run named by a location hash, or null. */
+export function runFromHash(hash) {
+  const id = /^#\/runs\/([^/]+)/.exec(hash)?.[1];
+  return id ? decodeURIComponent(id) : null;
+}
+
 /** `graph` keeps the plain run route, so existing links stay valid. */
 export function routeFor(runId, view) {
   const run = `#/runs/${encodeURIComponent(runId)}`;
   return view === 'graph' ? run : `${run}/${view}`;
 }
 
+/** Mounted after the other modules: the first `view:changed` must reach all of them. */
 export function mount(root, ctx) {
   const tabs = new Map(VIEWS.map((view) => {
     const tab = document.createElement('button');
@@ -36,5 +43,6 @@ export function mount(root, ctx) {
     if (ctx.state.runId) history.replaceState(null, '', routeFor(ctx.state.runId, view));
     ctx.bus.emit('view:changed', { view });
   }
-  show(viewFromHash(location.hash));
+  ctx.showView = show;
+  show(ctx.state.view);
 }

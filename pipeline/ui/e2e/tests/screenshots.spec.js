@@ -4,41 +4,56 @@ import { test, expect, freshServerState } from '../fixtures.js';
 
 const DIR = process.env.PFW_SHOTS;
 test.skip(!DIR, 'screenshots only when PFW_SHOTS names an output dir');
-test.use({ viewport: { width: 1280, height: 640 } });
 
 const shoot = (page, name) => page.screenshot({ path: path.join(DIR, `${name}.png`) });
 
-const RUNS = [
-  ['done-skipped', 'fx-done', 'summarizer', 'done', false],
-  ['error', 'fx-failed', 'research', 'error', false],
-  ['paused', 'fx-hitl', 'kb_curator', 'paused', true],
-  ['running-pending', 'fx-running', 'extract', 'running', true],
-];
+for (const [width, height] of [[1280, 720], [3440, 1440]]) {
+  test.describe(`at ${width}`, () => {
+    test.use({ viewport: { width, height } });
+    test.beforeEach(({ page }) => page.emulateMedia({ reducedMotion: 'reduce' }));
 
-for (const [name, run, node, state, live] of RUNS) {
-  test(`shot ${name}`, async ({ page }) => {
-    freshServerState({ live });
-    await page.emulateMedia({ reducedMotion: 'reduce' });
-    await page.goto(`/#/runs/${run}`);
-    await expect(page.getByTestId(`node-${node}`)).toHaveAttribute('data-state', state);
-    await shoot(page, name);
+    test('shot graph with inspector open', async ({ page }) => {
+      freshServerState();
+      await page.goto('/#/runs/fx-done');
+      await page.getByTestId('node-writer').click();
+      await expect(page.getByTestId('artifact-blog_post.md')).toHaveAttribute('data-state', 'ready');
+      await shoot(page, `graph-inspector-${width}`);
+    });
+
+    test('shot error banner', async ({ page }) => {
+      freshServerState();
+      await page.goto('/#/runs/fx-failed');
+      await expect(page.getByTestId('failure-error')).toBeVisible();
+      await shoot(page, `error-banner-${width}`);
+    });
+
+    test('shot approval banner', async ({ page }) => {
+      freshServerState({ live: true });
+      await page.goto('/#/runs/fx-error');
+      await expect(page.getByTestId('action-option-retry')).toBeVisible();
+      await shoot(page, `pending-banner-${width}`);
+    });
+
+    test('shot metrics expanded', async ({ page }) => {
+      freshServerState();
+      await page.goto('/#/runs/fx-unpackaged');
+      await page.getByTestId('metrics-toggle').click();
+      await expect(page.getByTestId('metrics-table')).toBeVisible();
+      await shoot(page, `metrics-expanded-${width}`);
+    });
+
+    test('shot logs', async ({ page }) => {
+      freshServerState();
+      await page.goto('/#/runs/fx-unpackaged/logs');
+      await expect(page.getByTestId('logs')).toBeVisible();
+      await shoot(page, `logs-${width}`);
+    });
   });
 }
 
-test('shot empty and offline', async ({ page, errors }) => {
-  freshServerState();
-  errors.allow(/status of 500/);
-  await page.route('**/api/runs', (route) => route.fulfill({ json: { runs: [] } }));
-  await page.route('**/api/graph', (route) => route.fulfill({ status: 500, body: 'down' }));
-  await page.goto('/');
-  await expect(page.getByTestId('runs-empty')).toBeVisible();
-  await expect(page.getByTestId('error-badge')).toBeVisible();
-  await shoot(page, 'empty-offline');
-});
-
 test('shot phone width', async ({ page }) => {
   freshServerState();
-  await page.setViewportSize({ width: 390, height: 640 });
+  await page.setViewportSize({ width: 390, height: 800 });
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto('/#/runs/fx-failed');
   await expect(page.getByTestId('node-research')).toHaveAttribute('data-state', 'error');

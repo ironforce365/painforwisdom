@@ -44,14 +44,12 @@ test('an unknown view is the graph', async ({ page }) => {
   await expect(body(page)).toHaveAttribute('data-view', 'graph');
 });
 
-test('view:changed fires after every module mounted, and before the run is selected', async ({ page }) => {
-  await page.addInitScript(() => {
-    window.__seen = [];
-    new MutationObserver(() => window.__seen.push(document.body?.dataset.view)).observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ['data-view'] });
-  });
+test('a module hears the first view:changed at boot, on a deep link', async ({ page }) => {
+  let reads = 0;
+  page.on('request', (r) => { if (/\/log(\?|$)/.test(r.url())) reads += 1; });
   await page.goto('/#/runs/fx-done/logs');
-  await expect(page.getByTestId('logs')).toBeVisible();
-  await expect(page.getByTestId('logs-count')).toBeVisible(); // logs.js heard it at boot, on a deep link
+  await expect(page.getByTestId('logs-count')).toBeVisible();
+  await expect.poll(() => reads).toBeGreaterThan(0); // logs.js mounted before the view was announced
 });
 
 test('[DT-N2] editing the hash navigates; a bare hash changes nothing', async ({ page }) => {
@@ -134,7 +132,7 @@ for (const [width, height] of [[1280, 720], [3440, 1440]]) {
       expect(box.x).toBeCloseTo(list.x + list.width, 0);
       expect(box.x + box.width).toBeCloseTo(width, 0);
       expect(box.y).toBeGreaterThanOrEqual(head.y + head.height - 1);
-      expect(box.y + box.height).toBeCloseTo(bar.y, 0);
+      expect(Math.abs(box.y + box.height - bar.y)).toBeLessThan(2); // the metrics border
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     expect(list.width).toBeLessThan(width * 0.25);

@@ -1,166 +1,213 @@
-// Telemetry strip and step timeline (spec 2026-10-31-pipeline-console-ui §9). Numbers come from C3 run detail as-is.
-import { svgIcon } from './icons.js';
+// Metrics bar: one line, expands to a per-node table (spec 2026-11-05-console-end-to-end §4). Numbers come from C3 run detail.
+import { el } from './drawer.js';
 import { ACTIVE } from './runs.js';
+import { costTip, fmtCost, fmtCount, fmtDuration, fmtRatio, tokensOf } from './format.js';
 
-const PATHS = {
-  total: 'M12 3a9 9 0 1 1 0 18a9 9 0 0 1 0-18z M12 7v5l3 2',
-  work: 'M4 8h16v11H4z M9 8V5h6v3 M4 13h16',
-  tokens: 'M12 3a9 4 0 1 1 0 8a9 4 0 0 1 0-8z M3 7v5c0 2 4 4 9 4s9-2 9-4V7 M3 12v5c0 2 4 4 9 4s9-2 9-4v-5',
-  cost: 'M16 7c-1-1-2.4-1.5-4-1.5c-2.2 0-3.5 1.1-3.5 2.7c0 3.6 7.5 2 7.5 5.6c0 1.7-1.4 2.7-4 2.7c-1.6 0-3-.5-4-1.5 M12 3v18',
+const OPEN_KEY = 'pfw.metrics.open';
+const NO_ROW = {
+  duration_s: null, model: null, cost_usd: 0, cost_estimated: false, calls: 0, in_flight: 0,
+  input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0,
 };
-const SEGMENTS = ['input', 'output', 'cache_read', 'cache_creation'];
-const NODE_TOKENS = ['input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_creation_tokens'];
-const NO_ROW = { duration_s: null, model: null, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0 };
+const NO_NODE = { state: 'pending', started_at: null, ended_at: null, duration_s: null };
 
-export const fmtCount = (n) => {
-  if (n < 1e3) return String(n);
-  if (n < 1e6) return `${(n / 1e3).toFixed(1).replace(/\.0$/, '')}k`;
-  return `${(n / 1e6).toFixed(1).replace(/\.0$/, '')}M`;
-};
-
-export const fmtDuration = (s) => {
-  if (s == null) return '–';
-  if (s < 60) return `${+s.toFixed(1)}s`;
-  const t = Math.round(s);
-  const pad = (n) => String(n).padStart(2, '0');
-  if (t < 3600) return `${Math.floor(t / 60)}m ${pad(t % 60)}s`;
-  return `${Math.floor(t / 3600)}h ${pad(Math.floor(t / 60) % 60)}m`;
+/** name, label, tier: tier 2 fields give way first when the column is narrow. */
+const FIELDS = [
+  ['tokens', 'Tokens', 1], ['fresh', 'Fresh input', 2], ['output', 'Output', 2], ['cache', 'Cache', 1], ['cost', 'Cost', 1],
+  ['time', 'Time', 1], ['work', 'Work', 2], ['calls', 'Calls', 2], ['inflight', 'In flight', 3], ['models', 'Models', 3],
+];
+const COLUMNS = [['state', 'State'], ['time', 'Time'], ['span', 'When'], ['model', 'Model'], ['tokens', 'Tokens'], ['fresh', 'Fresh'],
+  ['output', 'Output'], ['cache', 'Cache'], ['cost', 'Cost']];
+const TIPS = {
+  tokens: 'Input plus output. Input already holds both cache counts.',
+  fresh: 'Input neither read from nor written to the cache.',
+  cache: 'Cache read as a share of input.',
+  time: 'Wall time.',
+  work: 'Wall time minus the wait for answers.',
 };
 
-function el(tag, cls, attrs = {}) {
-  const node = document.createElement(tag);
-  node.className = cls;
-  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
-  return node;
+function loadOpen() {
+  try {
+    return localStorage.getItem(OPEN_KEY) === 'true';
+  } catch {
+    return false; // storage blocked: closed stands
+  }
 }
 
-function icon(name) {
-  const svg = svgIcon('dot');
-  svg.firstChild.setAttribute('d', PATHS[name]);
-  return svg;
+function saveOpen(open) {
+  try {
+    localStorage.setItem(OPEN_KEY, String(open));
+  } catch {
+    // storage blocked: the choice lasts this page only
+  }
 }
 
-function metric(name, label) {
-  const box = el('span', `tele-metric tele-${name}`, { role: 'img', 'aria-label': label, title: label });
-  const val = el('span', 'tele-val', { 'data-testid': `tele-${name}` });
-  box.append(icon(name), val);
-  return { box, val };
-}
+/** Only a real change touches the DOM: the poll must not drop a text selection. */
+const setText = (node, text) => {
+  if (node.textContent !== text) node.textContent = text;
+};
 
-function buildStrip() {
-  const strip = el('div', 'tele-strip', { 'data-testid': 'tele-strip' });
-  const total = metric('total', 'wall time');
-  const work = metric('work', 'work time (wall minus HITL wait)');
-  const tokens = metric('tokens', 'tokens');
-  const stack = el('span', 'tele-stack');
-  const segs = SEGMENTS.map((s) => {
-    const seg = el('span', `tele-seg seg-${s}`, { 'data-testid': `tele-tok-${s}` });
-    stack.append(seg);
-    return seg;
-  });
-  tokens.box.append(stack);
-  const cost = metric('cost', 'cost');
-  strip.append(total.box, work.box, tokens.box, cost.box);
-  return { strip, total: total.val, work: work.val, tokens: tokens.val, segs, cost: cost.val, costBox: cost.box };
-}
-
-function renderStrip(view, run) {
+function runNumbers(run) {
   const t = run.telemetry;
-  view.total.textContent = fmtDuration(t.total_s);
-  view.total.dataset.value = t.total_s;
-  view.total.dataset.live = String(ACTIVE.has(run.status));
-  view.work.textContent = fmtDuration(t.work_s);
-  view.work.dataset.value = t.work_s;
-  const counts = SEGMENTS.map((s) => t.tokens[s]);
-  const sum = counts.reduce((a, b) => a + b, 0);
-  view.tokens.textContent = fmtCount(sum);
-  view.tokens.dataset.value = sum;
-  view.segs.forEach((seg, i) => {
-    seg.dataset.value = counts[i];
-    seg.style.flexBasis = `${(counts[i] / (sum || 1)) * 100}%`;
-    seg.title = `${SEGMENTS[i].replace('_', ' ')} ${fmtCount(counts[i])}`;
-  });
-  const cost = t.cost_usd ?? 0; // null: no price for the model
-  view.cost.textContent = `$${cost.toFixed(2)}`;
-  view.cost.dataset.value = cost;
-  view.costBox.hidden = !cost;
+  return {
+    ...tokensOf(t.tokens.input, t.tokens.output, t.tokens.cache_read, t.tokens.cache_creation),
+    calls: t.calls, inflight: t.in_flight, cost: t.cost_usd, estimated: t.cost_estimated, time: t.total_s, work: t.work_s,
+    models: [...new Set(Object.values(t.per_node).map((p) => p.model).filter(Boolean))],
+    live: ACTIVE.has(run.status),
+  };
+}
+
+function nodeNumbers(run, id) {
+  const row = { ...NO_ROW, ...run.telemetry.per_node[id] };
+  const node = { ...NO_NODE, ...run.nodes[id] };
+  const now = run.started_at + run.telemetry.total_s;
+  const span = node.started_at === null ? null : (node.ended_at ?? now) - node.started_at;
+  return {
+    ...tokensOf(row.input_tokens, row.output_tokens, row.cache_read_tokens, row.cache_creation_tokens),
+    calls: row.calls, inflight: row.in_flight, cost: row.cost_usd, estimated: row.cost_estimated,
+    time: span, work: row.duration_s ?? node.duration_s,
+    models: [row.model].filter(Boolean),
+    state: node.state, started_at: node.started_at, span,
+    live: node.state === 'running',
+  };
+}
+
+function writeField(view, nums) {
+  const values = {
+    tokens: nums.total, fresh: nums.fresh, output: nums.output, cache: nums.hit, cost: nums.cost,
+    time: nums.time, work: nums.work, calls: nums.calls, inflight: nums.inflight, models: nums.models.join(', '),
+  };
+  const text = {
+    tokens: fmtCount(nums.total), fresh: fmtCount(nums.fresh), output: fmtCount(nums.output), cache: fmtRatio(nums.hit),
+    cost: fmtCost(nums.cost, nums.estimated), time: fmtDuration(nums.time), work: fmtDuration(nums.work),
+    calls: fmtCount(nums.calls), inflight: fmtCount(nums.inflight), models: values.models || '–',
+  };
+  for (const [name, node] of Object.entries(view)) {
+    setText(node, text[name]);
+    node.dataset.value = values[name];
+  }
+  view.cost.dataset.estimated = String(Boolean(nums.estimated));
+  view.cost.title = costTip(nums.cost, nums.estimated);
+  view.time.dataset.live = String(nums.live);
 }
 
 export function mount(root, ctx) {
-  const view = buildStrip();
-  const timeline = el('div', 'tele-timeline', { 'data-testid': 'tele-timeline', 'aria-label': 'step timeline' });
-  const tip = el('div', 'tele-tip', { 'data-testid': 'tele-tip', role: 'tooltip' });
-  tip.hidden = true;
-  const wrap = el('div', 'telemetry');
-  wrap.append(view.strip, timeline, tip);
-  root.replaceChildren(wrap);
-  const bars = new Map();
+  let open = loadOpen();
+  let run = null;
+  let scope = null;
+  const rows = new Map();
+  let order = [];
 
-  const unhighlight = () => {
-    tip.hidden = true;
-    document.querySelectorAll('[data-highlight]').forEach((n) => n.removeAttribute('data-highlight'));
-  };
-  const highlight = (id, bar) => {
+  const fields = {};
+  const items = FIELDS.map(([name, label, tier]) => {
+    fields[name] = el('b', { class: 'm-val', 'data-testid': `metrics-${name}` });
+    return el('span', { class: 'm-field', 'data-tier': tier, title: TIPS[name] ?? label }, el('span', { class: 'm-label' }, label), ' ', fields[name]);
+  });
+
+  const toggle = el('button', { type: 'button', class: 'm-toggle', 'data-testid': 'metrics-toggle', 'aria-expanded': String(open) }, 'Details');
+  const scopeName = el('span', {});
+  const chip = el('button', { type: 'button', class: 'm-scope', 'data-testid': 'metrics-scope-clear', title: 'Back to the whole run' }, scopeName, ' · whole run');
+  chip.hidden = true;
+  const live = el('span', { class: 'm-live', 'data-testid': 'metrics-live' }, 'live');
+  const bar = el('div', { class: 'm-bar', 'data-testid': 'metrics-bar', 'data-scope': 'run', 'data-live': 'false' }, toggle, chip, live, ...items);
+  bar.hidden = true;
+
+  const tbody = el('tbody', {});
+  const head = el('tr', {}, el('th', {}, 'Node'), ...COLUMNS.map(([, label]) => el('th', {}, label)));
+  const table = el('div', { class: 'm-table', 'data-testid': 'metrics-table' }, el('table', {}, el('thead', {}, head), tbody));
+  table.hidden = !open;
+  root.append(el('div', { class: 'metrics' }, bar, table));
+
+  toggle.addEventListener('click', () => {
+    open = !open;
+    saveOpen(open);
+    table.hidden = !open;
+    toggle.setAttribute('aria-expanded', String(open));
+  });
+  chip.addEventListener('click', () => ctx.bus.emit('node:selected', null));
+
+  const unhighlight = () => document.querySelectorAll('[data-highlight]').forEach((n) => n.removeAttribute('data-highlight'));
+  const highlight = (id) => {
     unhighlight();
-    document.querySelectorAll(`[data-testid="dag"] [data-testid="node-${CSS.escape(id)}"]`)
-      .forEach((n) => n.setAttribute('data-highlight', ''));
-    tip.replaceChildren(...bar.tip.map((line) => Object.assign(el('div', 'tele-tip-line'), { textContent: line })));
-    tip.style.setProperty('--x', bar.el.style.left);
-    bar.el.parentElement.append(tip);
-    tip.hidden = false;
+    document.querySelector(`[data-testid="dag"] [data-testid="node-${CSS.escape(id)}"]`).setAttribute('data-highlight', '');
+  };
+
+  const rowEl = (n) => {
+    const cells = Object.fromEntries(COLUMNS.map(([col]) => [col, el('td', { 'data-col': col })]));
+    const span = el('div', { class: 'm-span', 'data-testid': `metrics-span-${n.id}` });
+    span.hidden = true;
+    cells.span.append(el('div', { class: 'm-track' }, span));
+    const tr = el('tr', { 'data-testid': `metrics-row-${n.id}`, 'aria-selected': 'false' },
+      el('td', { class: 'm-node' }, el('button', { type: 'button' }, n.label)), ...Object.values(cells));
+    tr.addEventListener('click', () => ctx.bus.emit('node:selected', n.id));
+    tr.addEventListener('mouseenter', () => highlight(n.id));
+    tr.addEventListener('mouseleave', unhighlight);
+    return { tr, cells, span };
+  };
+
+  const renderRow = (row, nums, t0, width) => {
+    const { cells, span } = row;
+    setText(cells.state, nums.state);
+    row.tr.dataset.state = nums.state;
+    setText(cells.time, fmtDuration(nums.work ?? nums.span));
+    setText(cells.model, nums.models[0] ?? '–');
+    setText(cells.tokens, nums.total ? fmtCount(nums.total) : '–');
+    cells.tokens.dataset.value = nums.total;
+    setText(cells.fresh, nums.total ? fmtCount(nums.fresh) : '–');
+    setText(cells.output, nums.output ? fmtCount(nums.output) : '–');
+    setText(cells.cache, nums.total ? fmtRatio(nums.hit) : '–');
+    setText(cells.cost, fmtCost(nums.cost, nums.estimated));
+    cells.cost.title = costTip(nums.cost, nums.estimated);
+    span.hidden = nums.started_at === null;
+    if (nums.started_at !== null) {
+      Object.assign(span.style, { left: `${((nums.started_at - t0) / width) * 100}%`, width: `${(nums.span / width) * 100}%` });
+      span.dataset.state = nums.state;
+      span.dataset.span = nums.span;
+    }
+  };
+
+  const renderTable = () => {
+    const ids = [...rows.keys()];
+    const nums = new Map(ids.map((id) => [id, nodeNumbers(run, id)]));
+    const started = ids.map((id) => nums.get(id)).filter((n) => n.started_at !== null);
+    const t0 = Math.min(run.started_at ?? Infinity, ...started.map((n) => n.started_at));
+    const end = Math.max(run.started_at + run.telemetry.total_s, ...started.map((n) => n.started_at + n.span));
+    const width = end - t0 || 1;
+    ids.forEach((id) => renderRow(rows.get(id), nums.get(id), t0, width));
+    const sorted = [...ids].sort((a, b) => nums.get(b).total - nums.get(a).total);
+    if (sorted.join() !== order.join()) { // a reorder moves DOM nodes, so only when it must
+      order = sorted;
+      tbody.append(...sorted.map((id) => rows.get(id).tr));
+    }
+  };
+
+  const render = () => {
+    bar.hidden = run === null;
+    bar.dataset.scope = scope ?? 'run';
+    chip.hidden = scope === null;
+    for (const [id, row] of rows) row.tr.setAttribute('aria-selected', String(id === scope));
+    if (run === null) return;
+    const nums = scope === null ? runNumbers(run) : nodeNumbers(run, scope);
+    bar.dataset.live = String(nums.live);
+    writeField(fields, nums);
+    renderTable();
   };
 
   ctx.bus.on('graph:loaded', (graph) => {
-    timeline.replaceChildren(...graph.nodes.map((n) => {
-      const row = el('div', 'tl-row', { 'data-testid': `tl-row-${n.id}` });
-      const track = el('div', 'tl-track');
-      const bar = {
-        el: el('div', 'tl-bar', { 'data-testid': `tl-bar-${n.id}`, tabindex: '0' }),
-        tokens: el('span', 'tl-tokens', { 'data-testid': `tl-tokens-${n.id}` }),
-        label: n.label,
-        tip: [],
-      };
-      bar.el.hidden = true;
-      bar.el.addEventListener('mouseenter', () => highlight(n.id, bar));
-      bar.el.addEventListener('focus', () => highlight(n.id, bar));
-      bar.el.addEventListener('mouseleave', unhighlight);
-      bar.el.addEventListener('blur', unhighlight);
-      track.append(bar.el);
-      row.append(svgIcon(n.icon, { role: 'img', 'aria-label': n.label, 'aria-hidden': 'false' }), track, bar.tokens);
-      bars.set(n.id, bar);
-      return row;
-    }));
+    graph.nodes.forEach((n) => rows.set(n.id, rowEl(n)));
+    tbody.replaceChildren(...[...rows.values()].map((r) => r.tr));
+    order = [...rows.keys()];
   });
-
-  ctx.bus.on('run:updated', (run) => {
-    renderStrip(view, run);
-    const now = run.started_at + run.telemetry.total_s;
-    const spans = [...bars.keys()].filter((id) => run.nodes[id].started_at != null)
-      .map((id) => [id, run.nodes[id].started_at, run.nodes[id].ended_at ?? now]);
-    const t0 = Math.min(run.started_at, ...spans.map((s) => s[1]));
-    const width = Math.max(now, ...spans.map((s) => s[2])) - t0 || 1;
-    const rowOf = (id) => ({ ...NO_ROW, ...run.telemetry.per_node[id] });
-    const sumOf = (row) => NODE_TOKENS.reduce((a, k) => a + row[k], 0);
-    for (const [id, bar] of bars) {
-      const sum = sumOf(rowOf(id));
-      bar.el.hidden = true;
-      bar.tokens.textContent = sum ? fmtCount(sum) : '–';
-      bar.tokens.dataset.value = sum;
-      bar.tokens.title = `${bar.label}: ${sum} tokens`;
-    }
-    for (const [id, start, end] of spans) {
-      const bar = bars.get(id);
-      const state = run.nodes[id].state;
-      const row = rowOf(id);
-      const tokens = sumOf(row);
-      const dur = fmtDuration(row.duration_s ?? end - start);
-      Object.assign(bar.el.style, { left: `${((start - t0) / width) * 100}%`, width: `${((end - start) / width) * 100}%` });
-      bar.el.dataset.state = state;
-      bar.el.dataset.span = end - start;
-      bar.el.setAttribute('aria-label', `${bar.label}: ${state}, ${dur}`);
-      const split = `in ${fmtCount(row.input_tokens)} · out ${fmtCount(row.output_tokens)} · cache read ${fmtCount(row.cache_read_tokens)} · cache write ${fmtCount(row.cache_creation_tokens)}`;
-      bar.tip = [bar.label, `${dur} · ${fmtCount(tokens)} tokens`, tokens && split, row.model].filter(Boolean);
-      bar.el.hidden = false;
-    }
+  ctx.bus.on('node:selected', (id) => {
+    scope = id;
+    if (id !== null) scopeName.textContent = ctx.state.graph.nodes.find((n) => n.id === id).label;
+    render();
+  });
+  ctx.bus.on('run:selected', () => {
+    run = null;
+    render();
+  });
+  ctx.bus.on('run:updated', (r) => {
+    run = r;
+    render();
   });
 }

@@ -23,7 +23,7 @@ test('[DT-N1] lists every run wanting a decision, with its reason, one click to 
   await expect(page.getByTestId('needs-you-item-fx-failed')).toHaveAttribute('aria-pressed', 'true');
 });
 
-test('every reason of a run is named; live decisions come first', async ({ page }) => {
+test('every reason of a run is named; live decisions come first', async ({ page, errors }) => {
   await page.route('**/api/runs', (route) => route.fulfill({
     json: {
       runs: [
@@ -39,6 +39,7 @@ test('every reason of a run is named; live decisions come first', async ({ page 
     },
   }));
   await page.route('**/api/runs/*', (route) => route.fulfill({ status: 404, json: { detail: 'unknown run' } }));
+  errors.allow(/status of 404/);
   await page.goto('/');
   const a = page.getByTestId('needs-you-item-a');
   await expect(a).toContainText('youtube: package pending');

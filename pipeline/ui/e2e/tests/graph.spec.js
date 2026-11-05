@@ -79,15 +79,15 @@ test('[DT-N4] every node shows its label as text and what it spent', async ({ pa
   const graph = await (await request.get('/api/graph')).json();
   await ready(page);
   for (const n of graph.nodes) {
-    const label = page.getByTestId(`node-${n.id}`).getByTestId('node-label');
+    const label = page.getByTestId(`node-${n.id}`).getByTestId('dag-label');
     await expect(label).toHaveText(n.label);
     await expect(label).toBeVisible();
   }
-  await expect(page.getByTestId('node-research').getByTestId('node-meta')).toHaveText('1m 27s · $0.40');
-  await expect(page.getByTestId('node-youtube_upload').getByTestId('node-meta')).toContainText('skipped');
+  await expect(page.getByTestId('node-research').getByTestId('dag-meta')).toHaveText('1m 27s · $0.40');
+  await expect(page.getByTestId('node-youtube_upload').getByTestId('dag-meta')).toContainText('skipped');
   await page.goto('/#/runs/fx-unpackaged');
-  await expect(page.getByTestId('node-extract').getByTestId('node-meta')).toContainText('≈$0.01');
-  await expect(page.getByTestId('node-writer').getByTestId('node-meta')).not.toContainText('$0');
+  await expect(page.getByTestId('node-extract').getByTestId('dag-meta')).toContainText('≈$0.01');
+  await expect(page.getByTestId('node-writer').getByTestId('dag-meta')).not.toContainText('$0');
 });
 
 test('[DT-N4] the wheel zooms at the cursor and clamps', async ({ page }) => {

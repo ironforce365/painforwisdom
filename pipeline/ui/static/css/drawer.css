@@ -14,19 +14,16 @@
 .drawer button:focus-visible, .drawer a:focus-visible { outline: 2px solid var(--run); outline-offset: 2px; }
 .drawer a { color: var(--run); }
 
-/* ---- side panel ---- */
+/* ---- docked panel: a grid column of .layout, so the centre reflows instead of being covered ---- */
+.drawer { min-width: 0; min-height: 0; }
 .drawer .panel {
-  position: fixed;
-  top: 48px;
-  right: 0;
-  bottom: 0;
-  z-index: 10;
-  width: min(var(--drawer-w, clamp(480px, 38vw, 1600px)), 100vw);
+  position: relative;
+  height: 100%;
+  width: var(--drawer-w, clamp(340px, 28vw, 1100px));
   display: flex;
   flex-direction: column;
   background: var(--surface);
   border-left: 1px solid var(--line);
-  box-shadow: -8px 0 24px rgb(0 0 0 / 35%);
 }
 .drawer .resize {
   position: absolute;
@@ -42,13 +39,18 @@
 .drawer .panel > header {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 6px 12px;
   border-bottom: 1px solid var(--line);
 }
-.drawer .panel > header > button { margin-left: auto; }
+.drawer .panel > header > button { margin-left: auto; gap: 4px; padding: 2px 8px; font: inherit; font-size: 12px; }
+.drawer .panel > header > button .icon { width: 14px; height: 14px; }
 .drawer .node-icon { display: inline-flex; color: var(--text); }
-.drawer .node-icon .icon { width: 26px; height: 26px; }
+.drawer .node-icon .icon { width: 20px; height: 20px; }
+.drawer .state-text { color: var(--muted); font-size: 12px; }
+.drawer small:empty { display: none; }
+.drawer .node-error { padding: 6px 8px; border: 1px solid var(--error); border-radius: 4px; color: var(--error); font: 12px/1.45 ui-monospace, monospace; white-space: pre-wrap; }
 .drawer .state-cue {
   display: inline-flex;
   padding: 3px;
@@ -78,7 +80,7 @@
   overflow-wrap: anywhere;
 }
 .drawer .body > .unavailable { display: none; }
-.drawer .body:not(:has(.fact, .finding, .art)) > .unavailable { display: flex; }
+.drawer .body:not(:has(.fact, .finding, .art)):has(.node-error[hidden]) > .unavailable { display: flex; }
 .drawer .info, .arts { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .drawer .info:not(:has(.fact, .finding)), .arts:empty { display: none; }
 .drawer .facts { display: grid; grid-template-columns: minmax(0, max-content) minmax(0, 1fr); gap: 2px 12px; margin: 0; font-size: 12px; }
@@ -140,6 +142,7 @@
   align-items: center;
   gap: 8px;
   padding: 40px 0;
+  color: var(--muted);
 }
 .drawer .unavailable .icon { width: 44px; height: 44px; color: var(--muted); }
 
@@ -148,4 +151,9 @@
 
 @media (prefers-reduced-motion: reduce) {
   .drawer .icon { animation: none !important; }
+}
+
+@media (max-width: 720px) {
+  .drawer .panel { width: 100%; height: auto; max-height: 70vh; border-left: 0; border-top: 1px solid var(--line); }
+  .drawer .resize { display: none; }
 }

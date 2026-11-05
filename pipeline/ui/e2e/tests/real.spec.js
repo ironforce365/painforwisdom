@@ -42,10 +42,10 @@ for (const r of RUNS) {
     await page.reload(); // fresh run list item carries the final verdict
     await expect(page.getByTestId(`run-${runId}`)).toHaveAttribute('data-verdict', 'PASS');
     await expect(page.getByTestId('node-transcribe')).toHaveAttribute('data-state', r.transcribe);
-    await expect.poll(async () => Number(await page.getByTestId('tele-tokens').getAttribute('data-value'))).toBeGreaterThan(0);
+    await expect.poll(async () => Number(await page.getByTestId('metrics-tokens').getAttribute('data-value'))).toBeGreaterThan(0);
     if (SHOTS) {
       await page.screenshot({ path: path.join(SHOTS, `real-${r.kind}-done.png`) });
-      await page.getByTestId('tele-strip').screenshot({ path: path.join(SHOTS, `real-${r.kind}-telemetry.png`) });
+      await page.getByTestId('metrics-bar').screenshot({ path: path.join(SHOTS, `real-${r.kind}-telemetry.png`) });
     }
 
     const { artifacts } = await (await page.request.get(`/api/runs/${runId}/artifacts`)).json();
@@ -66,7 +66,7 @@ for (const r of RUNS) {
     const title = execFileSync(PYTHON, ['pipeline/ui/e2e/real_blog_title.py', path.join(REPO, 'processed', runId, 'langgraph')],
       { cwd: REPO, env: { ...process.env, PYTHONPATH: REPO } }).toString().trim();
     expect(title).not.toBe('');
-    await page.getByTestId('output-open').click();
+    await page.getByTestId('view-tab-output').click();
     await expect(page.getByTestId('output-blog-link')).toHaveText(title, { timeout: 60_000 });
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `real-${r.kind}-result.png`) });
 

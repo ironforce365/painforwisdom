@@ -1,0 +1,50 @@
+/* Action banner (spec 2026-11-05-console-end-to-end §4). Always above the view, never over it. */
+.slot-actions { flex: none; }
+.banner {
+  --c: var(--run);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 6px 16px;
+  max-height: 42vh;
+  overflow: auto;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--line);
+  border-left: 3px solid var(--c);
+  background: color-mix(in srgb, var(--c) 8%, var(--surface));
+}
+.banner[hidden] { display: none; }
+.banner[data-kind="pending-approval"] { --c: var(--pause); }
+.banner[data-kind="pending-error"], .banner[data-kind="failure"] { --c: var(--error); }
+.banner-body { flex: 1 1 420px; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; overflow-wrap: anywhere; }
+.banner-verbs { flex: 0 1 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.banner-title { font-weight: 600; }
+.banner-failure { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.banner-message { color: var(--error); font-family: ui-monospace, monospace; font-size: 12px; white-space: pre-wrap; }
+.banner-hint, .banner-sent { color: var(--muted); font-size: 12px; }
+.banner-reason { font-weight: 600; color: var(--error); }
+.banner-prompt { align-self: stretch; max-height: 24vh; overflow: auto; white-space: normal; font-size: 12px; }
+.banner-prompt p { margin: 0 0 0.3em; white-space: pre-wrap; }
+.banner-options { align-self: stretch; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.banner-text { flex: 1 1 240px; min-width: 160px; padding: 3px 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--text); font: inherit; resize: vertical; }
+.banner-text:focus-visible { outline: 2px solid var(--run); outline-offset: 1px; }
+.banner button {
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.banner button:hover:not(:disabled) { border-color: var(--text); }
+.banner button:focus-visible { outline: 2px solid var(--run); outline-offset: 1px; }
+.banner button:disabled { opacity: 0.5; cursor: not-allowed; }
+.banner button[data-style="primary"] { background: var(--run); border-color: var(--run); color: var(--bg); font-weight: 600; }
+.banner button[data-style="danger"] { background: color-mix(in srgb, var(--error) 22%, var(--surface-2)); border-color: var(--error); }
+.banner .banner-node { font-family: ui-monospace, monospace; }
+.banner-question { color: var(--pause); font-weight: 600; font-size: 12px; }
+.banner-blocker { color: var(--muted); font-size: 12px; }
+.banner-error { flex-basis: 100%; color: var(--error); font-weight: 600; }
+.banner-error[hidden] { display: none; }

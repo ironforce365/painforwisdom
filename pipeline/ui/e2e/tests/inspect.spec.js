@@ -20,9 +20,8 @@ async function openNode(page, run, node) {
   await expect(drawer(page)).toHaveAttribute('data-node', node);
 }
 
-/** The open drawer overlays the right of the DAG: close it, then pick another node. */
+/** The docked inspector leaves the whole graph reachable: pick the next node directly. */
 async function pick(page, node) {
-  await drawer(page).getByTestId('drawer-close').click();
   await page.getByTestId(`node-${node}`).click();
   await expect(drawer(page)).toHaveAttribute('data-node', node);
 }
@@ -143,20 +142,86 @@ test('every finding level maps to its icon, an unparseable item shows raw', asyn
   await expect(items.nth(6)).toHaveText('{"name": "cut off');
 });
 
+test('[DT-R2] node.error shows in the inspector; a clean node has no error box', async ({ page }) => {
+  await openNode(page, 'fx-failed', 'research');
+  const box = drawer(page).getByTestId('drawer-error');
+  await expect(box).toBeVisible();
+  await expect(box).toContainText('research agent returned no rows');
+  await expect(drawer(page).getByTestId('drawer-state')).toHaveText('error');
+  await expect(drawer(page).getByTestId('drawer-nothing')).toBeHidden();
+  await pick(page, 'extract');
+  await expect(box).toBeHidden();
+});
+
+test('[DT-R2] the header names the node, its state, tokens and cost as text', async ({ page }) => {
+  await openNode(page, 'fx-done', 'research');
+  await expect(drawer(page).getByTestId('drawer-title')).toHaveText('research');
+  await expect(drawer(page).getByTestId('drawer-state')).toHaveText('done');
+  await expect(drawer(page).getByTestId('drawer-duration')).toHaveText('1m 27s');
+  await expect(drawer(page).getByTestId('drawer-tokens')).toHaveText('54.3k tokens');
+  await expect(drawer(page).getByTestId('drawer-cost')).toHaveText('$0.40');
+  await expect(drawer(page).getByTestId('drawer-close')).toHaveText('Close');
+  await pick(page, 'notion_blog');
+  await expect(drawer(page).getByTestId('drawer-tokens')).toBeHidden();
+  await expect(drawer(page).getByTestId('drawer-cost')).toHaveText('–');
+  await page.goto('about:blank');
+  await openNode(page, 'fx-unpackaged', 'extract');
+  await expect(drawer(page).getByTestId('drawer-cost')).toHaveText('≈$0.01');
+  await expect(drawer(page).getByTestId('drawer-cost')).toHaveAttribute('title', /API-equivalent/);
+});
+
+test('[DT-R2] a poll does not drop a text selection in the inspector', async ({ page }) => {
+  freshServerState({ live: true });
+  let polls = 0;
+  page.on('response', (r) => { if (r.url().endsWith('/api/runs/fx-running')) polls += 1; });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/#/runs/fx-running');
+  await page.getByTestId('node-transcribe').click();
+  const title = drawer(page).getByTestId('drawer-title');
+  const length = await title.evaluate((n) => {
+    const r = document.createRange();
+    r.selectNodeContents(n);
+    getSelection().removeAllRanges();
+    getSelection().addRange(r);
+    return getSelection().toString().length;
+  });
+  const seen = polls;
+  await expect.poll(() => polls, { timeout: 10_000 }).toBeGreaterThan(seen + 1);
+  expect(await page.evaluate(() => getSelection().toString().length)).toBe(length);
+});
+
+test('resizing never takes the centre below its minimum', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await openNode(page, 'fx-done', 'writer');
+  const handle = drawer(page).getByTestId('drawer-resize');
+  const box = await handle.boundingBox();
+  await page.mouse.move(box.x + 4, 300);
+  await page.mouse.down();
+  await page.mouse.move(100, 300);
+  await page.mouse.up();
+  const dag = await page.getByTestId('dag').boundingBox();
+  expect(dag.width).toBeGreaterThanOrEqual(359);
+  await page.mouse.move((await handle.boundingBox()).x + 4, 300);
+  await page.mouse.down();
+  await page.mouse.move(1279, 300);
+  await page.mouse.up();
+  expect((await drawer(page).boundingBox()).width).toBe(320);
+});
+
 test('drawer default width, drag and keyboard resize persist across reloads', async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 800 });
   await openNode(page, 'fx-done', 'writer');
   const width = async () => (await drawer(page).boundingBox()).width;
-  expect(await width()).toBeCloseTo(0.38 * 1600, 0);
+  expect(await width()).toBeCloseTo(0.28 * 1600, 0);
   const handle = drawer(page).getByTestId('drawer-resize');
   await handle.focus();
   await page.keyboard.press('ArrowLeft');
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('ArrowRight');
-  expect(await width()).toBeCloseTo(0.38 * 1600 - 40, 0);
+  expect(await width()).toBeCloseTo(0.28 * 1600 - 40, 0);
   await page.reload();
   await page.getByTestId('node-writer').click();
-  expect(await width()).toBeCloseTo(0.38 * 1600 - 40, 0);
+  expect(await width()).toBeCloseTo(0.28 * 1600 - 40, 0);
   // After the reload: coverage keeps only the last load of a script.
   const box = await handle.boundingBox();
   await page.mouse.move(box.x + 4, 400);
@@ -181,7 +246,7 @@ test('blocked localStorage leaves the default width and resizing still works', a
   const handle = drawer(page).getByTestId('drawer-resize');
   await handle.focus();
   await page.keyboard.press('ArrowLeft');
-  expect((await drawer(page).boundingBox()).width).toBeCloseTo(0.38 * 1600 + 40, 0);
+  expect((await drawer(page).boundingBox()).width).toBeCloseTo(0.28 * 1600 + 40, 0);
 });
 
 test('long text wraps without horizontal scroll; only tables and code scroll in their box', async ({ page }) => {
@@ -239,6 +304,7 @@ test('drawer closes on its button, on Escape and on another run; keeps other key
   await openNode(page, 'fx-done', 'extract');
   await drawer(page).getByTestId('drawer-close').click();
   await expect(drawer(page)).toBeHidden();
+  await expect(page.getByTestId('node-extract')).toHaveAttribute('aria-pressed', 'false');
   await page.getByTestId('node-extract').click();
   await drawer(page).getByTestId('drawer-close').press('a');
   await expect(drawer(page)).toBeVisible();

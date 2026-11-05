@@ -1,10 +1,12 @@
-// Step inspector drawer (spec 2026-10-31-pipeline-console-ui §8). Styles: css/drawer.css.
+// Step inspector, docked beside the centre column (spec 2026-11-05-console-end-to-end §4). Styles: css/drawer.css.
 import { svgIcon } from './icons.js';
 import { renderMarkdown } from './markdown.js';
+import { costTip, fmtCost, fmtCount, fmtDuration, tokensOf } from './format.js';
 
 const POLL_MS = 1000;
 const WIDTH_KEY = 'pfw.drawer.width';
 const WIDTH_MIN = 320;
+const CENTRE_MIN = 360; // resizing never takes the centre column below this
 const WIDTH_STEP = { ArrowLeft: 40, ArrowRight: -40 };
 const AUDIT_KEY = /_findings/;
 const FINDING_ICONS = { ok: 'tick', core: 'cross', secondary: 'warn', PASS: 'tick', PARTIAL: 'warn', FAIL: 'cross' };
@@ -95,7 +97,7 @@ export function artifactEl(a, url) {
   if (a.kind === 'image') {
     body(el('img', { src: url, alt: a.name }));
   } else if (a.kind === 'other') {
-    body(el('a', { href: url, download: a.name, 'aria-label': `download ${a.name}` }, icon('file')));
+    body(el('a', { href: url, download: a.name }, icon('file'), `Download ${a.name}`));
   } else {
     fetch(url).then((r) => (r.ok ? r.text() : Promise.reject(new Error(`HTTP ${r.status}`)))).then(
       (text) => body(RENDER[a.kind](text)),
@@ -160,10 +162,12 @@ function resizer(panel) {
     'aria-label': 'resize', tabindex: '0', 'aria-valuemin': WIDTH_MIN,
   });
   const setWidth = (px) => {
-    const width = Math.round(Math.min(Math.max(px, WIDTH_MIN), window.innerWidth));
+    const left = document.querySelector('[data-testid="run-list"]').offsetWidth;
+    const max = Math.max(WIDTH_MIN, window.innerWidth - left - CENTRE_MIN);
+    const width = Math.round(Math.min(Math.max(px, WIDTH_MIN), max));
     panel.style.setProperty('--drawer-w', `${width}px`);
     handle.setAttribute('aria-valuenow', width);
-    handle.setAttribute('aria-valuemax', window.innerWidth);
+    handle.setAttribute('aria-valuemax', max);
     return width;
   };
   handle.addEventListener('pointerdown', (down) => {
@@ -187,13 +191,17 @@ function resizer(panel) {
   return handle;
 }
 
-function fmtDuration(s) {
-  return s == null ? '–' : `${Math.round(s * 10) / 10}s`;
-}
+const NO_ROW = { input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0, cost_usd: 0, cost_estimated: false };
+const NO_RUN = { nodes: {}, telemetry: { per_node: {} } };
+
+/** Only a real change touches the DOM: the poll must not drop a text selection. */
+const setText = (node, text) => {
+  if (node.textContent !== text) node.textContent = text;
+};
 
 export function mount(root, ctx) {
   root.classList.add('drawer');
-  let run = { nodes: {} };
+  let run = NO_RUN;
 
   const panel = el('aside', { class: 'panel', 'data-testid': 'drawer', 'aria-label': 'step inspector' });
   panel.hidden = true;
@@ -202,26 +210,43 @@ export function mount(root, ctx) {
     clearInterval(listTimer);
     panel.hidden = true;
   };
+  const deselect = () => ctx.bus.emit('node:selected', null);
   panel.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closePanel();
+    if (e.key === 'Escape') deselect();
   });
 
-  const close = el('button', { type: 'button', 'data-testid': 'drawer-close', 'aria-label': 'close' }, icon('close'));
-  close.addEventListener('click', closePanel);
+  const close = el('button', { type: 'button', 'data-testid': 'drawer-close' }, icon('close'), 'Close');
+  close.addEventListener('click', deselect);
   const nodeIcon = el('span', { class: 'node-icon', role: 'img' });
+  const title = el('strong', { class: 'node-title', 'data-testid': 'drawer-title' });
   const cue = el('span', { class: 'state-cue', role: 'img' });
+  const stateText = el('span', { class: 'state-text', 'data-testid': 'drawer-state' });
   const duration = el('small', { 'data-testid': 'drawer-duration' });
-  const head = el('header', {}, nodeIcon, cue, duration, close);
+  const spent = el('small', { 'data-testid': 'drawer-tokens' });
+  const cost = el('small', { 'data-testid': 'drawer-cost' });
+  const head = el('header', {}, nodeIcon, title, cue, stateText, duration, spent, cost, close);
   const handle = resizer(panel);
   panel.append(handle, head);
   const info = el('div', { class: 'info' });
+  const errorBox = el('div', { class: 'node-error', 'data-testid': 'drawer-error', role: 'alert' });
 
   const renderHead = () => {
-    const n = Object.assign({ state: 'pending', duration_s: null, facts: {}, result: {} }, run.nodes[panel.dataset.node]);
+    const id = panel.dataset.node;
+    const n = Object.assign({ state: 'pending', duration_s: null, facts: {}, result: {}, error: null }, run.nodes[id]);
+    const row = { ...NO_ROW, ...run.telemetry.per_node[id] };
     panel.dataset.state = n.state;
-    cue.replaceChildren(svgIcon(CUES[n.state]));
-    cue.setAttribute('aria-label', n.state);
-    duration.textContent = fmtDuration(n.duration_s);
+    if (cue.getAttribute('aria-label') !== n.state) {
+      cue.replaceChildren(svgIcon(CUES[n.state]));
+      cue.setAttribute('aria-label', n.state);
+    }
+    setText(stateText, n.state);
+    setText(duration, fmtDuration(n.duration_s));
+    const { total } = tokensOf(row.input_tokens, row.output_tokens, row.cache_read_tokens, row.cache_creation_tokens);
+    setText(spent, total ? `${fmtCount(total)} tokens` : '');
+    setText(cost, fmtCost(row.cost_usd, row.cost_estimated));
+    cost.title = costTip(row.cost_usd, row.cost_estimated);
+    errorBox.hidden = !n.error;
+    setText(errorBox, n.error ?? '');
     // Rebuild only on change: the poll would otherwise drop a text selection every second.
     const sig = JSON.stringify([panel.dataset.node, n.facts, n.result]);
     if (info.dataset.sig !== sig) {
@@ -231,6 +256,10 @@ export function mount(root, ctx) {
   };
 
   ctx.bus.on('node:selected', (id) => {
+    if (id === null) {
+      closePanel();
+      return;
+    }
     const node = ctx.state.graph.nodes.find((n) => n.id === id);
     const runId = ctx.state.runId;
     clearInterval(listTimer);
@@ -238,12 +267,13 @@ export function mount(root, ctx) {
     nodeIcon.replaceChildren(svgIcon(node.icon));
     nodeIcon.setAttribute('aria-label', node.label);
     nodeIcon.title = node.label;
+    title.textContent = node.label;
     // A fresh list per selection: a late answer for the previous node lands in a detached element.
     const list = el('div', { class: 'arts', 'data-testid': 'artifact-list' });
     // Shown by CSS when the body holds no fact, finding or artifact, so the listing's answer decides no branch.
     const nothing = el('div', { class: 'unavailable', 'data-testid': 'drawer-nothing' },
-      icon('cloudOff', { role: 'img', 'aria-label': 'nothing recorded' }));
-    panel.replaceChildren(handle, head, el('div', { class: 'body', 'data-testid': 'drawer-body' }, info, list, nothing));
+      icon('cloudOff', { role: 'img', 'aria-label': 'nothing recorded' }), 'Nothing recorded for this node.');
+    panel.replaceChildren(handle, head, el('div', { class: 'body', 'data-testid': 'drawer-body' }, errorBox, info, list, nothing));
     renderHead();
     panel.hidden = false;
     const shown = new Set();
@@ -262,7 +292,7 @@ export function mount(root, ctx) {
     renderHead();
   });
 
-  ctx.bus.on('run:selected', closePanel);
+  ctx.bus.on('run:selected', deselect);
 
   root.append(panel);
 }

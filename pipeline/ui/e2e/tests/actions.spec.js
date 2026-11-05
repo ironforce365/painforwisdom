@@ -1,7 +1,5 @@
 // Action banner (spec 2026-11-05-console-end-to-end §2, §4): every branch of a run has a console action.
-import fs from 'node:fs';
-import path from 'node:path';
-import { test, expect, freshServerState, answerPending, PROCESSED } from '../fixtures.js';
+import { test, expect, freshServerState, answerPending } from '../fixtures.js';
 
 const banner = (page) => page.getByTestId('action-banner');
 const TXT = 'transcript_2026-10-30.txt';
@@ -38,9 +36,19 @@ test.describe('approval', () => {
     await expect(page.getByTestId('action-option-no')).toHaveText('Reject');
     await expect(page.getByTestId('action-text')).toBeVisible();
     await page.getByTestId('action-option-yes').click();
-    await expect(page.getByTestId('action-sent')).toBeVisible();
     await expect(page.getByTestId('node-summarizer')).toHaveAttribute('data-state', 'done', { timeout: 30_000 });
     await expect(page.getByTestId('action-option-yes')).toHaveCount(0);
+  });
+
+  test('an answer waiting for the runner shows that it was sent and cannot be sent twice', async ({ page, request }) => {
+    const id = await launch(request, 'hitl');
+    await page.route(`**/api/runs/${id}/reply`, (r) => r.fulfill({ status: 202, json: { accepted: true } }));
+    await page.goto(`/#/runs/${id}`);
+    await page.getByTestId('action-option-yes').click({ timeout: 30_000 });
+    await expect(page.getByTestId('action-sent')).toBeVisible();
+    await expect(page.getByTestId('action-option-yes')).toHaveCount(0);
+    await page.unroute(`**/api/runs/${id}/reply`);
+    await answerPending(request, id);
   });
 
   test('[DT-A2] reject sends no and the run moves on', async ({ page, request }) => {
@@ -170,7 +178,6 @@ test.describe('node error', () => {
     const id = await launch(request, 'error_twice');
     await page.goto(`/#/runs/${id}`);
     await page.getByTestId('action-option-retry').click({ timeout: 30_000 });
-    await expect(page.getByTestId('action-sent')).toBeVisible();
     await expect(page.getByTestId('action-option-retry')).toBeVisible({ timeout: 30_000 });
     await page.getByTestId('action-option-retry').click();
     await expect(status(page, id)).toHaveAttribute('data-status', 'done', { timeout: 30_000 });
@@ -207,7 +214,9 @@ test.describe('node error', () => {
   test('[DT-E6] old release wait: reason shown, stop offered', async ({ page }) => {
     freshServerState({ live: true });
     await page.goto('/#/runs/fx-oldwait');
-    await expect(page.getByTestId('failure-error')).toContainText('older release');
+    await expect(page.getByTestId('action-title')).toHaveText('Waiting for a reply');
+    await expect(page.getByTestId('failure-error')).toContainText('ALREADY_PROCESSED');
+    await expect(page.getByTestId('action-hint')).toContainText('Telegram');
     await expect(page.getByTestId('action-stop')).toBeEnabled();
     await expect(page.getByTestId('action-retry')).toBeDisabled();
     await expect(page.getByTestId('action-blocker-retry')).toContainText('still active');
@@ -444,9 +453,8 @@ test('the banner stays out of the graph at both widths', async ({ page }) => {
   }
 });
 
-test('a pending error from a fixture needs a live runner', async ({ page }) => {
+test('a live error request reads from its fixture', async ({ page }) => {
   freshServerState({ live: true });
-  fs.writeFileSync(path.join(PROCESSED, 'fx-error', 'langgraph', 'marker'), '');
   await page.goto('/#/runs/fx-error');
   await expect(page.getByTestId('action-title')).toHaveText('Error in research');
   await expect(page.getByTestId('action-prompt').locator('code').first()).toHaveText('research');

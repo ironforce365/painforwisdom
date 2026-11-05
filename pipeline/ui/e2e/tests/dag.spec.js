@@ -2,7 +2,7 @@ import { test, expect, freshServerState } from '../fixtures.js';
 
 test.beforeEach(() => freshServerState());
 
-test('renders every node and edge of /api/graph, labels only in aria/tooltip', async ({ page, request }) => {
+test('[DT-R1] renders every node and edge of /api/graph, with visible labels', async ({ page, request }) => {
   const graph = await (await request.get('/api/graph')).json();
   await page.goto('/#/runs/fx-done');
   const dag = page.getByTestId('dag');
@@ -13,7 +13,7 @@ test('renders every node and edge of /api/graph, labels only in aria/tooltip', a
   }
   for (const e of graph.edges) await expect(dag.getByTestId(`edge-${e.from}-${e.to}`)).toHaveCount(1);
   await expect(dag.locator('[data-testid^="node-"]')).toHaveCount(graph.nodes.length);
-  await expect(dag.locator('text')).toHaveCount(0);
+  await expect(dag.getByTestId('dag-label')).toHaveCount(graph.nodes.length);
 });
 
 test('columns follow longest-path depth', async ({ page }) => {
