@@ -391,6 +391,77 @@ def test_mode_manual_writes_pending_package_and_calls_nothing(wp_run, monkeypatc
     assert requests == []
 
 
+def _edit_wp(state: dict, status: str, error: str = None) -> dict:
+    rd = Path(state["run_dir"])
+    pkg = package.read(rd, "wordpress")
+    return package.write(rd, {**pkg, "status": status, "error": error, "fields": {**pkg["fields"], "title": "My edit"}})
+
+
+@pytest.mark.parametrize("status,error", [("pending", None), ("failed", "HTTP 500")])
+def test_a_replay_keeps_the_edits_of_a_package_at_rest(wp_run, monkeypatch, status, error):  # [DT-P3] [DT-P5]
+    requests = _mock_wp(monkeypatch)
+    state = wp_run("manual")
+    node_wordpress_draft(state)
+    _edit_wp(state, status, error)
+    out = node_wordpress_draft(state)
+    pkg = package.read(Path(state["run_dir"]), "wordpress")
+    assert pkg["fields"]["title"] == "My edit" and pkg["fields"]["tags"] == ["painforwisdom", "ultra", "hard things"]
+    assert (pkg["status"], pkg["error"]) == (status, error)
+    assert out["wordpress_skip_reason"] == "manual" and requests == []
+
+
+def test_a_replay_in_auto_mode_publishes_the_edit_once(wp_run, monkeypatch):  # [DT-P5] [DT-P10]
+    requests = _mock_wp(monkeypatch)
+    state = wp_run("manual")
+    node_wordpress_draft(state)
+    pkg = _edit_wp(state, "failed", "HTTP 500")
+    package.write(Path(state["run_dir"]), {**pkg, "mode": "auto"})
+    wp_run_config = json.loads(publishing_config.CONFIG_PATH.read_text())
+    wp_run_config["wordpress"]["mode"] = "auto"
+    publishing_config.CONFIG_PATH.write_text(json.dumps(wp_run_config))
+    out = node_wordpress_draft(state)
+    assert out["wordpress_url"] == "https://wp/post"
+    posts = [r for r in requests if r.url.path.endswith("/posts")]
+    assert len(posts) == 1 and json.loads(posts[0].content)["title"] == "My edit"
+    assert node_wordpress_draft(state)["wordpress_url"] == "https://wp/post"
+    assert len([r for r in requests if r.url.path.endswith("/posts")]) == 1
+
+
+def test_a_replay_never_auto_publishes_a_package_the_console_prepared(wp_run, monkeypatch):  # [DT-P2]
+    requests = _mock_wp(monkeypatch)
+    state = wp_run("manual")
+    node_wordpress_draft(state)  # mode manual, as prepare writes it
+    cfg = json.loads(publishing_config.CONFIG_PATH.read_text())
+    cfg["wordpress"]["mode"] = "auto"
+    publishing_config.CONFIG_PATH.write_text(json.dumps(cfg))
+    assert node_wordpress_draft(state)["wordpress_skip_reason"] == "manual" and requests == []
+    assert package.read(Path(state["run_dir"]), "wordpress")["mode"] == "manual"
+
+
+def test_a_replay_leaves_a_publish_in_progress_alone(wp_run, monkeypatch):  # [DT-P4]
+    requests = _mock_wp(monkeypatch)
+    state = wp_run("auto")
+    rd = Path(state["run_dir"])
+    package.write(rd, {**package.new_package("wordpress", "auto", {"title": "My edit"}, {}), "status": "publishing"})
+    before = package.package_path(rd, "wordpress").read_bytes()
+    out = node_wordpress_draft(state)
+    assert out["wordpress_skipped"] is True and out["wordpress_skip_reason"] == "publishing"
+    assert package.package_path(rd, "wordpress").read_bytes() == before and requests == []
+    assert _rows(state)[-1]["reason"] == "publishing"
+
+
+def test_a_replay_with_publishing_switched_off_leaves_the_package_alone(wp_run, monkeypatch):  # [DT-P1]
+    state = wp_run("manual")
+    node_wordpress_draft(state)
+    _edit_wp(state, "pending")
+    before = package.package_path(Path(state["run_dir"]), "wordpress").read_bytes()
+    cfg = json.loads(publishing_config.CONFIG_PATH.read_text())
+    cfg["wordpress"]["mode"] = "off"
+    publishing_config.CONFIG_PATH.write_text(json.dumps(cfg))
+    assert node_wordpress_draft(state)["wordpress_skip_reason"] == "off"
+    assert package.package_path(Path(state["run_dir"]), "wordpress").read_bytes() == before
+
+
 def test_long_excerpt_is_cut_so_the_package_stays_valid(wp_run):
     state = {**wp_run("manual"), "blog_post_excerpt": "x" * 400}
     node_wordpress_draft(state)

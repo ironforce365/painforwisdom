@@ -14,7 +14,8 @@ from typing import Any, Optional
 from urllib.parse import quote
 
 from pipeline import hitl, runtime
-from pipeline.ui import launcher, runs
+from pipeline.publish import package
+from pipeline.ui import launcher, publish, runs
 from pipeline.ui.settings import Settings
 
 STOP_GRACE_S = 5.0
@@ -74,6 +75,15 @@ def _restart_blocker(rd: Path, rec: dict) -> Optional[str]:
     return None if runs.input_file(rd, rec) else f"the input file is gone: {rec['input'].get('path')}"
 
 
+def _publish_blocker(rd: Path) -> Optional[str]:
+    """A publisher is writing this run's package: a retry's node would race it. A dead one reads failed here."""
+    for target in package.NODE_DIRS:
+        pkg = publish.reconcile(rd, target)
+        if pkg and pkg["status"] == "publishing":
+            return f"{target} is publishing: wait for it to finish"
+    return None
+
+
 def available(settings: Settings, rd: Path, run: dict) -> dict:
     """`actions` and `action_blockers` for a load_run result."""
     status, blockers = run["status"], {}
@@ -85,8 +95,8 @@ def available(settings: Settings, rd: Path, run: dict) -> dict:
     rec = runs._record(rd, None)
     if status in runs.ENDED_NOT_OK:
         busy = runs.active_run_id(settings.processed_root)
-        reasons = {"retry": f"run {busy} is active" if busy else _retry_blocker(settings, rec),
-                   "restart": f"run {busy} is active" if busy else _restart_blocker(rd, rec)}
+        blocked = f"run {busy} is active" if busy else _publish_blocker(rd)
+        reasons = {"retry": blocked or _retry_blocker(settings, rec), "restart": blocked or _restart_blocker(rd, rec)}
         acts = [verb for verb, reason in reasons.items() if reason is None]
         blockers = {verb: reason for verb, reason in reasons.items() if reason is not None}
     if runs.needs_decision(rec, rd, None, None):
@@ -185,7 +195,7 @@ def retry(settings: Settings, run_id: str, auto_approve: bool) -> None:
         if busy is not None:
             raise ActionError(409, "run active", run_id=busy)
         rec = runs._record(rd, None)
-        blocker = _retry_blocker(settings, rec)
+        blocker = _publish_blocker(rd) or _retry_blocker(settings, rec)
         if blocker:
             raise ActionError(409, blocker)
         hitl.clear(rd)
@@ -204,6 +214,9 @@ def restart(settings: Settings, run_id: str, auto_approve: bool) -> str:
     busy = runs.active_run_id(settings.processed_root)
     if busy is not None:
         raise ActionError(409, "run active", run_id=busy)
+    publishing = _publish_blocker(rd)
+    if publishing:
+        raise ActionError(409, publishing)
     rec = runs._record(rd, None)
     blocker = _restart_blocker(rd, rec)
     if blocker:

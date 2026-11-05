@@ -62,16 +62,20 @@ def node_youtube_upload(state: State) -> Dict[str, Any]:
         print("[youtube-upload] already published")
         return {"youtube_video_id": existing["result"]["id"], "youtube_url": existing["result"]["url"],
                 "youtube_skipped": False}
+    if existing and existing["status"] == "publishing":  # a publisher holds it: its result lands there
+        append_metric(telemetry, "youtube-upload", duration_s=round(time.time() - t0, 2), skipped=True, reason="publishing")
+        print("[youtube-upload] a publish is in progress, leaving it alone")
+        return {"youtube_skipped": True, "youtube_skip_reason": "publishing"}
 
     config = load(current_profile())["youtube"]
-    mode = config["mode"]
+    mode = publish_package.replay_mode(existing, config["mode"])
     metadata = _read_metadata(state)
     title, tags = metadata.get("title", ""), metadata.get("tags", [])
 
     if mode != "off":
         video = Path(state["video_path"])
         warning = metadata.get("warning")
-        publish_package.write(run_dir, publish_package.new_package(
+        publish_package.write(run_dir, publish_package.kept_on_replay(existing, publish_package.new_package(
             "youtube",
             mode,
             {
@@ -84,7 +88,7 @@ def node_youtube_upload(state: State) -> Dict[str, Any]:
             FIELD_SPECS,
             readonly={"duration_s": _duration_s(video), **({"warning": warning} if warning else {})},
             assets=[{"role": "video", "path": str(video)}],
-        ))
+        )))
 
     if mode != "auto":
         _write_marker(out_dir, "SKIPPED.md", f"YouTube upload skipped: mode={mode}.\n")

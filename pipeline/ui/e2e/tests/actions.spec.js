@@ -1,5 +1,7 @@
 // Action banner (spec 2026-11-05-console-end-to-end §2, §4): every branch of a run has a console action.
-import { test, expect, freshServerState, answerPending } from '../fixtures.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { test, expect, freshServerState, answerPending, PROCESSED } from '../fixtures.js';
 
 const banner = (page) => page.getByTestId('action-banner');
 const TXT = 'transcript_2026-10-30.txt';
@@ -346,6 +348,21 @@ test.describe('ended, not ok', () => {
     await expect(page.getByTestId('action-retry')).toBeDisabled();
     await expect(page.getByTestId('action-blocker-retry')).toContainText('fx-');
     await expect(page.getByTestId('action-blocker-restart')).toContainText('is active');
+  });
+
+  test('[DT-F3] a publish in progress blocks retry and restart with its reason', async ({ page }) => {
+    freshServerState();
+    const dir = path.join(PROCESSED, 'fx-stopped', 'langgraph', 'youtube-upload');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({
+      schema: 1, target: 'youtube', mode: 'manual', status: 'publishing', fields: { title: 'x' }, field_specs: {},
+      readonly: {}, assets: [], result: null, error: null, updated_at: 1,
+    }));
+    fs.writeFileSync(path.join(dir, 'publish.lock'), String(process.pid));
+    await page.goto('/#/runs/fx-stopped');
+    await expect(page.getByTestId('action-retry')).toBeDisabled();
+    await expect(page.getByTestId('action-blocker-retry')).toContainText('youtube is publishing');
+    await expect(page.getByTestId('action-blocker-restart')).toContainText('youtube is publishing');
   });
 });
 

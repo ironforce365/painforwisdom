@@ -15,6 +15,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from pipeline import hitl, publishing_config
+from pipeline.publish import package
 from pipeline.ui import actions, artifacts, launcher, publish
 from pipeline.ui.app import create_app
 from pipeline.ui.settings import Settings
@@ -351,6 +352,36 @@ def test_stop_leaves_a_run_that_finished_meanwhile(client, processed, tmp_path):
 
 
 # --- retry and restart ------------------------------------------------------
+
+
+def _publishing(processed: Path, run: str, lock_pid: int, target: str = "youtube", status: str = "publishing") -> None:
+    rd = rd_of(processed, run)
+    pkg = package.new_package(target, "manual", {"title": "edited"}, {"title": {"type": "str"}})
+    package.write(rd, {**pkg, "status": status})
+    package.lock_path(rd, target).write_text(str(lock_pid))
+
+
+def test_a_publish_in_progress_blocks_retry_and_restart(client, processed, spawned):  # [DT-F3] [DT-P4]
+    _publishing(processed, "fx-stopped", os.getpid())
+    run = client.get("/api/runs/fx-stopped").json()
+    assert run["actions"] == ["dismiss"]
+    assert "publishing" in run["action_blockers"]["retry"] and "youtube" in run["action_blockers"]["retry"]
+    assert "publishing" in run["action_blockers"]["restart"]
+    for verb in ("retry", "restart"):
+        resp = client.post(f"/api/runs/fx-stopped/{verb}")
+        assert resp.status_code == 409 and "publishing" in resp.json()["detail"]
+    assert spawned == [] and rec_of(processed, "fx-stopped")["status"] == "stopped"
+
+
+def test_a_dead_publisher_no_longer_blocks_retry(client, processed):  # [DT-P11]
+    _publishing(processed, "fx-stopped", 2 ** 22 + 1)
+    run = client.get("/api/runs/fx-stopped").json()
+    assert run["actions"] == ["retry", "restart", "dismiss"] and run["action_blockers"] == {}
+
+
+def test_a_package_at_rest_does_not_block_retry(client, processed):  # [DT-P3]
+    _publishing(processed, "fx-stopped", os.getpid(), status="pending")
+    assert client.get("/api/runs/fx-stopped").json()["actions"] == ["retry", "restart", "dismiss"]
 
 
 def test_retry_real_argv_and_record(processed, spawned, tmp_path):  # [DT-F1]

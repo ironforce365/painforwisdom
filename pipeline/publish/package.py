@@ -52,6 +52,19 @@ def new_package(target: str, mode: str, fields: dict, field_specs: dict, readonl
             "error": None, "updated_at": time.time()}
 
 
+def replay_mode(existing: Optional[dict], configured: str) -> str:
+    """The mode of a node's replay: a package already there auto-publishes only if it says so (prepare writes `manual`)."""
+    return existing["mode"] if existing and configured == "auto" else configured
+
+
+def kept_on_replay(existing: Optional[dict], fresh: dict) -> dict:
+    """What a node writes when it replays: the user's edits, the mode and the outcome survive; the rest is rebuilt."""
+    if existing is None:
+        return fresh
+    return {**fresh, "fields": {**fresh["fields"], **existing["fields"]}, "mode": existing["mode"],
+            "status": existing["status"], "error": existing["error"]}
+
+
 def acquire_lock(run_dir: Path, target: str, pid: int) -> bool:
     """O_EXCL create holding `pid`; False when a publish already holds the lock."""
     try:

@@ -215,6 +215,75 @@ def test_auto_failure_lands_in_the_package_and_the_row(state, monkeypatch, tmp_p
     assert node_bv_youtube(out)["branch_verdict_youtube"] == "PARTIAL"
 
 
+def _edited(state: dict, status: str, error: str = None) -> dict:
+    rd = Path(state["run_dir"])
+    pkg = package.read(rd, "youtube")
+    return package.write(rd, {**pkg, "status": status, "error": error, "fields": {**pkg["fields"], "title": "My edit"}})
+
+
+@pytest.mark.parametrize("status,error", [("pending", None), ("failed", "quota")])
+def test_a_replay_keeps_the_edits_of_a_package_at_rest(state, monkeypatch, status, error):  # [DT-P3] [DT-P5]
+    uploads = _uploader(monkeypatch)
+    prepared = _with_metadata(state)
+    youtube_upload.node_youtube_upload(prepared)
+    _edited(state, status, error)
+    out = youtube_upload.node_youtube_upload(prepared)
+    pkg = package.read(Path(state["run_dir"]), "youtube")
+    assert pkg["fields"]["title"] == "My edit" and pkg["fields"]["description"] == "D"
+    assert (pkg["status"], pkg["error"]) == (status, error)
+    assert out == {"youtube_skipped": True, "youtube_skip_reason": "manual"} and not uploads
+
+
+def test_a_replay_in_auto_mode_publishes_the_edit_once(state, monkeypatch, tmp_path):  # [DT-P5] [DT-P10]
+    _config(monkeypatch, tmp_path, mode="auto")
+    monkeypatch.setattr(adapter, "upload_draft_short", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("quota")))
+    prepared = _with_metadata(state)
+    youtube_upload.node_youtube_upload(prepared)
+    _edited(state, "failed", "quota")
+    uploads = _uploader(monkeypatch)
+    out = youtube_upload.node_youtube_upload(prepared)
+    assert out["youtube_url"] == "https://youtu.be/vid"
+    assert [u["title"] for u in uploads] == ["My edit"]
+    assert youtube_upload.node_youtube_upload(prepared)["youtube_url"] == "https://youtu.be/vid"
+    assert len(uploads) == 1
+
+
+def test_a_replay_never_auto_publishes_a_package_the_console_prepared(state, monkeypatch, tmp_path):  # [DT-P2]
+    """Prepare marks its package manual whatever the config says: nothing publishes it behind the user's back."""
+    uploads = _uploader(monkeypatch)
+    prepared = _with_metadata(state)
+    youtube_upload.node_youtube_upload(prepared)  # config manual: mode manual, as prepare writes it
+    _config(monkeypatch, tmp_path, mode="auto")
+    out = youtube_upload.node_youtube_upload(prepared)
+    assert out == {"youtube_skipped": True, "youtube_skip_reason": "manual"} and not uploads
+    assert package.read(Path(state["run_dir"]), "youtube")["mode"] == "manual"
+
+
+def test_a_replay_leaves_a_publish_in_progress_alone(state, monkeypatch, tmp_path):  # [DT-P4]
+    _config(monkeypatch, tmp_path, mode="auto")
+    uploads = _uploader(monkeypatch)
+    prepared = _with_metadata(state)
+    rd = Path(state["run_dir"])
+    package.write(rd, package.new_package("youtube", "auto", {"title": "My edit"}, {}))
+    package.write(rd, {**package.read(rd, "youtube"), "status": "publishing"})
+    before = package.package_path(rd, "youtube").read_bytes()
+    out = youtube_upload.node_youtube_upload(prepared)
+    assert out == {"youtube_skipped": True, "youtube_skip_reason": "publishing"} and not uploads
+    assert package.package_path(rd, "youtube").read_bytes() == before
+    assert _rows(state)[-1]["reason"] == "publishing"
+    assert node_bv_youtube(out)["branch_verdict_youtube"] != "FAIL"
+
+
+def test_a_replay_with_publishing_switched_off_leaves_the_package_alone(state, monkeypatch, tmp_path):  # [DT-P1]
+    prepared = _with_metadata(state)
+    youtube_upload.node_youtube_upload(prepared)
+    _edited(state, "pending")
+    before = package.package_path(Path(state["run_dir"]), "youtube").read_bytes()
+    _config(monkeypatch, tmp_path, mode="off")
+    assert youtube_upload.node_youtube_upload(prepared)["youtube_skip_reason"] == "off"
+    assert package.package_path(Path(state["run_dir"]), "youtube").read_bytes() == before
+
+
 def test_unprobeable_video_still_builds_the_package(state, monkeypatch):
     monkeypatch.setattr(youtube_upload, "get_duration_seconds", lambda _: (_ for _ in ()).throw(OSError("no ffprobe")))
     youtube_upload.node_youtube_upload(_with_metadata(state))

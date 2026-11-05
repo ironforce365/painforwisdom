@@ -98,9 +98,14 @@ def node_wordpress_draft(state: State) -> Dict[str, Any]:
             "wordpress_skipped": False,
             "wordpress_bundle_path": str(out_dir),
         }
+    if existing and existing["status"] == "publishing":  # a publisher holds it: its result lands there
+        append_metric(run_telemetry_path(state["run_dir"]), "wordpress-draft", duration_s=round(time.time() - t0, 2),
+                      skipped=True, reason="publishing")
+        print("[wordpress-draft] a publish is in progress, leaving it alone")
+        return {"wordpress_skipped": True, "wordpress_skip_reason": "publishing", "wordpress_bundle_path": str(out_dir)}
 
     config = load(current_profile())["wordpress"]
-    mode = config["mode"]
+    mode = publish_package.replay_mode(existing, config["mode"])
     body_md = _strip_title_line(body_md_full)
     date_mmddyy = _yyyymmdd_to_mmddyy(video_date)
     excerpt = state.get("blog_post_excerpt", "") or first_50_words(body_md)
@@ -147,7 +152,7 @@ def node_wordpress_draft(state: State) -> Dict[str, Any]:
     )
 
     if mode != "off":
-        publish_package.write(run_dir, publish_package.new_package(
+        publish_package.write(run_dir, publish_package.kept_on_replay(existing, publish_package.new_package(
             "wordpress",
             mode,
             {
@@ -166,7 +171,7 @@ def node_wordpress_draft(state: State) -> Dict[str, Any]:
                 "notion_blog_page_id": state.get("notion_blog_page_id", ""),
             },
             assets=[{"role": "featured_image", "path": str(featured_image_path)}] if featured_image_path else [],
-        ))
+        )))
 
     if mode != "auto":
         _write_marker(
