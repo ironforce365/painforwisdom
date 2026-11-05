@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from pipeline.ui import artifacts
-from pipeline.ui.app import create_app
+from pipeline.ui.app import create_app, read_version
 from pipeline.ui.settings import Settings
 
 FIX = Path(__file__).parent / "fixtures" / "ui"
@@ -34,6 +35,20 @@ def test_health_index_and_static(client):
     r = client.get("/")
     assert r.status_code == 200 and "text/html" in r.headers["content-type"]
     assert client.get("/static/index.html").status_code == 200
+
+
+def test_version_is_nearest_tag_and_unknown_outside_git(client, tmp_path):
+    assert client.get("/api/version").json() == {"version": read_version()}
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    assert read_version(plain) == "unknown"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    git = ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false"]
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", "x"], cwd=repo, check=True)
+    subprocess.run([*git, "tag", "pipeline-v9.9.9"], cwd=repo, check=True)
+    assert read_version(repo) == "pipeline-v9.9.9"
 
 
 def test_graph(client):

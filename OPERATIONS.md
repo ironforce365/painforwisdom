@@ -280,6 +280,7 @@ python -m pipeline.ui --profile sandbox --inbox /path/to/inbox
 # open http://127.0.0.1:8820
 ```
 
+- Header shows running version next to logo: nearest git tag of the checkout (`pipeline-vX.Y.Z` or coach `vX.Y.Z`), read at server start.
 - Host is always `127.0.0.1`; port `--port` / `PIPELINE_UI_PORT` (default `8820`).
 - Inbox: `--inbox` / `PIPELINE_UI_INBOX` (default `$STATE_ROOT/inbox`). Drop `.txt` transcripts or videos
   (`.mp4 .mov .mkv .webm .m4v .avi`) there; they appear in the play-button popup.

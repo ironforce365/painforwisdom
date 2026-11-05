@@ -44,7 +44,9 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function loadGraph() {
   for (;;) {
     try {
-      state.graph = await api.getGraph();
+      const [graph, { version }] = await Promise.all([api.getGraph(), api.getVersion()]);
+      state.graph = graph;
+      document.querySelector('[data-testid="version"]').textContent = version;
       bus.emit('graph:loaded', state.graph);
       return;
     } catch {

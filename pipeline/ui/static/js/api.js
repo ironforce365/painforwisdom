@@ -32,7 +32,8 @@ async function request(path, init) {
 const enc = encodeURIComponent;
 
 export const getGraph = () => request('/api/graph');
-export const listRuns = () => request('/api/runs');
+export const getVersion = () => request('/api/version');
+export const listRuns =() => request('/api/runs');
 export const getRun = (id) => request(`/api/runs/${enc(id)}`);
 export const listArtifacts = (id) => request(`/api/runs/${enc(id)}/artifacts`);
 export const artifactUrl = (id, artifactId) => `/api/runs/${enc(id)}/artifacts/${enc(artifactId)}`;

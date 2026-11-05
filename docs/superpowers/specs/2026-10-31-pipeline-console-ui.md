@@ -462,6 +462,8 @@ with one pull request.
   section 5 inputs/launch). All JSON.
   - `GET /api/graph` → `{"nodes": [{"id", "label", "icon"}], "edges": [{"from", "to"}]}`
     (no `__start__`/`__end__`).
+  - `GET /api/version` → `{"version"}`: `git describe --tags --always` of the code's checkout,
+    read once at startup; `"unknown"` without git. Shown in the header.
   - `GET /api/runs` → `{"runs": [{"run_id", "status", "verdict", "started_at",
     "ended_at", "input": {"kind", "name"}, "total_s"}]}`, newest first.
   - `GET /api/runs/{id}` → `{"run_id", "status", "verdict", "profile", "input",
