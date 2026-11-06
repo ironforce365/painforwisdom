@@ -71,6 +71,15 @@ def post_dismiss(request: Request, run_id: str, body: DismissBody = DismissBody(
     return {"dismissed": body.dismissed}
 
 
+@router.delete("/api/runs/{run_id}")
+def delete_run(request: Request, run_id: str):
+    try:
+        actions.delete_run(request.app.state.settings, run_id)
+    except actions.ActionError as e:
+        return _error(e)
+    return {"deleted": run_id}
+
+
 @router.get("/api/runs/{run_id}/log")
 def get_log(request: Request, run_id: str, tail: int = Query(500, ge=1, le=20_000)):
     try:

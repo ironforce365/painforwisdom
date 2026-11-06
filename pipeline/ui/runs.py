@@ -381,21 +381,28 @@ def failure(rec: dict, pending: Optional[dict]) -> Optional[dict]:
     return {"node": node, "error": rec["error"] or node_error or _FAILURE_TEXT[status], "hint": _FAILURE_HINT[status]}
 
 
-def _waiting_packages(rd: Path) -> list[dict]:
+def _packages(rd: Path) -> list[dict]:
     out = []
     for target in publish_package.NODE_DIRS:
         try:
             pkg = publish_package.read(rd, target)
         except ValueError:
             continue
-        if pkg and pkg.get("status") in {"pending", "failed"}:
-            out.append({"target": target, "status": pkg["status"]})
+        if pkg:
+            out.append({"target": target, "status": pkg.get("status")})
     return out
 
 
+def _waiting_packages(rd: Path) -> list[dict]:
+    return [p for p in _packages(rd) if p["status"] in {"pending", "failed"}]
+
+
+_TARGET_NAME = {"wordpress": "WordPress", "youtube": "YouTube"}
+
+
 def _publish_attention(rd: Path) -> list[dict]:
-    return [{"kind": "publish", "label": f"{p['target']}: package {p['status']}", "target": p["target"]}
-            for p in _waiting_packages(rd)]
+    return [{"kind": "publish", "label": f"{_TARGET_NAME[p['target']]} publish failed" if p["status"] == "failed" else f"Publish to {_TARGET_NAME[p['target']]}",
+             "target": p["target"]} for p in _waiting_packages(rd)]
 
 
 def needs_decision(rec: dict, rd: Path, pending: Optional[dict], node: Optional[str]) -> list[dict]:
@@ -425,7 +432,7 @@ def load_run(root: Path, run_id: str, node_ids: list[str], now: Optional[float] 
     keys = ("run_id", "status", "verdict", "profile", "language", "input", "started_at", "ended_at", "hitl_wait_s", "error", "dismissed")
     pending = pending_for(rd, rec["status"])
     return {**{k: rec[k] for k in keys}, "pending": pending, "failure": failure(rec, pending),
-            "waiting_packages": _waiting_packages(rd),
+            "waiting_packages": _waiting_packages(rd), "packages": _packages(rd),
             "nodes": resolve_outputs(apply_rows(nodes, rec["rows"]), rd),
             "telemetry": telemetry(rec["rows"], rec["total_s"], rec["hitl_wait_s"],
                                    read_jsonl(rd / "usage.jsonl"), rec["status"] in ACTIVE)}
@@ -446,13 +453,15 @@ def list_runs(root: Path, now: Optional[float] = None) -> list[dict]:
         node = failed["node"] if failed else None
         tele = telemetry(rec["rows"], rec["total_s"], rec["hitl_wait_s"], read_jsonl(rd / "usage.jsonl"),
                          rec["status"] in ACTIVE)
+        wanted = needs_decision(rec, rd, pending, node)
         out.append({
             "run_id": rec["run_id"], "status": rec["status"], "verdict": rec["verdict"],
             "started_at": rec["started_at"], "ended_at": rec["ended_at"],
             "input": {"kind": rec["input"].get("kind"), "name": Path(path).name if path else None},
             "total_s": rec["total_s"], "cost_usd": tele["cost_usd"], "cost_estimated": tele["cost_estimated"],
             "tokens": tokens_total(tele["tokens"]), "failed_node": node,
-            "attention": [] if rec["dismissed"] else needs_decision(rec, rd, pending, node),
+            "attention": [] if rec["dismissed"] else wanted, "dismissed": rec["dismissed"],
+            "dismissed_attention": wanted if rec["dismissed"] else [],
         })
     out.sort(key=lambda r: (r["started_at"] or 0.0, r["run_id"]), reverse=True)
     return out

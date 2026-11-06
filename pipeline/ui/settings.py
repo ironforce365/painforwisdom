@@ -23,6 +23,7 @@ class Settings:
     host: str = "127.0.0.1"
     port: int = 8820
     books_root: Path = field(default_factory=lambda: runtime.STATE_ROOT / "books")
+    vault_root: Optional[Path] = None  # None: the profile's VAULT_PATH (pipeline.ui.knowledge)
 
     @classmethod
     def from_env_and_args(cls, argv: Optional[Sequence[str]] = None,
@@ -41,6 +42,7 @@ class Settings:
         if runner not in RUNNERS:
             raise ValueError(f"PIPELINE_UI_RUNNER must be one of {RUNNERS}, got {runner!r}")
         fixtures = env.get("PIPELINE_UI_NOTION_FIXTURES")
+        vault = env.get("PIPELINE_UI_VAULT")
         return cls(
             processed_root=args.processed_root or Path(env.get("PIPELINE_UI_PROCESSED_ROOT") or runtime.PROCESSED_ROOT),
             inbox=args.inbox or Path(env.get("PIPELINE_UI_INBOX") or runtime.STATE_ROOT / "inbox"),
@@ -49,4 +51,5 @@ class Settings:
             profile=profile,
             port=args.port or int(env.get("PIPELINE_UI_PORT") or 8820),
             books_root=Path(env.get("PIPELINE_UI_BOOKS_ROOT") or runtime.STATE_ROOT / "books"),
+            vault_root=Path(vault) if vault else None,
         )

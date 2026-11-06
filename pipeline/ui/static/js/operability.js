@@ -11,7 +11,6 @@ export function mount(root, ctx) {
   const warnings = el('div', { class: 'out-warnings' });
   const slot = el('div', { class: 'out-slot' });
   const panel = el('section', { class: 'out-panel', 'data-testid': 'output', 'aria-label': 'run output' }, warnings, slot);
-  const norun = el('p', { class: 'section-empty', 'data-testid': 'output-norun' }, 'Select a run to see its output.');
   const views = new Map();
   const shared = { section: 'summary' };
   let current = ctx.state.view;
@@ -40,10 +39,6 @@ export function mount(root, ctx) {
     views.forEach((view) => view.hide());
     panel.hidden = current !== 'output';
     if (panel.hidden) return;
-    if (!runId) {
-      slot.replaceChildren(norun);
-      return;
-    }
     const view = viewFor(runId);
     slot.replaceChildren(view.root);
     view.show(ctx.state.run);
@@ -69,7 +64,7 @@ export function mount(root, ctx) {
   });
   document.addEventListener('keydown', (e) => {
     const delta = KEYS[e.key];
-    if (panel.hidden || !runId || !delta || e.ctrlKey || e.metaKey || e.altKey || typing(e.target)) return;
+    if (panel.hidden || !delta || e.ctrlKey || e.metaKey || e.altKey || typing(e.target)) return;
     viewFor(runId).move(delta);
   });
 

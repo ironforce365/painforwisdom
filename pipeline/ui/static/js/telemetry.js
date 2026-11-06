@@ -117,12 +117,17 @@ export function mount(root, ctx) {
   table.hidden = !open;
   root.append(el('div', { class: 'metrics' }, bar, table));
 
-  toggle.addEventListener('click', () => {
-    open = !open;
+  const setOpen = (next) => {
+    open = next;
     saveOpen(open);
     table.hidden = !open;
     toggle.setAttribute('aria-expanded', String(open));
-  });
+  };
+  toggle.addEventListener('click', () => setOpen(!open));
+  ctx.openMetrics = () => {
+    setOpen(true);
+    table.scrollIntoView({ block: 'nearest' });
+  };
   chip.addEventListener('click', () => ctx.bus.emit('node:selected', null));
 
   const unhighlight = () => document.querySelectorAll('[data-highlight]').forEach((n) => n.removeAttribute('data-highlight'));

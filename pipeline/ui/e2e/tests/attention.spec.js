@@ -1,4 +1,4 @@
-// Needs-you bar (spec 2026-11-05-console-end-to-end §4, N1).
+// Needs you on the dashboard (spec 2026-11-06-console-dashboards, N1).
 import { test, expect, freshServerState } from '../fixtures.js';
 
 test.beforeEach(() => freshServerState());
@@ -7,7 +7,7 @@ test('[DT-N1] lists every run wanting a decision, with its reason, one click to 
   const { runs } = await (await request.get('/api/runs')).json();
   const wanted = runs.filter((r) => r.attention.length);
   expect(wanted.length).toBeGreaterThan(1);
-  await page.goto('/#/runs/fx-modeoff');
+  await page.goto('/');
   await expect(page.getByTestId('needs-you')).toBeVisible();
   await expect(page.getByTestId('needs-you-count')).toHaveText(String(wanted.length));
   for (const r of wanted) {
@@ -20,20 +20,19 @@ test('[DT-N1] lists every run wanting a decision, with its reason, one click to 
   await page.getByTestId('needs-you-item-fx-failed').click();
   await expect(page).toHaveURL(/#\/runs\/fx-failed$/);
   await expect(page.getByTestId('failure-node')).toHaveText('research');
-  await expect(page.getByTestId('needs-you-item-fx-failed')).toHaveAttribute('aria-pressed', 'true');
 });
 
 test('every reason of a run is named; live decisions come first', async ({ page, errors }) => {
   await page.route('**/api/runs', (route) => route.fulfill({
     json: {
       runs: [
-        { run_id: 'a', status: 'done', verdict: 'PASS', input: { kind: 'transcript', name: 'a.txt' }, total_s: 1, started_at: 1, cost_usd: 0, cost_estimated: false, tokens: 0, failed_node: null,
+        { run_id: 'a', status: 'done', verdict: 'PASS', input: { kind: 'transcript', name: 'a.txt' }, total_s: 1, started_at: 1, cost_usd: 0, cost_estimated: false, tokens: 0, failed_node: null, dismissed_attention: [],
           attention: [{ kind: 'publish', label: 'youtube: package pending' }, { kind: 'publish', label: 'wordpress: package failed' }] },
-        { run_id: 'b', status: 'failed', verdict: null, input: { kind: 'transcript', name: null }, total_s: 1, started_at: 2, cost_usd: 0, cost_estimated: false, tokens: 0, failed_node: 'x',
+        { run_id: 'b', status: 'failed', verdict: null, input: { kind: 'transcript', name: null }, total_s: 1, started_at: 2, cost_usd: 0, cost_estimated: false, tokens: 0, failed_node: 'x', dismissed_attention: [],
           attention: [{ kind: 'failed', label: 'Failed at x' }] },
-        { run_id: 'c', status: 'waiting_hitl', verdict: null, input: { kind: 'transcript', name: 'c.txt' }, total_s: 1, started_at: 3, cost_usd: 0, cost_estimated: false, tokens: 0, failed_node: null,
+        { run_id: 'c', status: 'waiting_hitl', verdict: null, input: { kind: 'transcript', name: 'c.txt' }, total_s: 1, started_at: 3, cost_usd: 0, cost_estimated: false, tokens: 0, failed_node: null, dismissed_attention: [],
           attention: [{ kind: 'approval', label: 'Approve theme' }] },
-        { run_id: 'odd', status: 'failed', verdict: null, input: { kind: 'transcript', name: 'odd.txt' }, total_s: 1, started_at: 0, cost_usd: 0, cost_estimated: false, tokens: 0, failed_node: null,
+        { run_id: 'odd', status: 'failed', verdict: null, input: { kind: 'transcript', name: 'odd.txt' }, total_s: 1, started_at: 0, cost_usd: 0, cost_estimated: false, tokens: 0, failed_node: null, dismissed_attention: [],
           attention: [{ kind: 'unheard-of', label: 'Odd' }] },
       ],
     },
@@ -58,7 +57,7 @@ test('nothing wanted: count 0 and a plain statement', async ({ page }) => {
 
 test('refreshes with the run list and keeps focus when nothing changed', async ({ page }) => {
   await page.clock.install();
-  await page.goto('/#/runs/fx-modeoff');
+  await page.goto('/');
   const item = page.getByTestId('needs-you-item-fx-stopped');
   await expect(item).toBeVisible();
   await item.focus();
@@ -75,28 +74,31 @@ test('refreshes with the run list and keeps focus when nothing changed', async (
   await expect(item).toHaveCount(0);
 });
 
-test('the bar stays in the header at both widths and never pushes Start run off', async ({ page }) => {
+test('[DT-S7] needs you heads the dashboard and Start is large and on screen, at both widths', async ({ page }) => {
   for (const width of [1280, 3440]) {
     await page.setViewportSize({ width, height: 800 });
-    await page.goto('/#/runs/fx-modeoff');
-    await expect(page.getByTestId('needs-you-count')).not.toHaveText('');
+    await page.goto('/');
+    await expect(page.getByTestId('needs-you-count')).not.toHaveText('0');
     const start = await page.getByTestId('launch-button').boundingBox();
     expect(start.x + start.width).toBeLessThanOrEqual(width);
+    expect(start.height).toBeGreaterThanOrEqual(36);
     const bar = await page.getByTestId('needs-you').boundingBox();
     expect(bar.y + bar.height).toBeLessThanOrEqual((await page.getByTestId('run-list').boundingBox()).y + 1);
-    expect(bar.x + bar.width).toBeLessThanOrEqual(start.x);
+    expect(bar.width).toBeGreaterThan(800);
   }
 });
 
 test('[DT-N1] a run waiting on a package opens that package; one that failed opens the run', async ({ page, errors }) => {
   errors.allow(/asset\/featured_image/);
   freshServerState();
-  await page.goto('/#/runs/fx-modeoff');
+  await page.goto('/');
   await page.getByTestId('needs-you-item-fx-done').click();
   await expect(page.locator('body')).toHaveAttribute('data-view', 'output');
   await expect(page.getByTestId('output-nav-wordpress')).toHaveAttribute('aria-current', 'true');
   await expect(page).toHaveURL(/#\/runs\/fx-done\/output$/);
 
+  await page.getByTestId('run-back').click();
   await page.getByTestId('needs-you-item-fx-failed').click();
-  await expect(page.getByTestId('run-fx-failed')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page).toHaveURL(/#\/runs\/fx-failed$/);
+  await expect(page.locator('body')).toHaveAttribute('data-view', 'graph');
 });

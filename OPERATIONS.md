@@ -288,12 +288,16 @@ python -m pipeline.ui --profile sandbox --inbox /path/to/inbox
   server runs from); the UI reads the same root.
 - Prod is never the default: `--profile prod` (or `PIPELINE_UI_PROFILE=prod`) must be chosen explicitly; it reads `.env`.
 - Operate everything here; Telegram is a notification and a second answer channel. Decision map: `pipeline/ui/e2e/decision_tree.json`, design: `docs/superpowers/specs/2026-11-05-console-end-to-end.md`.
-- Needs-you bar (header): every run wanting a decision; one click opens it.
+- Dashboard (`#/`, the home page): needs you, tiles, recent runs (open, delete) and the latest themes. `Start a new run` is in the header on every page.
+- Needs you: every run wanting a decision; one click opens it. Dismiss offers Undo for 8 s; `Dismissed (n)` restores later.
+- Delete a run: removes `processed/<id>/` and its checkpoint rows, so its input no longer warns "Already ran". The input, vault entry, Notion pages and anything published stay. Refused while it's active, publishing or converting a preview, and when it has `source/`, which can be the only copy of its input. A re-run can still stop at a curator question, because the vault entry stays.
+- Run page (`#/runs/<id>`): totals, graph and output cards; each opens its details. A finished run can restart from its input.
+- Knowledge base (`#/knowledge`): entries and theme counts read from `<vault>/gonzalo-book/entries`. The vault is `PIPELINE_UI_VAULT`, else `VAULT_PATH` in the profile's env file, else the default.
 - Action banner: approvals (approve, reject, free text), errors (retry, abort), failures with node, reason and blockers; stop, retry from checkpoint, restart, dismiss. A run started by an older release can only be stopped, then retried.
 - The popup's auto-approve toggle passes `--auto-approve`, which gives up after 10 approvals in one run.
 - Costs are API-equivalent (`≈`) under subscription billing, from `config/pricing.json`. Update it when prices or models change; an unknown model shows `–`.
 - One active run at a time (a second launch returns 409 and shows the live run).
-- Views: Graph (wheel zoom, drag pan, `+ - 0`), Output and Logs, as tabs and in the route `#/runs/<id>/<view>`. The inspector docks beside the graph.
+- Views: Overview (Ctrl or ⌘ + wheel zooms the graph, drag pans, `+ - 0`), Output and Logs, as tabs and in the route `#/runs/<id>/<view>`. The inspector docks beside the graph.
 - Output: one section at a time (`j`/`k`): summary, blog, YouTube, WordPress, knowledge base, research, audit, files. Text files edit in place. A package can be prepared for an older run, saved without publishing, and published; the result or error shows in place. Local books open from the research table, served only from `$STATE_ROOT/books`.
 - Video preview: when the browser cannot decode a package's video (HEVC from a phone), the console converts a copy with ffmpeg (H.264, long side 1280, HDR tone-mapped), about half the video's length on this machine, and swaps it in. It is cached at `processed/<run>/console-preview/`, safe to delete, and never uploaded: the upload always sends the original.
 - Metrics bar (bottom, one line): tokens, cache, cost, time for the run or the selected node. `Details` opens the per-node table.

@@ -1,6 +1,6 @@
 // View tabs (spec 2026-11-05-console-end-to-end §4). The route `#/runs/<id>/<view>` and `body[data-view]` live here.
 export const VIEWS = ['graph', 'output', 'logs'];
-const LABELS = { graph: 'Graph', output: 'Output', logs: 'Logs' };
+const LABELS = { graph: 'Overview', output: 'Output', logs: 'Logs' };
 
 /** The view named by a location hash; `graph` when it names none. */
 export function viewFromHash(hash) {
@@ -12,6 +12,18 @@ export function viewFromHash(hash) {
 export function runFromHash(hash) {
   const id = /^#\/runs\/([^/]+)/.exec(hash)?.[1];
   return id ? decodeURIComponent(id) : null;
+}
+
+/** `home` without a route: the dashboard is where everything starts. */
+export function pageFromHash(hash) {
+  if (/^#\/runs\/[^/]+/.test(hash)) return 'run';
+  return /^#\/knowledge(\/|$)/.test(hash) ? 'knowledge' : 'home';
+}
+
+/** The knowledge base entry named by a location hash, or null. */
+export function knowledgeSlug(hash) {
+  const slug = /^#\/knowledge\/([^/]+)/.exec(hash)?.[1];
+  return slug ? decodeURIComponent(slug) : null;
 }
 
 /** `graph` keeps the plain run route, so existing links stay valid. */

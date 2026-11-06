@@ -448,5 +448,77 @@
       "integration": "The premise is that the server does not answer, so a route test has nothing to call.",
       "browser": true
     }
+  },
+  "S7": {
+    "title": "Dashboard is home",
+    "user_action": "Open the console, go anywhere, come back",
+    "levels": {
+      "unit": "layout and routing live in the browser",
+      "integration": "layout and routing live in the browser",
+      "browser": true
+    }
+  },
+  "S8": {
+    "title": "No runs yet",
+    "user_action": "Start the first run from the dashboard",
+    "levels": {
+      "unit": "layout and routing live in the browser",
+      "integration": "layout and routing live in the browser",
+      "browser": true
+    }
+  },
+  "D7": {
+    "title": "Run page",
+    "user_action": "Read totals, graph and output cards; click for details",
+    "levels": {
+      "unit": "layout and routing live in the browser",
+      "integration": true,
+      "browser": true
+    }
+  },
+  "D8": {
+    "title": "Delete a run",
+    "user_action": "Delete it; the input can run again",
+    "levels": {
+      "unit": "layout and routing live in the browser",
+      "integration": true,
+      "browser": true
+    }
+  },
+  "D9": {
+    "title": "Delete refused",
+    "user_action": "Read why",
+    "levels": {
+      "unit": "layout and routing live in the browser",
+      "integration": true,
+      "browser": true
+    }
+  },
+  "D10": {
+    "title": "Latest themes and knowledge base",
+    "user_action": "Read what the videos were about",
+    "levels": {
+      "unit": "layout and routing live in the browser",
+      "integration": true,
+      "browser": true
+    }
+  },
+  "N6": {
+    "title": "Dismiss",
+    "user_action": "Dismiss an item, undo if it was a mistake",
+    "levels": {
+      "unit": "layout and routing live in the browser",
+      "integration": true,
+      "browser": true
+    }
+  },
+  "N7": {
+    "title": "Restore",
+    "user_action": "Bring a dismissed item back",
+    "levels": {
+      "unit": "layout and routing live in the browser",
+      "integration": true,
+      "browser": true
+    }
   }
 }

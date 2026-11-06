@@ -1,10 +1,11 @@
-"""What a run offers and the actions themselves: reply, stop, retry, restart, dismiss, log
+"""What a run offers and the actions themselves: reply, stop, retry, restart, dismiss, delete, log
 (spec 2026-11-05-console-end-to-end section 3). Never imports pipeline.run or a client that reads secrets.
 """
 from __future__ import annotations
 
 import json
 import os
+import shutil
 import signal
 import sqlite3
 import time
@@ -15,7 +16,7 @@ from urllib.parse import quote
 
 from pipeline import hitl, runtime
 from pipeline.publish import package
-from pipeline.ui import launcher, publish, runs
+from pipeline.ui import launcher, preview, publish, runs
 from pipeline.ui.settings import Settings
 
 STOP_GRACE_S = 5.0
@@ -84,15 +85,33 @@ def _publish_blocker(rd: Path) -> Optional[str]:
     return None
 
 
+def delete_blocker(settings: Settings, rd: Path, rec: dict) -> Optional[str]:
+    if rec["status"] in runs.ACTIVE:
+        return "the run is still active"
+    if preview.converting(rd):
+        return "a preview is converting: wait for it to finish"
+    if any((rd.parent / "source").glob("*")):
+        return f"source/ under this run can be the only copy of its input: move it out first ({rd.parent / 'source'})"
+    return _publish_blocker(rd)
+
+
+def _manage(settings: Settings, rd: Path, rec: dict) -> dict:
+    """The dashboard's commands, on any run: why each is refused, or None."""
+    busy = runs.active_run_id(settings.processed_root)
+    return {"delete": delete_blocker(settings, rd, rec),
+            "rerun": f"run {busy} is active" if busy else _publish_blocker(rd) or _restart_blocker(rd, rec)}
+
+
 def available(settings: Settings, rd: Path, run: dict) -> dict:
-    """`actions` and `action_blockers` for a load_run result."""
+    """`actions`, `action_blockers` and `manage` for a load_run result."""
     status, blockers = run["status"], {}
+    rec = runs._record(rd, None)
+    manage = _manage(settings, rd, rec)
     if status in runs.ACTIVE:
         active = "the run is still active"
         return {"actions": ["reply", "stop"] if run["pending"] else ["stop"],
-                "action_blockers": {"retry": active, "restart": active}}
+                "action_blockers": {"retry": active, "restart": active}, "manage": manage}
     acts: list[str] = []
-    rec = runs._record(rd, None)
     if status in runs.ENDED_NOT_OK:
         busy = runs.active_run_id(settings.processed_root)
         blocked = f"run {busy} is active" if busy else _publish_blocker(rd)
@@ -101,7 +120,7 @@ def available(settings: Settings, rd: Path, run: dict) -> dict:
         blockers = {verb: reason for verb, reason in reasons.items() if reason is not None}
     if runs.needs_decision(rec, rd, None, None):
         acts.append("dismiss")
-    return {"actions": acts, "action_blockers": blockers}
+    return {"actions": acts, "action_blockers": blockers, "manage": manage}
 
 
 # --- reply -------------------------------------------------------------------
@@ -231,6 +250,31 @@ def restart(settings: Settings, run_id: str, auto_approve: bool) -> str:
 
 def dismiss(settings: Settings, run_id: str, dismissed: bool) -> None:
     runs.update_record(_run_dir(settings, run_id), dismissed=dismissed)
+
+
+# --- delete ------------------------------------------------------------------
+
+
+def _delete_checkpoints(db: Path, run_id: str) -> None:
+    """Leftover rows harm nothing (run ids are never reused), so a locked or absent database never stops a delete."""
+    try:
+        with closing(sqlite3.connect(f"file:{quote(str(db))}?mode=rw", uri=True, timeout=1.0)) as conn, conn:
+            for table in ("checkpoints", "writes"):
+                conn.execute(f"DELETE FROM {table} WHERE thread_id = ?", (run_id,))  # noqa: S608 - names from this line
+    except sqlite3.Error as exc:
+        print(f"[console] checkpoints of {run_id} left in {db}: {exc}")
+
+
+def delete_run(settings: Settings, run_id: str) -> None:
+    """Only the run's folder and checkpoint rows. The input, the vault entry, Notion and anything published stay."""
+    rd = _run_dir(settings, run_id)
+    with launcher._lock:
+        rec = runs._record(rd, None)
+        blocker = delete_blocker(settings, rd, rec)
+        if blocker:
+            raise ActionError(409, blocker)
+        shutil.rmtree(rd.parent)
+    _delete_checkpoints(_checkpoint_db(rec["profile"] or settings.profile), run_id)
 
 
 # --- log ---------------------------------------------------------------------

@@ -22,7 +22,7 @@ test('polls a live run every second until it ends, then stops; list refreshes ev
   });
   await page.clock.install();
   await page.goto(`/#/runs/${id}`);
-  await expect(page.getByTestId(`run-${id}`)).toBeVisible();
+  await expect(page.getByTestId(`run-${id}`)).toHaveCount(1);
   await expect.poll(async () => {
     await page.clock.runFor(1000);
     return page.getByTestId(`run-${id}`).getAttribute('data-status');
@@ -49,7 +49,7 @@ test('a slow response for a run that is no longer selected is ignored', async ({
     await route.continue();
   });
   await page.goto('/#/runs/fx-done');
-  await page.getByTestId('run-fx-failed').click();
+  await page.evaluate(() => { location.hash = '#/runs/fx-failed'; });
   await expect(page.getByTestId('node-research')).toHaveAttribute('data-state', 'error');
   const stale = page.waitForResponse('**/api/runs/fx-done');
   release();

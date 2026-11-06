@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.datastructures import Headers
 
-from pipeline.ui import routes_actions, routes_graph, routes_launch, routes_publish, routes_result, routes_runs
+from pipeline.ui import routes_actions, routes_graph, routes_knowledge, routes_launch, routes_publish, routes_result, routes_runs
 from pipeline.ui.settings import Settings
 
 STATIC = Path(__file__).parent / "static"
@@ -72,7 +72,7 @@ def create_app(settings: Settings) -> FastAPI:
     app.state.settings = settings
     app.state.graph = routes_graph.graph_payload()
     version = read_version()
-    for mod in (routes_graph, routes_runs, routes_actions, routes_launch, routes_result, routes_publish):
+    for mod in (routes_graph, routes_runs, routes_actions, routes_launch, routes_result, routes_publish, routes_knowledge):
         app.include_router(mod.router)
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
 

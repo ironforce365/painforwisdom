@@ -1,6 +1,6 @@
 import { test, expect, freshServerState } from '../fixtures.js';
 
-const items = (page) => page.getByTestId('run-list').locator('[data-testid^="run-"]');
+const items = (page) => page.getByTestId('run-list').locator('button.run');
 
 test('list is newest first with live runs on top and a spinner on them', async ({ page, request }) => {
   freshServerState({ live: true });
@@ -17,11 +17,12 @@ test('list is newest first with live runs on top and a spinner on them', async (
   await expect(page.getByTestId('run-fx-done').getByTestId('spinner')).toBeHidden();
 });
 
-test('boot without a hash selects the top run and writes its hash', async ({ page }) => {
+test('[DT-S7] boot without a hash stays on the dashboard, with no run selected', async ({ page }) => {
   freshServerState({ live: true });
   await page.goto('/');
-  await expect(page.getByTestId('run-fx-running')).toHaveAttribute('aria-pressed', 'true');
-  await expect(page).toHaveURL(/#\/runs\/fx-running$/);
+  await expect(page.getByTestId('run-fx-running')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('body')).toHaveAttribute('data-page', 'home');
+  await expect(page).toHaveURL(/\/$/);
 });
 
 test('clicking a run selects it, sets the hash, and a reload restores it', async ({ page }) => {
@@ -34,6 +35,7 @@ test('clicking a run selects it, sets the hash, and a reload restores it', async
   await page.reload();
   await expect(page.getByTestId('run-fx-failed')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByTestId('node-research')).toHaveAttribute('data-state', 'error');
+  await page.getByTestId('run-back').click();
   await page.getByTestId('run-fx-done').click();
   await expect(page.getByTestId('run-fx-failed')).toHaveAttribute('aria-pressed', 'false');
   await expect(page.getByTestId('node-research')).toHaveAttribute('data-state', 'done');
@@ -54,7 +56,7 @@ test('statuses read as text with distinct glyphs', async ({ page }) => {
 
 test('[DT-D6] each row names input, status, time and cost', async ({ page }) => {
   freshServerState();
-  await page.goto('/#/runs/fx-modeoff');
+  await page.goto('/');
   const failed = page.getByTestId('run-fx-failed');
   await expect(failed.getByTestId('rl-name')).toHaveText('transcript_2026-10-30.txt');
   await expect(failed.getByTestId('rl-state')).toHaveText('Failed at research');
@@ -85,7 +87,7 @@ test('a row without an input name or a start time still reads', async ({ page })
     Object.assign(body.runs.find((r) => r.run_id === 'fx-modeoff'), { input: { kind: null, name: null }, started_at: null });
     await route.fulfill({ response: res, json: body });
   });
-  await page.goto('/#/runs/fx-done');
+  await page.goto('/');
   await expect(page.getByTestId('run-fx-modeoff').getByTestId('rl-name')).toHaveText('fx-modeoff');
   await expect(page.getByTestId('run-fx-modeoff').getByTestId('rl-when')).toHaveText('–');
 });
@@ -102,6 +104,7 @@ test('the selected row follows its run live; a refresh keeps focus; a run the li
   }, { timeout: 30_000 }).toBe('done');
   await expect(page.getByTestId(`run-${id}`).getByTestId('rl-state')).toHaveText('Done · PASS');
   await expect(page.getByTestId(`run-${id}`).getByTestId('rl-tokens')).toHaveText(/tok$/);
+  await page.getByTestId('run-back').click();
   await page.getByTestId(`run-${id}`).focus();
   await page.clock.runFor(5000);
   await page.evaluate(() => fetch('/health'));
@@ -113,7 +116,6 @@ test('the selected row follows its run live; a refresh keeps focus; a run the li
     await page.clock.runFor(5000);
     await expect(page.getByTestId('runs-empty')).toBeVisible({ timeout: 500 });
   }).toPass({ timeout: 30_000 });
-  await page.getByTestId('run-header').hover();
   await page.evaluate(() => { location.hash = '#/runs/fx-done'; });
   await expect(page.getByTestId('run-header-status')).toHaveText('Done');
 });
@@ -122,7 +124,7 @@ test('the rows use the width they are given and stay readable at both widths', a
   freshServerState();
   for (const [width, min] of [[1280, 200], [3440, 300]]) {
     await page.setViewportSize({ width, height: 800 });
-    await page.goto('/#/runs/fx-failed');
+    await page.goto('/');
     await page.addStyleTag({ content: '.run * { letter-spacing: .12em; }' }); // fonts differ by machine: CI's run wider
     await expect(page.getByTestId('run-fx-failed').getByTestId('rl-cost')).toBeVisible();
     const list = await page.getByTestId('run-list').boundingBox();

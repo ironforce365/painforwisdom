@@ -55,7 +55,7 @@ test('the table has one bar per started node, parallel branches overlap, pending
   expect(research.x).toBeLessThan(writer.x + writer.width);
   expect(writer.y).not.toBe(research.y);
   expect(extract.x + extract.width).toBeLessThanOrEqual(writer.x);
-  await page.getByTestId('run-fx-failed').click();
+  await page.evaluate(() => { location.hash = '#/runs/fx-failed'; });
   await expect(m(page, 'span-research')).toHaveAttribute('data-state', 'error');
   await expect(m(page, 'span-summarizer')).toBeHidden();
 });

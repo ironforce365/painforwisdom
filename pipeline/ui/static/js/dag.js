@@ -2,13 +2,22 @@
 import { SVG_NS, svgIcon } from './icons.js';
 import { fmtCost, fmtDuration } from './format.js';
 
-const COL = 128; // minimum column gap; a wide box spreads the columns up to SPREAD times
-const SPREAD = 1.9;
-const ROW = 108;
-const PAD_X = 72;
-const PAD_Y = 48;
-const PAD_BOTTOM = 72; // room for the label and the meta line under the last row
-const R = 24;
+const BOX_W = 132;
+const BOX_H = 54;
+const COL = 156; // minimum column gap; a wide box spreads the columns up to SPREAD times
+const SPREAD = 1.5;
+const ROW = 84;
+const PAD_X = BOX_W / 2 + 10;
+const PAD_Y = BOX_H / 2 + 10;
+const PAD_BOTTOM = BOX_H + 20;
+// Rows that keep the long edges clear of the boxes. A graph with a node not listed falls back to the computed layout.
+const LANES = {
+  extract_image: -1.95, wordpress_draft: -1.45, bv_wordpress: -1.45, notion_blog: -0.95, writer: -0.5,
+  transcribe: 0, extract: 0, kb_curator: 0, pre_validator: 0, youtube_metadata: 0, youtube_upload: 0, bv_youtube: 0, summarizer: 0,
+  research: 1.5, notion_research: 1.5, bv_research: 1.5,
+};
+const PACKAGE_NODE = { wordpress: 'wordpress_draft', youtube: 'youtube_upload' };
+const PACKAGE_META = { pending: 'needs you', failed: 'publish failed', publishing: 'publishing', published: 'published' };
 const CUES = { pending: 'dot', running: 'arc', paused: 'pause', done: 'tick', error: 'cross', skipped: 'dash' };
 
 const ZOOM_MIN = 0.2;
@@ -40,6 +49,12 @@ function layout(graph) {
   graph.nodes.forEach((n) => (cols[depthOf(n.id)] ||= []).push(n.id));
   const rows = Math.max(...cols.map((c) => c.length));
   const pos = new Map();
+  if (graph.nodes.every((n) => n.id in LANES)) {
+    const top = Math.min(...graph.nodes.map((n) => LANES[n.id]));
+    const bottom = Math.max(...graph.nodes.map((n) => LANES[n.id]));
+    graph.nodes.forEach((n) => pos.set(n.id, { col: depth.get(n.id), y: PAD_Y + (LANES[n.id] - top) * ROW }));
+    return { pos, cols: cols.length, height: PAD_Y + PAD_BOTTOM + (bottom - top) * ROW };
+  }
   cols.forEach((ids, c) => {
     const ps = (id) => preds.get(id).map((p) => pos.get(p).y);
     const key = (id) => ps(id).reduce((a, b) => a + b, 0) / Math.max(1, ps(id).length);
@@ -52,7 +67,7 @@ function layout(graph) {
 
 function edgePath(a, b) {
   const mx = (a.x + b.x) / 2;
-  return `M${a.x + R} ${a.y} C${mx} ${a.y} ${mx} ${b.y} ${b.x - R} ${b.y}`;
+  return `M${a.x + BOX_W / 2} ${a.y} C${mx} ${a.y} ${mx} ${b.y} ${b.x - BOX_W / 2} ${b.y}`;
 }
 
 function nodeEl(n, p, bus) {
@@ -62,19 +77,21 @@ function nodeEl(n, p, bus) {
   });
   const title = svgEl('title', {});
   title.textContent = `${n.label}: pending`;
-  const label = svgEl('text', { class: 'node-label', 'data-testid': 'dag-label', y: R + 19, 'text-anchor': 'middle' });
+  const label = svgEl('text', { class: 'node-label', 'data-testid': 'dag-label', y: -3, 'text-anchor': 'middle' });
   label.textContent = n.label;
-  const meta = svgEl('text', { class: 'node-meta', 'data-testid': 'dag-meta', y: R + 34, 'text-anchor': 'middle' });
+  const meta = svgEl('text', { class: 'node-meta', 'data-testid': 'dag-meta', y: 15, 'text-anchor': 'middle' });
+  const box = (cls, grow, extra = {}) => svgEl('rect', {
+    class: cls, x: -BOX_W / 2 - grow, y: -BOX_H / 2 - grow, width: BOX_W + grow * 2, height: BOX_H + grow * 2, rx: 10 + grow, ...extra,
+  });
   g.append(
     title,
-    svgEl('circle', { class: 'ring', 'data-testid': 'ring', r: R + 6 }),
-    svgEl('circle', { class: 'disc', r: R }),
-    svgIcon(n.icon, { x: -11, y: -11, width: 22, height: 22 }),
+    box('ring', 5, { 'data-testid': 'ring' }),
+    box('disc', 0),
     label,
     meta,
   );
   // No transform attributes below the node <g>: CSS transforms (shake, pulse) would replace them.
-  const [cx, cy] = [R * 0.72, -R * 0.72];
+  const [cx, cy] = [BOX_W / 2 - 3, -BOX_H / 2 + 3];
   for (const [state, glyph] of Object.entries(CUES)) {
     const cue = svgEl('g', { class: `cue cue-${state}`, 'data-testid': `cue-${state}` });
     cue.append(svgEl('circle', { cx, cy, r: 9 }), svgIcon(glyph, { x: cx - 7, y: cy - 7, width: 14, height: 14 }));
@@ -91,7 +108,8 @@ function nodeEl(n, p, bus) {
   return { g, title, label: n.label, meta };
 }
 
-function metaText(node, row) {
+function metaText(node, row, pkg) {
+  if (pkg) return PACKAGE_META[pkg];
   const parts = [];
   if (node.state !== 'done') parts.push(node.state);
   const seconds = row?.duration_s ?? node.duration_s;
@@ -204,6 +222,7 @@ export function mount(el, ctx) {
       drag.dragged = false;
     }, true);
     svg.addEventListener('wheel', (e) => {
+      if (!e.ctrlKey && !e.metaKey) return; // a plain wheel scrolls the page, which holds more than the graph
       e.preventDefault();
       const r = svg.getBoundingClientRect();
       zoomAt(e.clientX - r.left, e.clientY - r.top, Math.exp(-e.deltaY * WHEEL_RATE));
@@ -244,12 +263,17 @@ export function mount(el, ctx) {
   });
 
   ctx.bus.on('run:updated', (run) => {
+    const packages = new Map(run.packages.map((p) => [PACKAGE_NODE[p.target], p.status]));
     for (const [id, node] of nodes) {
       const n = run.nodes[id];
-      node.g.setAttribute('data-state', n.state);
-      node.g.setAttribute('aria-label', `${node.label}: ${n.state}`);
-      node.title.textContent = `${node.label}: ${n.state}`;
-      node.meta.textContent = metaText(n, run.telemetry.per_node[id]);
+      const pkg = packages.get(id);
+      const state = pkg === 'published' ? 'done' : n.state; // the node skipped a manual package; the work got done later
+      const shown = pkg ? PACKAGE_META[pkg] : n.state;
+      node.g.setAttribute('data-state', state);
+      node.g.setAttribute('data-package', pkg ?? '');
+      node.g.setAttribute('aria-label', `${node.label}: ${shown}`);
+      node.title.textContent = `${node.label}: ${shown}`;
+      node.meta.textContent = metaText(n, run.telemetry.per_node[id], pkg);
     }
     for (const e of edges) e.path.setAttribute('data-state', run.nodes[e.to].state);
   });

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request
 
-from pipeline.ui.mapping import NODE_ICON
+from pipeline.ui.mapping import NODE_ICON, NODE_LABEL
 
 router = APIRouter()
 _HIDDEN = {"__start__", "__end__"}
@@ -15,7 +15,7 @@ def graph_payload() -> dict:
     compiled, saver = build_graph(start_at="transcribe")
     saver.conn.close()
     g = compiled.get_graph()
-    nodes = [{"id": n, "label": n.replace("_", " "), "icon": NODE_ICON.get(n, "dot")} for n in g.nodes if n not in _HIDDEN]
+    nodes = [{"id": n, "label": NODE_LABEL.get(n, n.replace("_", " ")), "icon": NODE_ICON.get(n, "dot")} for n in g.nodes if n not in _HIDDEN]
     edges = [{"from": e.source, "to": e.target} for e in g.edges if e.source not in _HIDDEN and e.target not in _HIDDEN]
     return {"nodes": nodes, "edges": edges}
 

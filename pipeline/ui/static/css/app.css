@@ -44,18 +44,20 @@ body {
   display: flex;
   align-items: center;
   gap: 12px;
-  height: 44px;
-  padding: 0 12px;
+  height: 60px;
+  padding: 0 16px;
   background: var(--surface);
   border-bottom: 1px solid var(--line);
 }
+.home-link { display: inline-flex; align-items: center; gap: 8px; color: inherit; text-decoration: none; }
+.home-link:hover .brand { color: var(--run); }
 .logo { display: inline-flex; color: var(--run); }
 .logo .icon { width: 22px; height: 22px; }
-.brand { font-weight: 600; }
+.brand { font-weight: 700; font-size: 16px; }
 .version, .profile { color: var(--muted); font-size: 12px; white-space: nowrap; }
 .profile { padding: 1px 6px; border: 1px solid var(--line); border-radius: 4px; }
 .profile:empty { display: none; }
-.slot-attention { flex: 1; min-width: 0; height: 100%; }
+.slot-needslink { flex: 1; min-width: 0; display: flex; justify-content: flex-end; }
 .slot-launch { flex: none; margin-left: auto; display: flex; align-items: center; gap: 8px; }
 .badge-error {
   flex: none;
@@ -71,48 +73,17 @@ body {
 .badge-error .icon { width: 16px; height: 16px; }
 .badge-error[hidden] { display: none; }
 
-/* ---- needs you ---- */
-.needs { display: flex; align-items: center; gap: 8px; min-width: 0; height: 100%; }
-.needs-label { flex: none; font-weight: 600; color: var(--muted); white-space: nowrap; }
-.needs:not([data-count="0"]) .needs-label { color: var(--pause); }
-.needs-count { font-variant-numeric: tabular-nums; }
-.needs-items { display: flex; align-items: center; gap: 6px; min-width: 0; overflow-x: auto; scrollbar-width: thin; }
-.needs-none { color: var(--muted); white-space: nowrap; }
-.needs-item {
-  --c: var(--pause);
-  flex: none;
-  max-width: 340px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  padding: 2px 8px;
-  border: 1px solid color-mix(in srgb, var(--c) 60%, var(--line));
-  border-left-width: 3px;
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--c) 10%, var(--surface));
-  color: var(--text);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-.needs-item b { font-weight: 600; }
-.needs-item[data-kind="failed"], .needs-item[data-kind="error"] { --c: var(--error); }
-.needs-item[data-kind="crashed"] { --c: var(--crash); }
-.needs-item[data-kind="stopped"], .needs-item[data-kind="publish"] { --c: var(--run); }
-.needs-item[aria-pressed="true"] { border-color: var(--text); }
-.needs-item:focus-visible { outline: 2px solid var(--text); outline-offset: 1px; }
-
-/* ---- layout: run list, centre, docked inspector ---- */
+/* ---- layout: the run page, docked inspector ---- */
 .layout {
-  --runs-w: clamp(250px, 15vw, 340px);
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: var(--runs-w) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   grid-template-rows: minmax(0, 1fr);
 }
-.center { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.center { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
 .viewport { position: relative; flex: 1; min-height: 0; }
+body[data-view="graph"] .viewport { flex: 1 0 340px; }
 .viewport > * { position: absolute; inset: 0; }
 #dag, #operability, #logs { display: none; }
 body[data-view="graph"] #dag { display: block; }
@@ -123,9 +94,10 @@ body[data-view="output"] #operability { display: block; overflow: hidden auto; }
   flex: none;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
-  min-height: 36px;
-  padding: 0 12px;
+  min-height: 56px;
+  padding: 8px 14px;
   border-bottom: 1px solid var(--line);
 }
 .run-info { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; overflow: hidden; white-space: nowrap; }
@@ -148,7 +120,7 @@ body[data-view="output"] #operability { display: block; overflow: hidden auto; }
 .rh-verdict { flex: none; font-weight: 600; color: var(--done); }
 .rh-verdict[data-verdict="PARTIAL"] { color: var(--pause); }
 .rh-verdict[data-verdict="FAIL"] { color: var(--error); }
-.rh-input { flex: 0 1 auto; min-width: 60px; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+.rh-input { flex: 0 1 auto; min-width: 60px; overflow: hidden; text-overflow: ellipsis; font-weight: 700; font-size: 18px; }
 .rh-field { flex: none; color: var(--muted); font-size: 12px; }
 .rh-reason { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--pause); }
 .view-tabs { flex: none; display: flex; align-self: stretch; }
@@ -170,9 +142,6 @@ body[data-view="output"] #operability { display: block; overflow: hidden auto; }
 .runs {
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
-  background: var(--surface);
-  border-right: 1px solid var(--line);
 }
 .run {
   --c: var(--muted);
@@ -250,8 +219,8 @@ body[data-view="output"] #operability { display: block; overflow: hidden auto; }
 .dag-tools button:hover { border-color: var(--run); }
 .dag-tools button:focus-visible { outline: 2px solid var(--run); outline-offset: 1px; }
 .dag-level { min-width: 40px; text-align: center; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
-.node-label { fill: var(--text); font-size: 13px; font-weight: 600; }
-.node-meta { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.node-label { fill: var(--text); font-size: 13px; font-weight: 600; pointer-events: none; }
+.node-meta { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; pointer-events: none; }
 
 .edge {
   fill: none;
@@ -303,6 +272,11 @@ body[data-view="output"] #operability { display: block; overflow: hidden auto; }
 .node[data-state="skipped"] { --c: var(--skipped); }
 .node[data-state="skipped"] .disc { fill: none; stroke-dasharray: 3 4; pointer-events: all; }
 
+/* A package waiting for you is amber whatever the node did; the cue stays the node's own. */
+.node[data-package="pending"], .node[data-package="failed"] { --c: var(--pause); opacity: 1; }
+.node[data-package="pending"] .disc, .node[data-package="failed"] .disc { fill: color-mix(in srgb, var(--pause) 18%, var(--surface-2)); stroke-dasharray: none; stroke-width: 3; }
+.node[data-package="pending"] .node-meta, .node[data-package="failed"] .node-meta { fill: var(--pause); font-weight: 600; }
+
 .cue { display: none; }
 .cue circle { fill: var(--c); stroke: var(--bg); stroke-width: 2; }
 .cue .icon { color: var(--bg); stroke-width: 3; }
@@ -330,7 +304,8 @@ body[data-view="output"] #operability { display: block; overflow: hidden auto; }
 /* Phone: everything stacks, nothing overlaps. */
 @media (max-width: 720px) {
   .layout { display: flex; flex-direction: column; overflow-y: auto; }
-  .runs { flex: none; max-height: 120px; }
-  .center { flex: none; height: 80vh; }
-  .needs-label, .brand, .version { display: none; }
+  .center { flex: none; overflow: visible; }
+  .viewport { flex: none; height: 70vh; }
+  body[data-view="graph"] .viewport { flex: none; }
+  .brand, .version { display: none; }
 }

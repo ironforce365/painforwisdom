@@ -191,7 +191,7 @@ test('[DT-R3] [DT-F3] stop a running run: stopped, then retry from checkpoint fi
 });
 
 test('[DT-N1] [DT-F7] the needs-you bar reaches a run in one click; dismiss takes it off', async ({ page }) => {
-  await page.goto('/#/runs/fx-done');
+  await page.goto('/');
   const item = id(page, 'needs-you-item-fx-failed');
   await expect(item).toBeVisible();
   const before = Number(await id(page, 'needs-you-count').textContent());
@@ -208,7 +208,7 @@ test('[DT-N1] [DT-F7] the needs-you bar reaches a run in one click; dismiss take
 });
 
 test('[DT-P2] [DT-P4] an older run with no package reaches YouTube and WordPress publish', async ({ page }) => {
-  await page.goto('/#/runs/fx-done');
+  await page.goto('/');
   await statusOf(page, 'fx-unpackaged').click();
   await openOutput(page, 'youtube');
   await id(page, 'prepare-youtube').click();
@@ -221,7 +221,7 @@ test('[DT-P2] [DT-P4] an older run with no package reaches YouTube and WordPress
 });
 
 test('[DT-D5] research: an http link, a local book that opens, a row with no link', async ({ page }) => {
-  await page.goto('/#/runs/fx-done');
+  await page.goto('/');
   await statusOf(page, 'fx-unpackaged').click();
   await openOutput(page, 'research');
   await expect(id(page, 'research-link-1')).toHaveAttribute('href', 'https://example.org/endure');
@@ -254,7 +254,9 @@ for (const [width, height] of [[1280, 720], [3440, 1440]]) {
       const zoomed = await zoom();
       const box = await id(page, 'dag').boundingBox();
       await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.keyboard.down('Control');
       await page.mouse.wheel(0, 200);
+      await page.keyboard.up('Control');
       await expect.poll(zoom).toBeLessThan(zoomed);
 
       const a = await writer.boundingBox();
@@ -315,7 +317,7 @@ test('[DT-N2] a reload keeps the view', async ({ page }) => {
 test('[DT-N5] backend down shows the badge; it clears when the backend returns', async ({ page, errors }) => {
   errors.allow(/requestfailed: .*\/api\//);
   errors.allow(/ERR_FAILED/);
-  await page.goto('/#/runs/fx-done');
+  await page.goto('/');
   const badge = id(page, 'error-badge');
   await expect(statusOf(page, 'fx-done')).toBeVisible();
   await expect(badge).toBeHidden();

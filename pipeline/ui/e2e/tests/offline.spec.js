@@ -12,7 +12,7 @@ test('[DT-N5] backend unreachable at boot: badge shows, graph and list retry, ba
   await expect(badge).toHaveAttribute('aria-label', /.+/);
   await page.unroute('**/api/**');
   await page.clock.runFor(1000);
-  await expect(page.getByTestId('node-extract')).toBeVisible();
+  await expect(page.getByTestId('node-extract')).toHaveCount(1);
   await page.clock.runFor(5000);
   await expect(page.getByTestId('run-fx-done')).toBeVisible();
   await expect(badge).toBeHidden();
