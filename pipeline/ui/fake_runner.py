@@ -13,6 +13,7 @@ import base64
 import hashlib
 import json
 import os
+import shutil
 import sys
 import tempfile
 import threading
@@ -290,6 +291,13 @@ def execute(run: FakeRun, preds: dict[str, set[str]], already_done: Iterable[str
                     error = str(exc)
 
 
+def fake_preview(dest: Path, step_s: float) -> int:
+    """Stands in for ffmpeg: a real H.264 file, so a browser test proves the copy decodes without ffmpeg installed."""
+    time.sleep(step_s)
+    shutil.copyfile(Path(__file__).resolve().parents[2] / "tests/fixtures/ui/inbox/PXL_20261030_070000000.mp4", dest)
+    return 0
+
+
 def fake_publish(rd: Path, target: str, step_s: float) -> int:
     """Stands in for `python -m pipeline.publish`: the title FAIL takes the error path. No client, no network."""
     try:
@@ -340,6 +348,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         r.add_argument("--wait-s", type=float, default=120)
         ret = r.parse_args(argv[1:])
         return fake_retry(ret.run_id, ret.processed_root, ret.scenario, ret.step_ms / 1000, ret.wait_s)
+    if argv[:1] == ["preview"]:
+        v = argparse.ArgumentParser(prog="python -m pipeline.ui.fake_runner preview")
+        v.add_argument("--step-ms", type=int, default=200)
+        v.add_argument("dest", type=Path)
+        prev = v.parse_args(argv[1:])
+        return fake_preview(prev.dest, prev.step_ms / 1000)
     if argv[:1] == ["publish"]:
         q = argparse.ArgumentParser(prog="python -m pipeline.ui.fake_runner publish")
         q.add_argument("--run-dir", required=True, type=Path)

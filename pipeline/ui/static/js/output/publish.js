@@ -3,6 +3,8 @@ import { el, icon, RENDER } from '../drawer.js';
 import { base, LABELS, reasonOf } from './model.js';
 import { button, linkEl, sync } from './ui.js';
 
+const PREVIEW_POLL_MS = 1000;
+
 function plainInput(tag, props, value) {
   const input = el(tag, props);
   input.value = value;
@@ -60,19 +62,73 @@ function problems(specs, values) {
   });
 }
 
+/**
+ * A video this browser cannot decode gets a converted copy swapped in. HEVC from a phone gives no error event:
+ * audio plays over a black box, so the signal is a width of 0. The package and the upload keep the original.
+ */
+function convertWhenUndecodable(env, target, role, media, id, cannotShow) {
+  const ORIGINAL_SAFE = 'The upload sends the original file.';
+  const note = el('small', { class: 'notice', role: 'status', 'data-testid': `asset-preview-${id}` });
+  note.hidden = true;
+  const say = (state, ...content) => {
+    note.dataset.state = state;
+    note.hidden = false;
+    note.replaceChildren(...content);
+  };
+  const giveUp = () => {
+    note.hidden = true;
+    cannotShow();
+  };
+  let asked = false;
+  let swapped = false;
+
+  const swap = () => {
+    const at = media.currentTime;
+    media.autoplay = !media.paused;
+    media.addEventListener('loadedmetadata', () => { media.currentTime = at; }, { once: true });
+    swapped = true;
+    media.src = env.api.assetPreviewUrl(env.runId, target, role);
+  };
+  const failed = (error) => {
+    const retry = button('Retry', { 'data-testid': `asset-preview-retry-${id}` }, 'bolt');
+    retry.addEventListener('click', begin);
+    say('failed', `Could not convert a preview: ${error} ${ORIGINAL_SAFE} `, retry);
+  };
+  const follow = ({ status, error }) => {
+    if (!media.isConnected) return; // the section was left
+    if (status === 'none') begin(); // the console restarted under the conversion
+    else if (status === 'failed') failed(error);
+    else if (status === 'ready') {
+      swap();
+      say('ready', `Showing a converted copy. ${ORIGINAL_SAFE}`);
+    } else setTimeout(() => env.api.assetPreview(env.runId, target, role).then(follow, giveUp), PREVIEW_POLL_MS);
+  };
+  function begin() {
+    say('converting', `This browser cannot decode this video. Converting a preview… ${ORIGINAL_SAFE}`);
+    env.api.startAssetPreview(env.runId, target, role).then(follow, giveUp);
+  }
+  const once = () => {
+    if (!asked) begin();
+    asked = true;
+  };
+
+  media.addEventListener('loadedmetadata', () => { if (media.videoWidth === 0) once(); });
+  media.addEventListener('error', () => { if (swapped) giveUp(); else once(); });
+  return note;
+}
+
 function assetEl(env, target, asset) {
   const id = `${target}-${asset.role}`;
   const url = env.api.packageAssetUrl(env.runId, target, asset.role);
+  const missing = el('small', { class: 'error', 'data-testid': `asset-missing-${id}` }, 'This file cannot be shown here.');
+  missing.hidden = true;
+  const cannotShow = () => { missing.hidden = false; };
   const media = asset.role === 'video'
     ? el('video', { src: url, controls: '', preload: 'metadata', 'data-testid': id })
     : el('img', { src: url, alt: asset.role, 'data-testid': id });
-  const figure = el('figure', { class: 'asset', 'data-testid': `asset-${id}`, title: asset.path }, media, el('figcaption', {}, base(asset.path)));
-  media.addEventListener('error', () => figure.append(el('small', { class: 'error', 'data-testid': `asset-missing-${id}` }, 'This file cannot be shown here.')), { once: true });
-  // HEVC from a phone: audio plays over a black box and no error event fires.
-  const notice = el('small', { class: 'notice', 'data-testid': `asset-undecodable-${id}` }, 'This browser cannot decode this video, so it plays audio only here. The upload sends the original file and is not affected.');
-  notice.hidden = true;
-  figure.append(notice);
-  media.addEventListener('loadedmetadata', () => { notice.hidden = media.videoWidth !== 0; });
+  const figure = el('figure', { class: 'asset', 'data-testid': `asset-${id}`, title: asset.path }, media, el('figcaption', {}, base(asset.path)), missing);
+  if (asset.role === 'video') figure.prepend(convertWhenUndecodable(env, target, asset.role, media, id, cannotShow));
+  else media.addEventListener('error', cannotShow);
   return figure;
 }
 

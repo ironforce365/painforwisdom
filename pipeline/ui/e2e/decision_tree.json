@@ -386,6 +386,15 @@
       "browser": true
     }
   },
+  "P12": {
+    "title": "Video the browser cannot decode",
+    "user_action": "Nothing: a converted copy swaps in; read the reason and retry if it failed",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
   "N1": {
     "title": "Needs-you bar",
     "user_action": "Read every run wanting a decision; one click to it",

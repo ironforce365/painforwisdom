@@ -109,8 +109,10 @@ test('the selected row follows its run live; a refresh keeps focus; a run the li
 
   // selected before the list has heard of it
   await page.route('**/api/runs', (route) => route.fulfill({ json: { runs: [] } }));
-  await page.clock.runFor(5000);
-  await expect(page.getByTestId('runs-empty')).toBeVisible();
+  await expect(async () => { // a list poll already in flight skips this tick, and the frozen clock would not tick again
+    await page.clock.runFor(5000);
+    await expect(page.getByTestId('runs-empty')).toBeVisible({ timeout: 500 });
+  }).toPass({ timeout: 30_000 });
   await page.getByTestId('run-header').hover();
   await page.evaluate(() => { location.hash = '#/runs/fx-done'; });
   await expect(page.getByTestId('run-header-status')).toHaveText('Done');

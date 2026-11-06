@@ -70,7 +70,8 @@ PUBLISH (target = youtube | wordpress)
 ├─ P8 validation error ─▶ per-field error
 ├─ P9 another publish holds the lock ─▶ error shown
 ├─ P10 auto mode ─▶ shows published or failed, no action unless failed
-└─ P11 publisher died ─▶ failed, publish again
+├─ P11 publisher died ─▶ failed, publish again
+└─ P12 video the browser cannot decode ─▶ converted copy swaps in; the upload keeps the original
 NAVIGATION
 ├─ N1 needs-you bar lists every run wanting a decision; one click to it
 ├─ N2 deep links: #/runs/<id>/{graph,output,logs}, reload keeps the view
