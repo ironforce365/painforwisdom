@@ -1,8 +1,9 @@
 langgraph>=0.6,<0.7
 langgraph-checkpoint-sqlite>=2.0,<3
-litellm>=1.55.0,<2
+# Exact: 1.108 needs the undeclared `mcp` module for web search, which breaks the research node, and tests stub the LLM.
+litellm==1.83.14
 anthropic>=0.40.0,<1
-notion-client>=2.2.1,<3
+notion-client>=3,<4
 python-dotenv>=1.0.0,<2
 httpx>=0.27,<1
 PyYAML>=6.0,<7
@@ -25,3 +26,10 @@ numpy>=1.26,<3
 google-api-python-client>=2.110,<3
 google-auth>=2.25,<3
 google-auth-oauthlib>=1.2,<2
+
+# Daily brief sources (pipeline/summarize_daily/fetcher.py); without them those sources are skipped.
+# Below 1: the fetcher calls YouTubeTranscriptApi.get_transcript, which 1.x removed.
+youtube-transcript-api>=0.6,<1
+pypdf>=5,<8
+
+# Transcription runs from its own env: see requirements-whisper.txt.
