@@ -62,6 +62,9 @@ export const saveArtifact = (id, artifactId, text) => request(`/api/runs/${enc(i
 export const savePackage = (id, target, fields) => send('PUT', `/api/runs/${enc(id)}/publish/${enc(target)}`, { fields });
 export const preparePackage = (id, target) => send('POST', `/api/runs/${enc(id)}/publish/${enc(target)}/prepare`, {});
 export const packageAssetUrl = (id, target, role) => `/api/runs/${enc(id)}/publish/${enc(target)}/asset/${enc(role)}`;
+export const assetPreview = (id, target, role) => request(`${packageAssetUrl(id, target, role)}/preview`);
+export const startAssetPreview = (id, target, role) => send('POST', `${packageAssetUrl(id, target, role)}/preview`, {});
+export const assetPreviewUrl = (id, target, role) => `${packageAssetUrl(id, target, role)}/preview/file`;
 export const publishPackages = (id) => request(`/api/runs/${enc(id)}/publish`);
 export const publish = (id, target, fields) => request(`/api/runs/${enc(id)}/publish/${enc(target)}`, {
   method: 'POST',

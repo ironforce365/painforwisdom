@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 import mimetypes
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
-from pipeline.ui import publish, runs
+from pipeline.ui import preview, publish, runs
 
 router = APIRouter()
 
@@ -47,6 +48,36 @@ def post_prepare(request: Request, run_id: str, target: str):
         return publish.prepare(request.app.state.settings, run_id, target)
     except publish.PublishError as e:
         return JSONResponse(e.body, status_code=e.status)
+
+
+def _video(request: Request, run_id: str, target: str, role: str) -> tuple[Path, Path]:
+    """(run dir, source file) of a video the package lists; nothing else is ever converted."""
+    settings = request.app.state.settings
+    source = publish.asset_path(settings, run_id, target, role) if role == "video" else None
+    if source is None:
+        raise HTTPException(404, "unknown asset")
+    return runs.run_dir(settings.processed_root, run_id), source
+
+
+@router.get("/api/runs/{run_id}/publish/{target}/asset/{role}/preview")
+def get_preview(request: Request, run_id: str, target: str, role: str) -> dict:
+    rd, _ = _video(request, run_id, target, role)
+    return preview.state(rd, target, role)
+
+
+@router.post("/api/runs/{run_id}/publish/{target}/asset/{role}/preview", status_code=202)
+def post_preview(request: Request, run_id: str, target: str, role: str) -> dict:
+    rd, source = _video(request, run_id, target, role)
+    return preview.start(request.app.state.settings, rd, target, role, source)
+
+
+@router.get("/api/runs/{run_id}/publish/{target}/asset/{role}/preview/file")
+def get_preview_file(request: Request, run_id: str, target: str, role: str) -> FileResponse:
+    rd, _ = _video(request, run_id, target, role)
+    copy = preview.ready_copy(rd, target, role)
+    if copy is None:
+        raise HTTPException(404, "no preview yet")
+    return FileResponse(copy, media_type="video/mp4")
 
 
 @router.get("/api/runs/{run_id}/publish/{target}/asset/{role}")

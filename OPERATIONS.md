@@ -295,6 +295,7 @@ python -m pipeline.ui --profile sandbox --inbox /path/to/inbox
 - One active run at a time (a second launch returns 409 and shows the live run).
 - Views: Graph (wheel zoom, drag pan, `+ - 0`), Output and Logs, as tabs and in the route `#/runs/<id>/<view>`. The inspector docks beside the graph.
 - Output: one section at a time (`j`/`k`): summary, blog, YouTube, WordPress, knowledge base, research, audit, files. Text files edit in place. A package can be prepared for an older run, saved without publishing, and published; the result or error shows in place. Local books open from the research table, served only from `$STATE_ROOT/books`.
+- Video preview: when the browser cannot decode a package's video (HEVC from a phone), the console converts a copy with ffmpeg (H.264, long side 1280, HDR tone-mapped), about half the video's length on this machine, and swaps it in. It is cached at `processed/<run>/console-preview/`, safe to delete, and never uploaded: the upload always sends the original.
 - Metrics bar (bottom, one line): tokens, cache, cost, time for the run or the selected node. `Details` opens the per-node table.
 - The server only answers `Host` 127.0.0.1, localhost or [::1], and refuses cross-origin writes.
 
