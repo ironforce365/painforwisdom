@@ -44,6 +44,15 @@
       "browser": true
     }
   },
+  "S6": {
+    "title": "Choose the language",
+    "user_action": "Keep the catalog default or type another code",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
   "R1": {
     "title": "Watch a running run",
     "user_action": "Watch the live graph, metrics and logs",

@@ -457,6 +457,14 @@ def test_restart_launches_a_new_run_with_the_same_input(client, processed, spawn
     assert rec_of(processed, "fx-stopped")["status"] == "stopped"
 
 
+def test_restart_keeps_the_language_the_run_chose(client, processed, spawned):  # [DT-S6]
+    path = processed / "fx-stopped" / "langgraph" / "run.json"
+    path.write_text(json.dumps({**json.loads(path.read_text()), "language": "es"}))
+    new = client.post("/api/runs/fx-stopped/restart", json={}).json()["run_id"]
+    assert rec_of(processed, new)["language"] == "es"
+    assert client.get(f"/api/runs/{new}").json()["language"] == "es"
+
+
 def test_restart_refusals(client, processed, spawned):  # [DT-F5] [DT-S4]
     assert client.post("/api/runs/nope/restart", json={}).status_code == 404
     r = client.post("/api/runs/fx-failed/restart", json={})

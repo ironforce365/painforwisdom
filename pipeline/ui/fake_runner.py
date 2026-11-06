@@ -83,7 +83,7 @@ _RESULTS = {"pre_validator": _audit("pre"), "bv_research": _audit("branch", "_re
 
 class FakeRun:
     def __init__(self, run_id: str, root: Path, input_path: Path, scenario: str, step_s: float, wait_s: float = 120,
-                 auto_approve: bool = False):
+                 auto_approve: bool = False, language: Optional[str] = None):
         self.rd = root / run_id / "langgraph"
         self.rd.mkdir(parents=True, exist_ok=True)
         self.scenario, self.step_s, self.wait_s, self.auto_approve = scenario, step_s, wait_s, auto_approve
@@ -91,7 +91,7 @@ class FakeRun:
         self.attempts: dict[str, int] = {}
         kind = input_kind(input_path.name) or "transcript"
         self.record = {"run_id": run_id, "status": "running", "verdict": None, "pid": os.getpid(),
-                       "profile": "sandbox", "input": {"kind": kind, "path": str(input_path)},
+                       "profile": "sandbox", "language": language, "input": {"kind": kind, "path": str(input_path)},
                        "started_at": time.time(), "ended_at": None, "hitl_wait_s": 0.0, "error": None}
 
     def _append(self, name: str, row: dict) -> None:
@@ -369,9 +369,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     p.add_argument("--step-ms", type=int, default=200)
     p.add_argument("--wait-s", type=float, default=120)
     p.add_argument("--auto-approve", action="store_true")
+    p.add_argument("--language")
     args = p.parse_args(argv)
     run = FakeRun(args.run_id, args.processed_root, args.input, args.scenario, args.step_ms / 1000, args.wait_s,
-                  args.auto_approve)
+                  args.auto_approve, args.language)
     run.save()
     return _finish(run)
 

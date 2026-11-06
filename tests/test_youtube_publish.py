@@ -514,3 +514,10 @@ def test_the_client_sends_nothing_for_what_is_empty(tmp_path, monkeypatch):  # [
     sent = _client_upload(monkeypatch, tmp_path)
     assert sent["part"] == "snippet,status" and "recordingDetails" not in sent["body"]
     assert "defaultLanguage" not in sent["body"]["snippet"] and "defaultAudioLanguage" not in sent["body"]["snippet"]
+
+
+def test_the_package_languages_follow_the_run(state, monkeypatch):  # [DT-S6]
+    _uploader(monkeypatch)
+    youtube_upload.node_youtube_upload(_with_metadata({**state, "language": "es"}))
+    fields = package.read(Path(state["run_dir"]), "youtube")["fields"]
+    assert fields["audio_language"] == "es" and fields["text_language"] == "es"

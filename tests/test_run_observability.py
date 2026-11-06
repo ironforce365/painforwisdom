@@ -198,7 +198,7 @@ def _args(tmp_path: Path, **kw) -> argparse.Namespace:
     transcript = tmp_path / "transcript_2026-10-31.txt"
     transcript.write_text("hello world")
     base = dict(
-        from_transcript=str(transcript), profile="sandbox", run_suffix="langgraph",
+        from_transcript=str(transcript), language=None, profile="sandbox", run_suffix="langgraph",
         auto_approve=False, telegram_on_error=False, reminder_interval=1, target_seconds=600,
         processed_root=tmp_path / "processed",
     )
@@ -235,7 +235,7 @@ def test_run_json_done_with_hitl(tmp_path, monkeypatch, harness):
     assert run._process_one_video(_args(tmp_path), "rid") == 0
     assert seen == ["waiting_hitl", "running"]
     rec = _record(tmp_path)
-    assert set(rec) == {"run_id", "status", "verdict", "pid", "profile", "input", "started_at", "ended_at", "hitl_wait_s", "error"}
+    assert set(rec) == {"run_id", "status", "verdict", "pid", "profile", "language", "input", "started_at", "ended_at", "hitl_wait_s", "error"}
     assert rec["run_id"] == "rid"
     assert rec["status"] == "done" and rec["verdict"] == "PASS" and rec["error"] is None
     assert rec["pid"] == os.getpid() and rec["profile"] == "sandbox"
@@ -445,3 +445,21 @@ def test_batch_archives_under_processed_root(tmp_path, monkeypatch):
     args = argparse.Namespace(dir=str(videos), run_id="b", processed_root=root)
     assert run._run_batch(args) == 0
     assert (root / "b_001" / "source" / "a.mp4").is_file()
+
+
+def test_the_chosen_language_enters_the_graph_state(tmp_path):
+    args = argparse.Namespace(from_transcript=None, language="es", profile="prod")
+    initial, _ = run._build_initial_state(args, Path("v.mp4"), "r", tmp_path)
+    assert initial["language"] == "es"
+
+
+def test_without_a_choice_the_run_takes_the_catalog_language(tmp_path):
+    transcript = tmp_path / "t.txt"
+    transcript.write_text("words")
+    args = argparse.Namespace(from_transcript=str(transcript), language=None, profile="prod")
+    initial, start = run._build_initial_state(args, None, "r", tmp_path)
+    assert initial["language"] == "en" and start == "extract"
+
+
+def test_the_graph_keeps_the_language_in_its_state():
+    assert "language" in State.__annotations__

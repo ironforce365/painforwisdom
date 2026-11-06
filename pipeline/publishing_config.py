@@ -26,3 +26,8 @@ def load(profile: str) -> dict[str, Any]:
 def current_profile() -> str:
     """The profile pipeline.run was started with; prod is run.py's own default."""
     return os.environ.get("PIPELINE_PROFILE") or "prod"
+
+
+def run_language(chosen: str | None = None) -> str:
+    """The language chosen for the run. Empty for a run from before the choice existed: the catalog's."""
+    return chosen or load(current_profile())["language"]

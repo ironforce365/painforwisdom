@@ -35,6 +35,6 @@ def recorded(video: Path) -> dict[str, str]:
     return {"recording_date": _local_day(tags.get("creation_time", "")), "location": _coarse_location(tags.get("location", ""))}
 
 
-def youtube_fields(video: Path, config: dict) -> dict[str, str]:
+def youtube_fields(video: Path, language: str) -> dict[str, str]:
     """The package fields these fill, shared by the upload node and the console's prepare."""
-    return {**recorded(video), "audio_language": config["language"], "text_language": config["language"]}
+    return {**recorded(video), "audio_language": language, "text_language": language}

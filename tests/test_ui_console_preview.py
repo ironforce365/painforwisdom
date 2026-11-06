@@ -292,6 +292,13 @@ def test_prepare_fills_the_language_and_keeps_the_specs_in_step(client):  # [DT-
     assert fields["field_specs"]["recording_date"]["type"] == "date"
 
 
+def test_prepare_uses_the_language_the_run_chose(processed):  # [DT-S6] [DT-P2]
+    path = processed / "fx-unpackaged" / "langgraph" / "run.json"
+    path.write_text(json.dumps({**json.loads(path.read_text()), "language": "es"}))
+    fields = client_for(processed).get("/api/runs/fx-unpackaged/publish").json()["targets"]["youtube"]["fields"]
+    assert fields["audio_language"] == "es" and fields["text_language"] == "es"
+
+
 def test_the_run_detail_names_the_packages_waiting_even_when_dismissed(processed):  # [DT-N1]
     client = client_for(processed)
     assert client.get("/api/runs/fx-done").json()["waiting_packages"] == [{"target": "wordpress", "status": "pending"}]

@@ -149,3 +149,20 @@
 @media (max-width: 640px) {
   .launch-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+.launch-language-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.launch-language {
+  width: 48px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+.launch-language:focus-visible { outline: 2px solid var(--run); outline-offset: 2px; }

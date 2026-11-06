@@ -286,7 +286,7 @@ def _record(rd: Path, now: Optional[float]) -> dict:
         end = (now if now is not None else time.time()) if alive else last_event
     return {
         "run_id": rd.parent.name, "status": status, "verdict": rec.get("verdict"), "profile": rec.get("profile"),
-        "input": rec.get("input") or {"kind": None, "path": None}, "started_at": started,
+        "language": rec.get("language"), "input": rec.get("input") or {"kind": None, "path": None}, "started_at": started,
         "ended_at": rec.get("ended_at"), "hitl_wait_s": float(rec.get("hitl_wait_s") or 0.0),
         "error": rec.get("error"), "total_s": None if started is None or end is None else end - started,
         "legacy": legacy, "events": events, "rows": rows, "dismissed": bool(rec.get("dismissed")), "pid": rec.get("pid"),
@@ -422,7 +422,7 @@ def load_run(root: Path, run_id: str, node_ids: list[str], now: Optional[float] 
         nodes = _legacy_nodes(rec["rows"], node_ids)
     else:
         nodes = node_states(rec["events"], node_ids, rec["status"] in FINISHED, rec["input"].get("kind"))
-    keys = ("run_id", "status", "verdict", "profile", "input", "started_at", "ended_at", "hitl_wait_s", "error", "dismissed")
+    keys = ("run_id", "status", "verdict", "profile", "language", "input", "started_at", "ended_at", "hitl_wait_s", "error", "dismissed")
     pending = pending_for(rd, rec["status"])
     return {**{k: rec[k] for k in keys}, "pending": pending, "failure": failure(rec, pending),
             "waiting_packages": _waiting_packages(rd),

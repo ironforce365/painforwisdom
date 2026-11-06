@@ -1,9 +1,9 @@
 {
   "schema": 1,
+  "language": "en",
   "youtube": {
     "mode": "manual",
     "kind": "short",
-    "language": "en",
     "privacy_status": "private",
     "category_id": "22",
     "made_for_kids": false,
