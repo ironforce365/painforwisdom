@@ -1,0 +1,3 @@
+# Local transcription, for the separate conda env extract_transcription.sh runs:
+# ~/miniconda3/envs/painforwisdom/bin/whisper (Python 3.10). Kept apart because it pulls in torch.
+openai-whisper==20250625

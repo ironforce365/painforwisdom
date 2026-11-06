@@ -27,6 +27,14 @@ cd painforwisdom
 conda create -n painforwisdom-poc python=3.11 -y
 conda activate painforwisdom-poc
 pip install -r pipeline/requirements.txt
+conda deactivate
+
+# Second conda env, for local Whisper only: extract_transcription.sh runs its binary, and it pulls in torch
+conda create -n painforwisdom python=3.10 -y
+conda run -n painforwisdom pip install -r pipeline/requirements-whisper.txt
+
+# System dependency for transcription, frame extraction and video previews
+sudo apt-get install -y ffmpeg
 
 # Subscription billing (preferred — $0 marginal on Pro/Max)
 claude setup-token   # exports ANTHROPIC_AUTH_TOKEN
@@ -45,6 +53,8 @@ claude setup-token   # exports ANTHROPIC_AUTH_TOKEN
 | `NOTION_BLOG_DATA_SOURCE_ID` | Optional override; defaults to prod blog DB |
 | `NOTION_RESEARCH_DATA_SOURCE_ID` | Optional override; defaults to prod research DB |
 | `ANTHROPIC_AUTH_TOKEN` *or* `ANTHROPIC_API_KEY` | Anthropic auth |
+| `YOUTUBE_CLIENT_ID`, `YOUTUBE_CLIENT_SECRET`, `YOUTUBE_REFRESH_TOKEN` | YouTube publish; `scripts/youtube_oauth_setup.py` captures them |
+| `WORDPRESS_USERNAME`, `WORDPRESS_APP_PASSWORD` | WordPress publish |
 
 Sandbox profile (`.env.sandbox`) points at duplicated Notion DBs and a parallel vault worktree — see [`.env.sandbox.template`](.env.sandbox.template).
 
