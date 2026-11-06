@@ -3,6 +3,25 @@ from __future__ import annotations
 
 from typing import Optional
 
+NODE_LABEL: dict[str, str] = {
+    "transcribe": "Transcribe",
+    "extract": "Extract",
+    "extract_image": "Pick image",
+    "kb_curator": "Knowledge base",
+    "pre_validator": "Check",
+    "writer": "Write blog",
+    "research": "Research",
+    "notion_blog": "Blog to Notion",
+    "youtube_metadata": "YouTube text",
+    "notion_research": "Research to Notion",
+    "wordpress_draft": "WordPress",
+    "youtube_upload": "YouTube",
+    "bv_research": "Check research",
+    "bv_wordpress": "Check WordPress",
+    "bv_youtube": "Check YouTube",
+    "summarizer": "Summary",
+}
+
 NODE_TO_STAGE: dict[str, Optional[str]] = {
     "transcribe": "transcribe",
     "extract": "extract",

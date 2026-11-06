@@ -110,9 +110,9 @@ test('facts and findings show for every node with data; skipped is amber with it
   await expect(panel.getByTestId('fact-youtube_skip_reason').locator('dd')).toHaveText('off');
   await expect(panel.getByTestId('fact-stage')).toHaveCount(0);
   await expect(panel.locator('.state-cue')).toHaveCSS('color', AMBER);
-  await expect(page.getByTestId('node-wordpress_draft').locator('.disc')).toHaveCSS('stroke', AMBER); // unselected
 
   await pick(page, 'bv_research');
+  await expect(page.getByTestId('node-youtube_upload').locator('.disc')).toHaveCSS('stroke', AMBER); // unselected
   await expect(panel.getByTestId('finding')).toHaveText(['research rows logged']);
   await expect(panel.getByTestId('finding')).toHaveAttribute('data-level', 'ok');
   await expect(panel.getByTestId('fact-branch_verdict_research').locator('dd')).toHaveText('PASS');
@@ -155,7 +155,7 @@ test('[DT-R2] node.error shows in the inspector; a clean node has no error box',
 
 test('[DT-R2] the header names the node, its state, tokens and cost as text', async ({ page }) => {
   await openNode(page, 'fx-done', 'research');
-  await expect(drawer(page).getByTestId('drawer-title')).toHaveText('research');
+  await expect(drawer(page).getByTestId('drawer-title')).toHaveText('Research');
   await expect(drawer(page).getByTestId('drawer-state')).toHaveText('done');
   await expect(drawer(page).getByTestId('drawer-duration')).toHaveText('1m 27s');
   await expect(drawer(page).getByTestId('drawer-tokens')).toHaveText('54.3k tokens');
@@ -311,7 +311,7 @@ test('drawer closes on its button, on Escape and on another run; keeps other key
   await drawer(page).getByTestId('drawer-close').press('Escape');
   await expect(drawer(page)).toBeHidden();
   await page.getByTestId('node-extract').click();
-  await page.getByTestId('run-fx-failed').click();
+  await page.evaluate(() => { location.hash = '#/runs/fx-failed'; });
   await expect(drawer(page)).toBeHidden();
 });
 

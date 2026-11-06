@@ -162,7 +162,7 @@ test.describe('navigation', () => {
     await expect(output(page)).toBeVisible();
     await expect(section(page, 'research')).toBeVisible();
 
-    await page.getByTestId('run-fx-unpackaged').click();
+    await page.evaluate(() => { location.hash = '#/runs/fx-unpackaged/output'; });
     await expect(output(page)).toBeVisible();
     await expect(section(page, 'research')).toBeVisible();
     await expect(page.getByTestId('research-link-1')).toBeVisible();
@@ -181,15 +181,6 @@ test.describe('navigation', () => {
     await page.getByTestId('view-tab-output').click();
     await expect(page.getByTestId('summary-verdict')).toBeVisible();
     await expect.poll(() => lists).toBeGreaterThan(0);
-  });
-
-  test('[DT-N2] output without a selected run says so', async ({ page }) => {
-    await page.route('**/api/runs', (route) => route.fulfill({ json: { runs: [] } }));
-    await page.goto('/');
-    await expect(page.getByTestId('runs-empty')).toBeVisible();
-    await expect(output(page)).toBeHidden();
-    await page.getByTestId('view-tab-output').click();
-    await expect(page.getByTestId('output-norun')).toBeVisible();
   });
 
   test('failed reads keep the panel and show the health badge', async ({ page, errors }) => {
@@ -622,7 +613,7 @@ test.describe('reading and editing in place', () => {
     await expect(edit).toHaveValue(/./);
     await edit.fill('# Unsaved');
 
-    await page.getByTestId('run-fx-published').click();
+    await page.evaluate(() => { location.hash = '#/runs/fx-published/output'; });
     const warn = page.getByTestId('output-unsaved-fx-done');
     await expect(warn).toBeVisible();
     await expect(warn).toContainText('blog');
@@ -630,11 +621,11 @@ test.describe('reading and editing in place', () => {
     await expect(edit).toHaveValue('# Unsaved');
     await expect(warn).toHaveCount(0);
 
-    await page.getByTestId('run-fx-published').click();
+    await page.evaluate(() => { location.hash = '#/runs/fx-published/output'; });
     await expect(warn).toBeVisible();
     await page.getByTestId('output-unsaved-discard-fx-done').click();
     await expect(warn).toHaveCount(0);
-    await page.getByTestId('run-fx-done').click();
+    await page.evaluate(() => { location.hash = '#/runs/fx-done/output'; });
     await expect(section(page, 'blog')).toBeVisible();
     await expect(editor(page, 'blog_post.md')).not.toHaveValue('# Unsaved');
     await expect(editor(page, 'blog_post.md')).toHaveValue(/./);
@@ -645,7 +636,7 @@ test.describe('reading and editing in place', () => {
     await go(page, 'fx-done', 'wordpress');
     await page.getByTestId('field-wordpress-title').fill('Unsaved title');
     await expect(dirty(page, 'wordpress')).toBeVisible();
-    await page.getByTestId('run-fx-published').click();
+    await page.evaluate(() => { location.hash = '#/runs/fx-published/output'; });
     await expect(page.getByTestId('output-unsaved-fx-done')).toContainText('wordpress');
     await page.getByTestId('output-unsaved-back-fx-done').click();
     await expect(page.getByTestId('field-wordpress-title')).toHaveValue('Unsaved title');

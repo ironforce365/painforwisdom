@@ -25,7 +25,7 @@ test('a run with no log says so; another run replaces the lines', async ({ page 
   await page.goto('/#/runs/fx-unpackaged/logs');
   await expect(page.getByTestId('logs-empty')).toBeVisible();
   await expect(lines(page)).toHaveCount(0);
-  await page.getByTestId('run-fx-stopped').click();
+  await page.evaluate(() => { location.hash = '#/runs/fx-stopped/logs'; });
   await expect(lines(page)).toHaveText(['stopped log']);
   await expect(page.getByTestId('logs-empty')).toBeHidden();
 });
@@ -107,9 +107,9 @@ test('a failed read keeps the lines; a late answer for another run is dropped', 
     await held;
     await route.continue();
   });
-  await page.getByTestId('run-fx-crashed').click();
+  await page.evaluate(() => { location.hash = '#/runs/fx-crashed/logs'; });
   const late = page.waitForResponse('**/api/runs/fx-crashed/log*');
-  await page.getByTestId('run-fx-stopped').click();
+  await page.evaluate(() => { location.hash = '#/runs/fx-stopped/logs'; });
   await expect(lines(page)).toHaveText(['kept']);
   release();
   await (await late).finished();

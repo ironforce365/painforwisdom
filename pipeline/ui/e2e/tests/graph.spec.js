@@ -90,12 +90,23 @@ test('[DT-N4] every node shows its label as text and what it spent', async ({ pa
   await expect(page.getByTestId('node-writer').getByTestId('dag-meta')).not.toContainText('$0');
 });
 
-test('[DT-N4] the wheel zooms at the cursor and clamps', async ({ page }) => {
+test('[DT-N4] a plain wheel leaves the zoom alone', async ({ page }) => {
+  await ready(page);
+  const before = await zoom(page);
+  const box = await page.getByTestId('dag').boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.wheel(0, -400);
+  await page.evaluate(() => fetch('/health'));
+  expect(await zoom(page)).toBe(before);
+});
+
+test('[DT-N4] Ctrl and the wheel zoom at the cursor and clamp', async ({ page }) => {
   await ready(page);
   const before = await zoom(page);
   const writer = page.getByTestId('node-writer');
   const c = await center(writer.locator('.disc'));
   await page.mouse.move(c.x, c.y);
+  await page.keyboard.down('Control');
   await page.mouse.wheel(0, -400);
   await expect.poll(() => zoom(page)).toBeGreaterThan(before);
   const after = await center(writer.locator('.disc'));
@@ -105,6 +116,7 @@ test('[DT-N4] the wheel zooms at the cursor and clamps', async ({ page }) => {
   await expect.poll(() => zoom(page)).toBe(4);
   for (let i = 0; i < 12; i += 1) await page.mouse.wheel(0, 3000);
   await expect.poll(() => zoom(page)).toBe(0.2);
+  await page.keyboard.up('Control');
 });
 
 test('[DT-N4] a drag pans and does not select; a click selects', async ({ page }) => {
@@ -218,7 +230,7 @@ test('[DT-N4] refits when its box resizes, unless the user moved it', async ({ p
   const third = await zoom(page);
   expect(third).toBeLessThan(second);
   await page.setViewportSize({ width: 1280, height: 720 });
-  await expect.poll(async () => (await page.getByTestId('dag').boundingBox()).width).toBeLessThan(1100);
+  await expect.poll(async () => (await page.getByTestId('dag').boundingBox()).width).toBeLessThanOrEqual(1280);
   expect(await zoom(page)).toBe(third);
   // Fit hands it back
   await page.getByTestId('dag-fit').click();

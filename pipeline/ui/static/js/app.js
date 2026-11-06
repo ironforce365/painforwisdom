@@ -1,4 +1,4 @@
-// Boot, bus, run polling, the route and the error badge (spec 2026-11-05-console-end-to-end §4; module contract C7).
+// Boot, bus, run polling, the routes and the error badge (spec 2026-11-05-console-end-to-end §4, 2026-11-06-console-dashboards; module contract C7).
 import * as api from './api.js';
 import { svgIcon } from './icons.js';
 import * as dag from './dag.js';
@@ -12,20 +12,30 @@ import * as actions from './actions.js';
 import * as attention from './attention.js';
 import * as logs from './logs.js';
 import * as runheader from './runheader.js';
+import * as rundash from './rundash.js';
+import * as dashboard from './dashboard.js';
+import * as knowledge from './knowledge.js';
 
 const POLL_MS = 1000;
 const $ = (id) => document.getElementById(id);
 
 // The C7 event set; any other name throws. `runs:listed` carries each run-list answer; `run:refresh` asks for one now.
-const EVENTS = ['run:selected', 'run:updated', 'node:selected', 'graph:loaded', 'ui:error', 'view:changed', 'runs:listed', 'run:refresh', 'output:open'];
+const EVENTS = ['run:selected', 'run:updated', 'node:selected', 'graph:loaded', 'ui:error', 'view:changed', 'runs:listed', 'run:refresh', 'output:open', 'page:changed', 'run:dismissed', 'run:deleted'];
 const listeners = new Map(EVENTS.map((e) => [e, []]));
 const bus = {
   on: (event, fn) => listeners.get(event).push(fn),
   emit: (event, payload) => listeners.get(event).forEach((fn) => fn(payload)),
 };
 
-const state = { graph: null, runId: null, run: null, view: views.viewFromHash(location.hash) };
-const ctx = { api, bus, state };
+const state = { graph: null, runId: null, run: null, view: views.viewFromHash(location.hash), page: views.pageFromHash(location.hash) };
+const ctx = { api, bus, state, goHome: () => { location.hash = '#/'; } };
+document.body.dataset.page = state.page;
+
+const setPage = (page) => {
+  state.page = page;
+  document.body.dataset.page = page;
+  bus.emit('page:changed', page);
+};
 
 const badge = document.querySelector('[data-testid="error-badge"]');
 const badgeText = document.createElement('span');
@@ -88,13 +98,34 @@ bus.on('run:selected', (id) => {
   state.runId = id;
   state.run = null;
   clearError('ui');
-  history.replaceState(null, '', views.routeFor(id, state.view));
+  // Coming from another page is a step the browser's Back should undo.
+  (state.page === 'run' ? history.replaceState : history.pushState).call(history, null, '', views.routeFor(id, state.view));
+  if (state.page !== 'run') setPage('run');
   chain += 1; // an answer in flight belongs to the previous selection
   clearTimeout(timer);
   graphReady.then(startPolling);
 });
 // An action changed the run: read it now, whether or not it was still being polled.
-bus.on('run:refresh', () => graphReady.then(startPolling));
+bus.on('run:refresh', () => {
+  if (state.runId) graphReady.then(startPolling);
+});
+
+// Off a run page nothing is selected and nothing is polled; the next run opens on its Overview.
+function leaveRun() {
+  chain += 1;
+  clearTimeout(timer);
+  state.runId = null;
+  state.run = null;
+  if (state.view !== 'graph') ctx.showView('graph');
+}
+
+bus.on('run:deleted', (id) => {
+  if (state.runId === id) { // now, not on hashchange: the refresh below must not ask for a run that is gone
+    leaveRun();
+    ctx.goHome();
+  }
+  bus.emit('run:refresh');
+});
 
 state.runId = views.runFromHash(location.hash);
 
@@ -103,18 +134,26 @@ launch.mount($('launch'), ctx);
 drawer.mount($('drawer'), ctx);
 telemetry.mount($('telemetry'), ctx);
 actions.mount($('actions'), ctx);
-attention.mount($('attention'), ctx);
+attention.mount($('attention'), $('needslink'), ctx);
 logs.mount($('logs'), ctx);
 runheader.mount($('runinfo'), ctx);
+rundash.mount({ back: $('runback'), tools: $('runtools'), totals: $('runtotals'), cards: $('runcards') }, ctx);
 operability.mount($('operability'), ctx);
 runs.mount($('runs'), ctx);
 views.mount($('viewtabs'), ctx);
+dashboard.mount($('home'), ctx);
+knowledge.mount($('knowledgebody'), ctx);
 if (state.runId) bus.emit('run:selected', state.runId);
 
 window.addEventListener('hashchange', () => {
+  const page = views.pageFromHash(location.hash);
+  if (page !== 'run') {
+    leaveRun();
+    setPage(page);
+    return;
+  }
   const id = views.runFromHash(location.hash);
   const view = views.viewFromHash(location.hash);
-  if (!id) return;
   if (view !== state.view) ctx.showView(view);
   if (id !== state.runId) bus.emit('run:selected', id);
 });

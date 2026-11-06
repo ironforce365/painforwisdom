@@ -89,7 +89,7 @@ test('[DT-S1] an empty inbox says so and offers the upload', async ({ page }) =>
 test('[DT-S2] controls read as text: start in the header, auto-approve in the popup', async ({ page }) => {
   freshServerState();
   await page.goto('/#/runs/fx-done');
-  await expect(button(page)).toHaveText('Start run');
+  await expect(button(page)).toHaveText('Start a new run');
   await expect(page.locator('header.bar').getByTestId('launch-button')).toBeVisible();
   await openModal(page);
   await expect(page.getByTestId('launch-auto')).toHaveText('Auto-approve');
@@ -236,7 +236,6 @@ test('starting a fake ok run closes the popup, selects the run and the DAG goes 
 test('a live run at boot shows the button busy', async ({ page }) => {
   freshServerState({ live: true });
   await page.goto('/');
-  await expect(page).toHaveURL(/#\/runs\/fx-running$/);
   await expect(page.getByTestId('launch-active-link')).toBeVisible();
   await expect(button(page)).toHaveAttribute('data-state', 'busy');
   await expect(button(page)).toBeDisabled();

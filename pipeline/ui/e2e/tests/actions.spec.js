@@ -333,13 +333,14 @@ test.describe('ended, not ok', () => {
 
   test('[DT-F7] dismiss removes the run from needs-you and can be undone', async ({ page }) => {
     await page.goto('/#/runs/fx-stopped');
-    await expect(page.getByTestId('needs-you-item-fx-stopped')).toBeVisible();
+    await expect(page.getByTestId('needs-you-item-fx-stopped')).toHaveCount(1);
     await expect(page.getByTestId('action-dismiss')).toHaveText('Dismiss from needs-you');
     await page.getByTestId('action-dismiss').click();
     await expect(page.getByTestId('needs-you-item-fx-stopped')).toHaveCount(0);
-    await expect(page.getByTestId('action-dismiss')).toHaveText('Back to needs-you');
-    await page.getByTestId('action-dismiss').click();
-    await expect(page.getByTestId('needs-you-item-fx-stopped')).toBeVisible();
+    await expect(page.getByTestId('action-dismiss')).toBeHidden();
+    await page.getByTestId('needs-undo').click();
+    await expect(page.getByTestId('needs-you-item-fx-stopped')).toHaveCount(1);
+    await expect(page.getByTestId('action-dismiss')).toBeVisible();
   });
 
   test('another active run blocks retry and restart with its id', async ({ page }) => {
@@ -390,7 +391,7 @@ test.describe('ended, ok', () => {
     await expect(page.getByTestId('field-wordpress-title')).toBeVisible();
 
     await page.getByTestId('action-dismiss').click();
-    await expect(page.getByTestId('action-title')).toContainText('Dismissed');
+    await expect(page.getByTestId('action-banner')).toBeHidden();
     await expect(page.getByTestId('needs-you-item-fx-done')).toHaveCount(0);
   });
 });
@@ -480,14 +481,14 @@ test.describe('failed API calls show their detail', () => {
     });
     await page.goto('/#/runs/fx-stopped');
     await page.getByTestId('action-retry').click();
-    await page.getByTestId('run-fx-nocheckpoint').click();
+    await page.evaluate(() => { location.hash = '#/runs/fx-nocheckpoint'; });
     await expect(page.getByTestId('failure-node')).toHaveText('extract');
     release();
     await page.evaluate(() => fetch('/health'));
     await expect(page.getByTestId('action-error')).toBeHidden();
-    await page.getByTestId('run-fx-crashed').click();
+    await page.evaluate(() => { location.hash = '#/runs/fx-crashed'; });
     await page.getByTestId('action-retry').click();
-    await page.getByTestId('run-fx-nocheckpoint').click();
+    await page.evaluate(() => { location.hash = '#/runs/fx-nocheckpoint'; });
     await expect(page.getByTestId('failure-node')).toHaveText('extract');
     const answered = page.waitForResponse('**/api/runs/fx-crashed/retry');
     releaseOk();

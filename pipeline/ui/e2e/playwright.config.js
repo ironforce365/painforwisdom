@@ -49,6 +49,7 @@ export default defineConfig({
       CHECKPOINT_DB_PATH: path.join(TMP, 'checkpoints.db'),
       PIPELINE_PUBLISHING_CONFIG: path.join(FIXTURES, 'publishing.json'),
       PIPELINE_UI_BOOKS_ROOT: path.join(FIXTURES, 'books'),
+      PIPELINE_UI_VAULT: path.join(FIXTURES, 'knowledge'),
     },
   },
 });

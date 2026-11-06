@@ -11,31 +11,55 @@
   <link rel="stylesheet" href="/static/css/actions.css">
   <link rel="stylesheet" href="/static/css/logs.css">
   <link rel="stylesheet" href="/static/css/operability.css">
+  <link rel="stylesheet" href="/static/css/dashboard.css">
   <script type="module" src="/static/js/app.js"></script>
 </head>
 <body>
   <header class="bar">
-    <span class="logo" data-testid="logo" role="img" aria-label="pipeline console"></span>
-    <span class="brand">Pipeline</span>
+    <a class="home-link" href="#/" data-testid="home-link" aria-label="dashboard">
+      <span class="logo" data-testid="logo" role="img" aria-label="pipeline console"></span>
+      <span class="brand">Pipeline</span>
+    </a>
     <span class="version" data-testid="version"></span>
     <span class="profile" data-testid="header-profile"></span>
-    <div id="attention" class="slot-attention"></div>
+    <div id="needslink" class="slot-needslink"></div>
     <span class="badge-error" data-testid="error-badge" role="status" aria-label="backend error" hidden></span>
     <div id="launch" class="slot-launch"></div>
   </header>
+  <main id="home" class="page" data-testid="dashboard" aria-label="dashboard">
+    <div class="page-inner">
+      <div id="attention"></div>
+      <div id="tiles" class="tiles"></div>
+      <div class="dash-grid">
+        <section class="dash-card">
+          <h2>Recent runs</h2>
+          <nav id="runs" class="runs" data-testid="run-list" aria-label="runs"></nav>
+        </section>
+        <section class="dash-card">
+          <h2>Latest themes in your videos</h2>
+          <div id="themes"></div>
+          <a class="dash-link" href="#/knowledge" data-testid="knowledge-link">Knowledge base →</a>
+        </section>
+      </div>
+    </div>
+  </main>
+  <main id="knowledge" class="page" data-testid="knowledge" aria-label="knowledge base"><div id="knowledgebody" class="page-inner"></div></main>
   <main class="layout">
-    <nav id="runs" class="runs" data-testid="run-list" aria-label="runs"></nav>
     <section class="center" aria-label="selected run">
       <div class="run-header" data-testid="run-header">
+        <div id="runback"></div>
         <div id="runinfo" class="run-info"></div>
+        <div id="runtools" class="run-tools"></div>
         <div id="viewtabs" class="view-tabs"></div>
       </div>
       <div id="actions" class="slot-actions"></div>
+      <div id="runtotals" class="run-totals" data-testid="run-totals"></div>
       <div class="viewport">
         <section id="dag" class="dag" data-testid="dag" aria-label="pipeline graph"></section>
         <div id="operability" class="slot-operability"></div>
         <section id="logs" class="slot-logs" data-testid="logs" aria-label="run log"></section>
       </div>
+      <div id="runcards" class="run-cards" data-testid="run-cards"></div>
       <div id="telemetry" class="slot-telemetry"></div>
     </section>
     <div id="drawer"></div>

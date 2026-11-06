@@ -1,6 +1,7 @@
-// Run list as text: input, status, time, cost (spec 2026-11-05-console-end-to-end §4). Live runs on top, 5 s refresh.
+// Recent runs on the dashboard: input, status, time, cost, delete (spec 2026-11-06-console-dashboards). Live runs on top, 5 s refresh.
 import { svgIcon } from './icons.js';
 import { costTip, fmtCost, fmtCount, fmtDuration, fmtWhen, STATUS_LABELS } from './format.js';
+import { deleteButton } from './manage.js';
 
 export const ACTIVE = new Set(['running', 'waiting_hitl', 'waiting_reply']);
 const GLYPHS = { done: 'tick', failed: 'cross', crashed: 'bolt', stopped: 'pause', running: 'arc', waiting_hitl: 'hand', waiting_reply: 'chat' };
@@ -42,12 +43,17 @@ function itemEl(run, ctx) {
     return div;
   };
   item.append(
-    line('rl-top', span('rl-name', 'rl-name', '')),
+    line('rl-top', span('rl-name', 'rl-name', ''), span('rl-open', 'rl-open', 'Open →')),
     line('rl-mid', span('rl-state', 'rl-state', ''), span('rl-when', 'rl-when', '')),
     line('rl-bot', span('rl-time', 'rl-time', ''), span('rl-tokens', 'rl-tokens', ''), span('rl-cost', 'rl-cost', ''), span('rl-needs', 'rl-needs', 'Needs you')),
   );
   item.addEventListener('click', () => ctx.bus.emit('run:selected', run.run_id));
-  return item;
+  const del = deleteButton(ctx, run.run_id, `run-delete-${run.run_id}`);
+  const row = document.createElement('div');
+  row.className = 'run-row';
+  row.dataset.testid = `run-row-${run.run_id}`;
+  row.append(item, del.root);
+  return { row, item, del };
 }
 
 function setText(item, testid, text) {
@@ -55,7 +61,8 @@ function setText(item, testid, text) {
   if (node.textContent !== text) node.textContent = text;
 }
 
-function fillItem(item, run) {
+function fillItem({ item, del }, run) {
+  del.root.hidden = ACTIVE.has(run.status);
   item.dataset.status = run.status;
   item.dataset.verdict = String(run.verdict);
   item.dataset.needs = String(run.attention.length > 0);
@@ -91,17 +98,19 @@ export function mount(el, ctx) {
       fillItem(items.get(run.run_id), run);
       rows.set(run.run_id, run);
     }
-    const next = ordered.length ? ordered.map((r) => items.get(r.run_id)) : [emptied];
+    for (const id of items.keys()) {
+      if (!rows.has(id)) items.delete(id);
+    }
+    const next = ordered.length ? ordered.map((r) => items.get(r.run_id).row) : [emptied];
     // Moving nodes drops the focus: touch the DOM only when the order changed.
     if (next.some((node, i) => el.children[i] !== node) || el.children.length !== next.length) el.replaceChildren(...next);
     ctx.bus.emit('runs:listed', runs);
-    if (!ctx.state.runId && ordered.length) ctx.bus.emit('run:selected', ordered[0].run_id);
   };
   // On failure keep the last list; api.js health reporting shows the badge.
   const load = () => ctx.api.listRuns().then((body) => render(body.runs), () => {});
 
   ctx.bus.on('run:selected', (id) => {
-    for (const [runId, item] of items) item.setAttribute('aria-pressed', String(runId === id));
+    for (const [runId, { item }] of items) item.setAttribute('aria-pressed', String(runId === id));
   });
   ctx.bus.on('run:updated', (run) => {
     const row = rows.get(run.run_id);

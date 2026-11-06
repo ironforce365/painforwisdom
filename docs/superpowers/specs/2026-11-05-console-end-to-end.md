@@ -24,6 +24,8 @@ Each leaf has an id. `pipeline/ui/e2e/decision_tree.json` is the machine-readabl
 
 ```
 START
+├─ S7 dashboard is home; every page leads back to it
+├─ S8 no runs yet ─▶ dashboard says so and offers Start
 ├─ S1 inbox empty ─────────────────────────▶ upload a file
 ├─ S2 inbox has inputs ────────────────────▶ choose; toggle auto-approve
 ├─ S3 input already ran ───────────────────▶ tile warns and names the runs; can still start
@@ -59,7 +61,11 @@ ENDED, OK
 ├─ D3 read every output in place: thumbnail, blog, KB entry, research, audit, artifacts
 ├─ D4 edit blog/KB/any text artifact in place, save
 ├─ D5 open research: http link / local book / no link
-└─ D6 cost per node and run shown (API-equivalent under subscription)
+├─ D6 cost per node and run shown (API-equivalent under subscription)
+├─ D7 run page: totals, graph, output cards, each leading to details (2026-11-06-console-dashboards-design)
+├─ D8 delete a run ─▶ gone; the input can run again
+├─ D9 delete refused ─▶ reason shown
+└─ D10 latest themes and the knowledge base
 PUBLISH (target = youtube | wordpress)
 ├─ P1 mode off ─▶ reason shown, no action
 ├─ P2 no package, can prepare ─▶ prepare, then P3 (older runs)
@@ -78,7 +84,9 @@ NAVIGATION
 ├─ N2 deep links: #/runs/<id>/{graph,output,logs}, reload keeps the view
 ├─ N3 output: section nav, keyboard, no long scroll, full width
 ├─ N4 graph: zoom, pan, fit; panel never hides it
-└─ N5 backend unreachable ─▶ badge
+├─ N5 backend unreachable ─▶ badge
+├─ N6 dismiss ─▶ item leaves, Undo offered
+└─ N7 restore a dismissed item from the dashboard
 ```
 
 ## 3. Backend contracts

@@ -107,6 +107,12 @@ def start(settings: Settings, rd: Path, target: str, role: str, src: Path) -> di
     return {"status": "converting", "error": None}
 
 
+def converting(rd: Path) -> bool:
+    """A conversion of this run is on its way: its thread still writes under the run's folder."""
+    with _lock:
+        return any(copy.parent == rd.parent / "console-preview" for copy in _jobs)
+
+
 def ready_copy(rd: Path, target: str, role: str) -> Path | None:
     copy = _copy_path(rd, target, role)
     return copy if copy.is_file() else None

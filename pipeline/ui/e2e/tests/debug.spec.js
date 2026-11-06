@@ -33,7 +33,7 @@ test('[DT-R2] selecting a node scopes the bar; the chip or closing the inspector
   await page.getByTestId('node-research').click();
   await expect(bar).toHaveAttribute('data-scope', 'research');
   await expect(bar).toHaveAttribute('data-live', 'false');
-  await expect(m(page, 'scope-clear')).toContainText('research');
+  await expect(m(page, 'scope-clear')).toContainText('Research');
   await expectFields(page, {
     tokens: '54.3k', fresh: '500', output: '3.3k', cache: '75%', calls: '1', inflight: '0', cost: '$0.40', work: '1m 27s', models: 'claude-sonnet-5-5',
   });
@@ -52,7 +52,7 @@ test('[DT-R2] selecting a node scopes the bar; the chip or closing the inspector
   await page.getByTestId('node-transcribe').click();
   await expectFields(page, { tokens: '0', time: '–', work: '–' });
   // another run starts at run scope
-  await page.getByTestId('run-fx-failed').click();
+  await page.evaluate(() => { location.hash = '#/runs/fx-failed'; });
   await expect(bar).toHaveAttribute('data-scope', 'run');
 });
 

@@ -60,7 +60,7 @@ test('[DT-D6] a billed cost has no mark; an estimate is ≈ with a tooltip; a nu
   await expect(m(page, 'cost')).toHaveText('$0.75');
   await expect(m(page, 'cost')).toHaveAttribute('data-estimated', 'false');
 
-  await page.getByTestId('run-fx-unpackaged').click();
+  await page.evaluate(() => { location.hash = '#/runs/fx-unpackaged'; });
   await expect(m(page, 'cost')).toHaveText('≈$0.09');
   await expect(m(page, 'cost')).toHaveAttribute('data-estimated', 'true');
   await expect(m(page, 'cost')).toHaveAttribute('title', /API-equivalent.*subscription/);
@@ -71,7 +71,7 @@ test('[DT-D6] a billed cost has no mark; an estimate is ≈ with a tooltip; a nu
   await expect(cell(page, 'writer', 'tokens')).not.toHaveText('–');
   await expect(cell(page, 'writer', 'cost')).toHaveAttribute('title', /No price/);
 
-  await page.getByTestId('run-fx-legacy').click();
+  await page.evaluate(() => { location.hash = '#/runs/fx-legacy'; });
   await expect(m(page, 'cost')).toHaveText('–');
   await expect(m(page, 'cost')).toBeVisible();
   await expect(m(page, 'cost')).toHaveAttribute('title', /No price/);
@@ -126,16 +126,15 @@ test('expands to a table sorted by tokens, and remembers it', async ({ page }) =
   await expect(m(page, 'table')).toBeHidden();
 });
 
-test('expanded the table keeps the graph on screen and scrolls itself', async ({ page }) => {
+test('expanded the table sits under the graph, which keeps its size; the page scrolls to it', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.goto('/#/runs/fx-done');
-  await m(page, 'toggle').click();
+  await expect(m(page, 'bar')).toHaveCount(1);
+  await page.getByTestId('run-tile-time').click();
+  await expect(m(page, 'table')).toBeInViewport();
   const [t, d] = [await m(page, 'table').boundingBox(), await page.getByTestId('dag').boundingBox()];
   expect(d.y + d.height).toBeLessThanOrEqual(t.y + 1);
-  expect(d.height).toBeGreaterThan(200);
-  const viewport = page.viewportSize();
-  const b = await page.locator('.metrics').boundingBox();
-  expect(b.y + b.height).toBeLessThanOrEqual(viewport.height + 1);
+  expect(d.height).toBeGreaterThan(300);
 });
 
 test('blocked localStorage: closed by default, the toggle still works', async ({ page }) => {
@@ -170,6 +169,7 @@ test('a row selects its node and highlights it on hover', async ({ page }) => {
 });
 
 test('stays visible, and at the same place, in every view', async ({ page }) => {
+  await page.setViewportSize({ width: 1600, height: 1200 });
   await page.goto('/#/runs/fx-done');
   const y = (await m(page, 'bar').boundingBox()).y;
   for (const view of ['output', 'logs', 'graph']) {

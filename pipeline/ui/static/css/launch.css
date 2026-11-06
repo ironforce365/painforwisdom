@@ -2,14 +2,15 @@
 .launch-button {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 12px;
-  border-radius: 4px;
+  gap: 8px;
+  padding: 10px 20px;
+  border-radius: 10px;
   border: 1px solid var(--run);
   background: var(--run);
   color: var(--bg);
   font: inherit;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 700;
   white-space: nowrap;
   cursor: pointer;
 }
@@ -28,7 +29,7 @@
 .launch-active[hidden] { display: none; }
 .launch-active:focus-visible { outline: 2px solid var(--run); outline-offset: 2px; }
 .launch-button:focus-visible { outline: 3px solid var(--text); outline-offset: 3px; }
-.launch-button .icon { width: 16px; height: 16px; }
+.launch-button .icon { width: 18px; height: 18px; }
 .launch-play { fill: currentColor !important; }
 .launch-spin { display: none; }
 .launch-button[data-state="busy"] {

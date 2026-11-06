@@ -124,10 +124,11 @@ def test_a_broken_package_file_is_not_a_crash(tmp_path):  # [DT-N1]
 
 def test_offers_by_state(root):  # [DT-F1] [DT-F2] [DT-F3] [DT-F4] [DT-F5] [DT-F6] [DT-F7]
     assert _offer(root, "fx-stopped")["actions"] == ["retry", "restart", "dismiss"]  # F3, F4
-    assert _offer(root, "fx-crashed") == {"actions": ["retry", "dismiss"], "action_blockers": {
-        "restart": _offer(root, "fx-crashed")["action_blockers"]["restart"]}}  # F2, F5
+    crashed = _offer(root, "fx-crashed")
+    assert crashed["actions"] == ["retry", "dismiss"] and set(crashed["action_blockers"]) == {"restart"}  # F2, F5
     assert "checkpoint" in _offer(root, "fx-nocheckpoint")["action_blockers"]["retry"]  # F6
-    assert _offer(root, "fx-unpackaged") == {"actions": [], "action_blockers": {}}  # D1, nothing to do
+    unpackaged = _offer(root, "fx-unpackaged")
+    assert unpackaged["actions"] == [] and unpackaged["action_blockers"] == {}  # D1, nothing to do
 
 
 def test_active_offers_stop_and_blocks_the_rest(root):  # [DT-R3] [DT-S4] [DT-E6]

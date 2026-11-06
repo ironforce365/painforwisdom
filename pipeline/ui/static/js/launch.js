@@ -58,7 +58,7 @@ function tileEl(input, start) {
 export function mount(root, ctx) {
   const button = el('button', {
     type: 'button', class: 'launch-button', 'data-testid': 'launch-button', 'data-state': 'idle',
-  }, ownIcon('play', 'icon launch-play'), svgIcon('arc', { class: 'icon launch-spin' }), 'Start run');
+  }, ownIcon('play', 'icon launch-play'), svgIcon('arc', { class: 'icon launch-spin' }), 'Start a new run');
   const activeLink = (testid) => {
     const link = el('button', { type: 'button', class: 'launch-active', 'data-testid': testid });
     link.addEventListener('click', () => {
@@ -123,7 +123,7 @@ export function mount(root, ctx) {
     const busy = id !== null;
     button.disabled = busy;
     button.dataset.state = busy ? 'busy' : 'idle';
-    button.lastChild.textContent = busy ? 'Run active' : 'Start run';
+    button.lastChild.textContent = busy ? 'Run active' : 'Start a new run';
     headerLink.hidden = !busy;
     headerLink.textContent = `Go to ${id}`;
     lockLink.textContent = String(id);

@@ -16,7 +16,7 @@ function kindOf(run) {
   if (run.pending) return 'pending';
   if (run.failure) return 'failure';
   if (ACTIVE.has(run.status)) return 'running';
-  return run.actions.includes('dismiss') ? 'attention' : null;
+  return run.actions.includes('dismiss') && !run.dismissed ? 'attention' : null;
 }
 
 function failureTitle(run) {
@@ -124,7 +124,7 @@ export function mount(root, ctx) {
 
   const attentionEls = () => {
     const names = run.waiting_packages.map((p) => (p.status === 'failed' ? `${LABELS[p.target]} (failed)` : LABELS[p.target]));
-    const title = run.dismissed ? 'Dismissed from needs-you.' : `Waiting for you to publish: ${names.join(', ')}.`;
+    const title = `Waiting for you to publish: ${names.join(', ')}.`;
     return [el('div', { class: 'banner-title', 'data-testid': 'action-title' }, title),
       ...run.waiting_packages.map(({ target }) => button(`action-open-${target}`, `Open ${LABELS[target]}`, () => ctx.bus.emit('output:open', target)))];
   };
@@ -169,8 +169,10 @@ export function mount(root, ctx) {
     if (kind === 'pending' && run.pending.non_recoverable) return [];
     const offered = ORDER.filter((v) => run.actions.includes(v)).flatMap(verbEls);
     const blocked = kind === 'failure' ? ORDER.filter((v) => run.action_blockers[v]).flatMap(blockerEls) : [];
-    const dismiss = run.actions.includes('dismiss')
-      ? [button('action-dismiss', run.dismissed ? 'Back to needs-you' : 'Dismiss from needs-you', () => act(() => ctx.api.dismissRun(run.run_id, !run.dismissed), () => {}))]
+    const dismiss = run.actions.includes('dismiss') && !run.dismissed
+      ? [button('action-dismiss', 'Dismiss from needs-you', () => act(() => ctx.api.dismissRun(run.run_id, true), () => {
+        ctx.bus.emit('run:dismissed', { id: run.run_id, name: run.input.path?.split('/').pop() ?? run.run_id });
+      }))]
       : [];
     return [...offered, ...blocked, ...dismiss];
   };
