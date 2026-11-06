@@ -80,10 +80,29 @@ os.environ["PIPELINE_PROFILE"] = _PROFILE  # nodes read it through pipeline.publ
 if _PROFILE == "sandbox":
     os.environ["TELEGRAM_MESSAGE_PREFIX"] = "[SANDBOX] "
 
+# Dry run: paths and Notion tables must change before anything below reads them. Only as the program itself:
+# pipeline.retry imports this module, and its own --dry-run means something else.
+if __name__ == "__main__" and "--dry-run" in sys.argv[1:]:
+    from pipeline import dry_run as _dry_run_setup
+
+    _peek = argparse.ArgumentParser(add_help=False)
+    for _name, _default in (("--run-id", None), ("--run-suffix", "langgraph"), ("--processed-root", PROJECT_ROOT / "processed"), ("--dir", None)):
+        _peek.add_argument(_name, default=_default)
+    _known = _peek.parse_known_args(sys.argv[1:])[0]
+    if _known.dir:
+        raise SystemExit("--dry-run takes one input, not --dir: a batch moves its videos")
+    if not _known.run_id:
+        _known.run_id = time.strftime("%Y-%m-%d_%H%M%S")
+        sys.argv += ["--run-id", _known.run_id]
+    try:
+        _dry_run_setup.activate(Path(_known.processed_root) / _known.run_id / _known.run_suffix, _STATE_ROOT)
+    except _dry_run_setup.DryRunError as _exc:
+        raise SystemExit(str(_exc)) from None
+
 # Heavy imports must come after env load.
 from langgraph._internal._constants import RESUME  # noqa: E402
 
-from pipeline import hitl  # noqa: E402
+from pipeline import dry_run, hitl  # noqa: E402
 from pipeline.contracts import InputContractError  # noqa: E402
 from pipeline.graph import _error_text, build_graph  # noqa: E402
 from pipeline.publishing_config import run_language  # noqa: E402
@@ -408,10 +427,12 @@ def _process_one_video(
 
     source = "video" if video else "transcript"
     input_path = Path(video if video else args.from_transcript).resolve()
+    if dry_run.active():
+        dry_run.prepare_vault(date_from_filename(input_path.name))
     _write_run_record(
         run_dir, run_id=run_id, status="running", verdict=None, pid=os.getpid(),
         profile=args.profile, input={"kind": source, "path": str(input_path)}, language=run_language(args.language),
-        started_at=t_start, ended_at=None, hitl_wait_s=0.0, error=None,
+        started_at=t_start, ended_at=None, hitl_wait_s=0.0, error=None, **({"dry_run": True} if dry_run.active() else {}),
     )
     try:
         return _run_one(args, run_id, run_dir, video, source, label, t_start)
@@ -538,6 +559,7 @@ def main() -> int:
     ap.add_argument("--profile", choices=["prod", "sandbox"], default="prod", help="Env profile (default: prod)")
     ap.add_argument("--run-id", default=None, help="Override run id base (default: timestamp)")
     ap.add_argument("--language", default=None, help="Code spoken in the video, e.g. es (default: language in config/publishing.json)")
+    ap.add_argument("--dry-run", action="store_true", help="Run everything but keep nothing: scratch vault in the run folder, sandbox Notion tables, no publishing.")
     ap.add_argument(
         "--run-suffix", default="langgraph", help="Subdir under processed/<run_id>/ (default: langgraph)"
     )

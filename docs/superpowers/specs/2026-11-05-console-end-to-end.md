@@ -26,6 +26,7 @@ Each leaf has an id. `pipeline/ui/e2e/decision_tree.json` is the machine-readabl
 START
 ├─ S7 dashboard is home; every page leads back to it
 ├─ S8 no runs yet ─▶ dashboard says so and offers Start
+├─ S9 dry run chosen ─▶ nothing kept, same input can repeat (2026-11-06-pipeline-dry-run-design)
 ├─ S1 inbox empty ─────────────────────────▶ upload a file
 ├─ S2 inbox has inputs ────────────────────▶ choose; toggle auto-approve
 ├─ S3 input already ran ───────────────────▶ tile warns and names the runs; can still start
@@ -65,7 +66,8 @@ ENDED, OK
 ├─ D7 run page: totals, graph, output cards, each leading to details (2026-11-06-console-dashboards-design)
 ├─ D8 delete a run ─▶ gone; the input can run again
 ├─ D9 delete refused ─▶ reason shown
-└─ D10 latest themes and the knowledge base
+├─ D10 latest themes and the knowledge base
+└─ D11 dry run page: marked as one, nothing to publish, Run for real
 PUBLISH (target = youtube | wordpress)
 ├─ P1 mode off ─▶ reason shown, no action
 ├─ P2 no package, can prepare ─▶ prepare, then P3 (older runs)

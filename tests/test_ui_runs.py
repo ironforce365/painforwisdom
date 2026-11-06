@@ -330,7 +330,7 @@ def test_list_runs_newest_first_and_shape(root):
                     "started_at": done["started_at"], "ended_at": done["ended_at"],
                     "input": {"kind": "transcript", "name": "transcript_2026-10-30.txt"},
                     "total_s": pytest.approx(298.0), "cost_usd": done["cost_usd"], "cost_estimated": False,
-                    "tokens": done["tokens"], "failed_node": None,
+                    "tokens": done["tokens"], "failed_node": None, "dry_run": False,
                     "attention": [{"kind": "publish", "label": "Publish to WordPress", "target": "wordpress"}],
                     "dismissed": False, "dismissed_attention": []}
 

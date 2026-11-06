@@ -20,12 +20,23 @@ function packageCard(section, label, glyph, pkg, prep) { // prep: null until the
     return { section, label, glyph, state: prep?.mode === 'off' ? 'Off' : 'Nothing yet', title: prep?.reason ?? '', go: prep?.can ? 'Prepare →' : 'Details →', needs: false };
   }
   const url = pkg.status === 'published' ? pkg.result.url : null;
-  return { section, label, glyph, state: PACKAGE_STATE[pkg.status], title: pkg.fields.title, url, urlText: url, needs: NEEDS.has(pkg.status), go: NEEDS.has(pkg.status) ? 'Review and publish →' : 'Details →' };
+  return { section, label, glyph, state: PACKAGE_STATE[pkg.status], title: pkg.fields.title, url, urlText: url, needs: NEEDS.has(pkg.status), go: NEEDS.has(pkg.status) ? 'Review and publish →' : 'Details →', packaged: true };
+}
+
+/** The same cards, saying what a dry run did instead: there is nothing to publish and nothing was saved. */
+function dryCard(card) {
+  if (card.section === 'kb') return card.title ? { ...card, state: 'Not saved', go: 'Read what it wrote →' } : card;
+  if (card.section === 'blog') return card.title ? { ...card, state: 'In the sandbox table', urlText: 'Open in sandbox Notion' } : card;
+  return card.packaged ? { ...card, state: 'Preview only', needs: false, go: 'Preview →' } : card;
 }
 
 export function cardsFor(run, publish, result) {
   const entry = run.nodes.kb_curator.outputs.vault_entry_path;
   const blog = result?.blog;
+  return realCards(run, publish, blog, entry).map(run.dry_run ? dryCard : (card) => card);
+}
+
+function realCards(run, publish, blog, entry) {
   return [
     packageCard('youtube', 'YouTube', 'video', publish?.targets?.youtube, publish?.prepare?.youtube),
     packageCard('wordpress', 'WordPress', 'globe', publish?.targets?.wordpress, publish?.prepare?.wordpress),
@@ -38,7 +49,9 @@ export function cardsFor(run, publish, result) {
   ];
 }
 
-export function mount({ back: backRoot, tools, totals, cards }, ctx) {
+export function mount({ back: backRoot, tools, totals, cards, dry }, ctx) {
+  const dryText = el('span', {}, 'Nothing from this run is kept. Its knowledge base entry is a scratch copy in the run folder, Notion gets the sandbox tables, and nothing can be published.');
+  dry.append(el('b', {}, 'DRY RUN'), dryText);
   const backButton = el('button', { type: 'button', class: 'btn run-back', 'data-testid': 'run-back' }, '← Dashboard');
   backButton.addEventListener('click', ctx.goHome);
   backRoot.append(backButton);
@@ -64,7 +77,7 @@ export function mount({ back: backRoot, tools, totals, cards }, ctx) {
   let cardsSig = '';
 
   const renderTools = () => {
-    const sig = JSON.stringify([run.run_id, run.status, run.manage]);
+    const sig = JSON.stringify([run.run_id, run.status, run.manage, run.dry_run]);
     if (sig === toolsSig) return;
     toolsSig = sig;
     const out = [];
@@ -72,7 +85,7 @@ export function mount({ back: backRoot, tools, totals, cards }, ctx) {
       const rerun = askButton({
         testid: 'run-rerun',
         label: 'Restart with same input',
-        question: 'Start over from the input, as a new run?',
+        question: run.dry_run ? 'Start over from the input, as a new dry run?' : 'Start over from the input, as a new run?',
         yes: 'Yes, restart',
         action: async () => ctx.bus.emit('run:selected', (await ctx.api.restartRun(run.run_id)).run_id),
       });
@@ -81,6 +94,20 @@ export function mount({ back: backRoot, tools, totals, cards }, ctx) {
         rerun.trigger.title = run.manage.rerun;
       }
       out.push(rerun.root);
+    }
+    if (run.dry_run && !ACTIVE.has(run.status)) {
+      const real = askButton({
+        testid: 'run-for-real',
+        label: 'Run for real',
+        question: 'Run this input for real? It writes to the knowledge base and the real Notion tables, and it can be published.',
+        yes: 'Yes, run for real',
+        action: async () => ctx.bus.emit('run:selected', (await ctx.api.restartRun(run.run_id, false, false)).run_id),
+      });
+      if (run.manage.rerun) {
+        real.trigger.disabled = true;
+        real.trigger.title = run.manage.rerun;
+      }
+      out.push(real.root);
     }
     const del = deleteButton(ctx, run.run_id, 'run-delete');
     if (run.manage.delete) {
@@ -141,6 +168,7 @@ export function mount({ back: backRoot, tools, totals, cards }, ctx) {
   };
 
   const render = () => {
+    dry.hidden = !run.dry_run;
     renderTools();
     renderTotals();
     renderCards();
@@ -156,6 +184,7 @@ export function mount({ back: backRoot, tools, totals, cards }, ctx) {
     cardsSig = '';
     tools.replaceChildren();
     cards.replaceChildren();
+    dry.hidden = true;
   });
   ctx.bus.on('run:updated', (r) => {
     run = r;

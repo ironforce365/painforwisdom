@@ -20,7 +20,7 @@ def get_result(request: Request, run_id: str) -> dict:
     if rd is None:
         raise HTTPException(404, "unknown run")
     rec = runs._record(rd, None)
-    out = result.resolve(rec["status"], rec["rows"], result.source_for(request.app.state.settings))
+    out = result.resolve(rec["status"], rec["rows"], result.source_for(request.app.state.settings, rec["dry_run"]))
     if out["status"] == "ready":
         cache[run_id] = out
     return out

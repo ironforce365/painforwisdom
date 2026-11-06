@@ -77,6 +77,20 @@ os.environ["PIPELINE_PROFILE"] = _PROFILE  # nodes read it through pipeline.publ
 if _PROFILE == "sandbox":
     os.environ["TELEGRAM_MESSAGE_PREFIX"] = "[SANDBOX] "
 
+# A dry run stays one when resumed: run.json says so, whoever called. Before the imports below read paths and table ids.
+from pipeline import dry_run  # noqa: E402
+
+if __name__ == "__main__":
+    _peek = argparse.ArgumentParser(add_help=False)
+    for _name, _default in (("--run-id", None), ("--run-suffix", "langgraph"), ("--processed-root", PROJECT_ROOT / "processed")):
+        _peek.add_argument(_name, default=_default)
+    _known = _peek.parse_known_args(sys.argv[1:])[0]
+    if _known.run_id and dry_run.recorded(Path(_known.processed_root) / _known.run_id / _known.run_suffix):
+        try:
+            dry_run.activate(Path(_known.processed_root) / _known.run_id / _known.run_suffix, _STATE_ROOT)
+        except dry_run.DryRunError as _exc:
+            raise SystemExit(str(_exc)) from None
+
 from pipeline import hitl  # noqa: E402
 from pipeline.contracts import InputContractError  # noqa: E402
 from pipeline.graph import _error_text, build_graph  # noqa: E402
@@ -120,6 +134,9 @@ def _candidate_run_ids(root: Path = PROCESSED_ROOT) -> List[str]:
             continue
         if (entry / "source").is_dir():
             # Successful run — already archived. Skip.
+            continue
+        if any(dry_run.recorded(sub) for sub in entry.iterdir() if sub.is_dir()):
+            # Discovery resumes with this process's real paths: a dry run only resumes by its own --run-id.
             continue
         ids.append(entry.name)
     ids.sort(reverse=True)
@@ -285,6 +302,11 @@ def _retry_one(
     print(f"\n[retry] === run_id={run_id} ===")
     run_dir = _run_dir(args, run_id)
     source_dir = Path(args.processed_root) / run_id / "source"
+    if dry_run.recorded(run_dir) and not dry_run.active():
+        print(f"[retry] {run_id} is a dry run: resume it by --run-id, so it keeps its scratch paths.")
+        return 2
+    if dry_run.active():
+        args.no_archive = True
 
     state = _state_for(graph, run_id)
     if state is None:

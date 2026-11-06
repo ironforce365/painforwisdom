@@ -30,11 +30,14 @@ export function mount(root, ctx) {
   root.querySelector('#themes').append(list);
 
   ctx.bus.on('runs:listed', (runs) => {
-    const passed = runs.filter((r) => r.status === 'done' && r.verdict === 'PASS');
-    runsTile.value.textContent = String(runs.length);
-    runsTile.note.textContent = `runs · ${passed.length} passed`;
+    const real = runs.filter((r) => !r.dry_run);
+    const passed = real.filter((r) => r.status === 'done' && r.verdict === 'PASS');
+    const dry = runs.length - real.length;
+    runsTile.value.textContent = String(real.length);
+    runsTile.note.textContent = `runs · ${passed.length} passed${dry ? ` · ${dry} dry` : ''}`;
     lastTile.value.textContent = passed.length ? fmtDuration(passed[0].total_s) : '–';
-    const cost = runs.reduce((sum, r) => sum + (r.cost_usd ?? 0), 0);
+    const cost = runs.reduce( // dry runs too: their AI calls are real
+(sum, r) => sum + (r.cost_usd ?? 0), 0);
     costTile.value.textContent = fmtCost(cost, runs.some((r) => r.cost_estimated));
   });
 

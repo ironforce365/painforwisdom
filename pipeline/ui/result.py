@@ -61,11 +61,11 @@ class FixtureResultSource:
         return [json.loads((self.root / "research" / f"{Path(p).name}.json").read_text()) for p in page_ids]
 
 
-def source_for(settings: Settings) -> ResultSource:
+def source_for(settings: Settings, dry_run: bool = False) -> ResultSource:
     if settings.notion_fixtures:
         return FixtureResultSource(settings.notion_fixtures)
     # .env lives in STATE_ROOT, not the tag-pinned live checkout (io-ab244036).
-    return NotionResultSource(runtime.STATE_ROOT / (".env.sandbox" if settings.profile == "sandbox" else ".env"))
+    return NotionResultSource(runtime.STATE_ROOT / (".env.sandbox" if dry_run or settings.profile == "sandbox" else ".env"))
 
 
 def _payload(status: str, reason: Optional[str] = None, blog: Optional[dict] = None,

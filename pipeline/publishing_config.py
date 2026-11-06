@@ -20,7 +20,12 @@ def _deep_merge(base: dict[str, Any], over: dict[str, Any]) -> dict[str, Any]:
 def load(profile: str) -> dict[str, Any]:
     raw = json.loads(CONFIG_PATH.read_text())
     profiles = raw.pop("profiles", {})
-    return _deep_merge(raw, profiles.get(profile, {}))
+    merged = _deep_merge(raw, profiles.get(profile, {}))
+    if os.environ.get("PIPELINE_DRY_RUN"):  # `auto` publishes inside the node; pipeline.dry_run cannot be imported here (dotenv)
+        for section in merged.values():
+            if isinstance(section, dict) and section.get("mode") == "auto":
+                section["mode"] = "manual"
+    return merged
 
 
 def current_profile() -> str:

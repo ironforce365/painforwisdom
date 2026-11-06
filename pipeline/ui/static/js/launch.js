@@ -75,6 +75,20 @@ export function mount(root, ctx) {
     type: 'button', class: 'launch-auto', role: 'switch', 'aria-checked': 'false', 'data-testid': 'launch-auto',
     title: 'Skip the approval pauses',
   }, svgIcon('bolt'), 'Auto-approve');
+  const dry = el('button', {
+    type: 'button', class: 'launch-dry', role: 'switch', 'aria-checked': 'false', 'data-testid': 'launch-dry',
+    title: 'Run everything but keep nothing, so the same video can run again',
+  }, svgIcon('check'), 'Dry run');
+  const dryNote = el('p', { class: 'launch-dry-note', 'data-testid': 'launch-dry-note' },
+    'Dry run: the whole pipeline runs and the AI calls cost the same, but nothing is kept. No knowledge base, Notion goes to the sandbox tables, nothing can be published. Run the same video as many times as you like.');
+  dryNote.hidden = true;
+  const title = el('strong', { class: 'launch-title', 'data-testid': 'launch-title' }, 'Start a run');
+  const setDry = (on) => {
+    dry.setAttribute('aria-checked', String(on));
+    dryNote.hidden = !on;
+    title.textContent = on ? 'Start a dry run' : 'Start a run';
+    panel.dataset.dry = String(on);
+  };
   const language = el('input', {
     type: 'text', class: 'launch-language', 'data-testid': 'launch-language', spellcheck: 'false', autocomplete: 'off',
   });
@@ -96,7 +110,7 @@ export function mount(root, ctx) {
   const picker = el('input', { type: 'file', multiple: '', accept: ACCEPT, hidden: '', 'data-testid': 'launch-file' });
   const tiles = el('div', { class: 'launch-tiles', 'data-testid': 'launch-tiles' });
   const panel = el('div', { class: 'launch-panel' },
-    el('div', { class: 'launch-head' }, el('strong', { class: 'launch-title' }, 'Start a run'), auto, languageField, upload, picker, lock, close), failure, tiles);
+    el('div', { class: 'launch-head' }, title, auto, dry, languageField, upload, picker, lock, close), dryNote, failure, tiles);
   const modal = el('div', {
     class: 'launch-overlay', 'data-testid': 'launch-modal', role: 'dialog', 'aria-modal': 'true',
     'aria-label': 'choose an input', 'data-locked': 'false',
@@ -156,7 +170,10 @@ export function mount(root, ctx) {
       hide();
       return;
     }
-    if (!fresh) language.value = body.default_language; // each opening starts over: the last video's language is not the next one's
+    if (!fresh) { // each opening starts over: the last video's choices are not the next one's
+      language.value = body.default_language;
+      setDry(false);
+    }
     const empty = el('div', { class: 'launch-empty', 'data-testid': 'launch-empty', role: 'img', 'aria-label': 'inbox is empty' },
       svgIcon('inbox'), 'The inbox is empty. Upload a file or drop one here.', el('span', { class: 'launch-path', 'data-testid': 'launch-path' }, body.inbox));
     tiles.replaceChildren(...(body.inputs.length ? body.inputs.map((input) => tileEl(input, start)) : [empty]));
@@ -192,7 +209,7 @@ export function mount(root, ctx) {
     showFailure('');
     try {
       const { run_id: id } = await ctx.api.launchRun({
-        input: name, auto_approve: auto.getAttribute('aria-checked') === 'true', language: language.value.trim(),
+        input: name, auto_approve: auto.getAttribute('aria-checked') === 'true', language: language.value.trim(), dry_run: dry.getAttribute('aria-checked') === 'true' || undefined,
       });
       setBusy(id);
       hide();
@@ -237,6 +254,7 @@ export function mount(root, ctx) {
     send([...e.dataTransfer.files]);
   });
   close.addEventListener('click', hide);
+  dry.addEventListener('click', () => setDry(dry.getAttribute('aria-checked') !== 'true'));
   auto.addEventListener('click', () => auto.setAttribute('aria-checked', String(auto.getAttribute('aria-checked') !== 'true')));
   modal.addEventListener('click', (e) => {
     if (e.target === modal) hide();

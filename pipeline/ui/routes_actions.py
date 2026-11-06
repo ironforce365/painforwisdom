@@ -1,6 +1,8 @@
 """C3 run actions, log and research routes (spec 2026-11-05-console-end-to-end section 3)."""
 from __future__ import annotations
 
+from typing import Optional
+
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
@@ -17,6 +19,10 @@ class ReplyBody(BaseModel):
 
 class AutoApproveBody(BaseModel):
     auto_approve: bool = False
+
+
+class RestartBody(AutoApproveBody):
+    dry_run: Optional[bool] = None  # None: what the run was
 
 
 class DismissBody(BaseModel):
@@ -55,9 +61,9 @@ def post_retry(request: Request, run_id: str, body: AutoApproveBody = AutoApprov
 
 
 @router.post("/api/runs/{run_id}/restart", status_code=201)
-def post_restart(request: Request, run_id: str, body: AutoApproveBody = AutoApproveBody()):
+def post_restart(request: Request, run_id: str, body: RestartBody = RestartBody()):
     try:
-        return {"run_id": actions.restart(request.app.state.settings, run_id, body.auto_approve)}
+        return {"run_id": actions.restart(request.app.state.settings, run_id, body.auto_approve, body.dry_run)}
     except actions.ActionError as e:
         return _error(e)
 

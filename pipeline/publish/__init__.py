@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 from typing import Any, Callable
 
+from pipeline import dry_run
 from pipeline.publish import package as _package
 
 
@@ -31,6 +32,8 @@ def run_target(run_dir: Path, target: str) -> dict[str, Any]:
 
     A lock that already exists is the console's, taken before it spawned this process.
     """
+    if dry_run.recorded(run_dir):
+        raise ValueError(f"{run_dir} is a dry run: nothing is published")
     package = _package.read(run_dir, target)
     if package is None:
         raise FileNotFoundError(f"no {target} package in {run_dir}")
