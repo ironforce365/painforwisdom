@@ -14,8 +14,9 @@ router = APIRouter()
 
 
 class FakeSpec(BaseModel):
-    scenario: Literal["ok", "hitl", "fail"] = "ok"
+    scenario: Literal["ok", "hitl", "fail", "error", "error_twice", "non_recoverable", "curator"] = "ok"
     step_ms: int = Field(200, ge=0, le=60_000)
+    wait_s: int = Field(120, ge=1, le=3600)
 
 
 class LaunchBody(BaseModel):
@@ -26,8 +27,8 @@ class LaunchBody(BaseModel):
 
 @router.get("/api/inputs")
 def list_inputs(request: Request) -> dict:
-    inbox = request.app.state.settings.inbox
-    return {"inbox": str(inbox.resolve()), "inputs": launcher.list_inputs(inbox)}
+    settings = request.app.state.settings
+    return {"inbox": str(settings.inbox.resolve()), "inputs": launcher.list_inputs(settings.inbox, settings.processed_root)}
 
 
 @router.put("/api/inputs/{name}", status_code=201)

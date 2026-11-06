@@ -215,6 +215,75 @@ def test_auto_failure_lands_in_the_package_and_the_row(state, monkeypatch, tmp_p
     assert node_bv_youtube(out)["branch_verdict_youtube"] == "PARTIAL"
 
 
+def _edited(state: dict, status: str, error: str = None) -> dict:
+    rd = Path(state["run_dir"])
+    pkg = package.read(rd, "youtube")
+    return package.write(rd, {**pkg, "status": status, "error": error, "fields": {**pkg["fields"], "title": "My edit"}})
+
+
+@pytest.mark.parametrize("status,error", [("pending", None), ("failed", "quota")])
+def test_a_replay_keeps_the_edits_of_a_package_at_rest(state, monkeypatch, status, error):  # [DT-P3] [DT-P5]
+    uploads = _uploader(monkeypatch)
+    prepared = _with_metadata(state)
+    youtube_upload.node_youtube_upload(prepared)
+    _edited(state, status, error)
+    out = youtube_upload.node_youtube_upload(prepared)
+    pkg = package.read(Path(state["run_dir"]), "youtube")
+    assert pkg["fields"]["title"] == "My edit" and pkg["fields"]["description"] == "D"
+    assert (pkg["status"], pkg["error"]) == (status, error)
+    assert out == {"youtube_skipped": True, "youtube_skip_reason": "manual"} and not uploads
+
+
+def test_a_replay_in_auto_mode_publishes_the_edit_once(state, monkeypatch, tmp_path):  # [DT-P5] [DT-P10]
+    _config(monkeypatch, tmp_path, mode="auto")
+    monkeypatch.setattr(adapter, "upload_draft_short", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("quota")))
+    prepared = _with_metadata(state)
+    youtube_upload.node_youtube_upload(prepared)
+    _edited(state, "failed", "quota")
+    uploads = _uploader(monkeypatch)
+    out = youtube_upload.node_youtube_upload(prepared)
+    assert out["youtube_url"] == "https://youtu.be/vid"
+    assert [u["title"] for u in uploads] == ["My edit"]
+    assert youtube_upload.node_youtube_upload(prepared)["youtube_url"] == "https://youtu.be/vid"
+    assert len(uploads) == 1
+
+
+def test_a_replay_never_auto_publishes_a_package_the_console_prepared(state, monkeypatch, tmp_path):  # [DT-P2]
+    """Prepare marks its package manual whatever the config says: nothing publishes it behind the user's back."""
+    uploads = _uploader(monkeypatch)
+    prepared = _with_metadata(state)
+    youtube_upload.node_youtube_upload(prepared)  # config manual: mode manual, as prepare writes it
+    _config(monkeypatch, tmp_path, mode="auto")
+    out = youtube_upload.node_youtube_upload(prepared)
+    assert out == {"youtube_skipped": True, "youtube_skip_reason": "manual"} and not uploads
+    assert package.read(Path(state["run_dir"]), "youtube")["mode"] == "manual"
+
+
+def test_a_replay_leaves_a_publish_in_progress_alone(state, monkeypatch, tmp_path):  # [DT-P4]
+    _config(monkeypatch, tmp_path, mode="auto")
+    uploads = _uploader(monkeypatch)
+    prepared = _with_metadata(state)
+    rd = Path(state["run_dir"])
+    package.write(rd, package.new_package("youtube", "auto", {"title": "My edit"}, {}))
+    package.write(rd, {**package.read(rd, "youtube"), "status": "publishing"})
+    before = package.package_path(rd, "youtube").read_bytes()
+    out = youtube_upload.node_youtube_upload(prepared)
+    assert out == {"youtube_skipped": True, "youtube_skip_reason": "publishing"} and not uploads
+    assert package.package_path(rd, "youtube").read_bytes() == before
+    assert _rows(state)[-1]["reason"] == "publishing"
+    assert node_bv_youtube(out)["branch_verdict_youtube"] != "FAIL"
+
+
+def test_a_replay_with_publishing_switched_off_leaves_the_package_alone(state, monkeypatch, tmp_path):  # [DT-P1]
+    prepared = _with_metadata(state)
+    youtube_upload.node_youtube_upload(prepared)
+    _edited(state, "pending")
+    before = package.package_path(Path(state["run_dir"]), "youtube").read_bytes()
+    _config(monkeypatch, tmp_path, mode="off")
+    assert youtube_upload.node_youtube_upload(prepared)["youtube_skip_reason"] == "off"
+    assert package.package_path(Path(state["run_dir"]), "youtube").read_bytes() == before
+
+
 def test_unprobeable_video_still_builds_the_package(state, monkeypatch):
     monkeypatch.setattr(youtube_upload, "get_duration_seconds", lambda _: (_ for _ in ()).throw(OSError("no ffprobe")))
     youtube_upload.node_youtube_upload(_with_metadata(state))
@@ -236,6 +305,47 @@ def _package(tmp_path: Path, duration=42.0, **fields) -> dict:
     base = {"title": "T", "description": "D", "tags": ["a"], "privacy_status": "unlisted", "kind": "short"}
     return package.new_package("youtube", "manual", {**base, **fields}, {}, readonly={"duration_s": duration},
                                assets=[{"role": "video", "path": str(video)}])
+
+
+def test_adapter_measures_a_prepared_package_and_refuses_a_long_short(tmp_path, monkeypatch):  # [DT-P2] [DT-P5]
+    """A prepared package records no duration: the 180 s check must still run, never upload it tagged #Shorts."""
+    uploads = _uploader(monkeypatch)
+    seen = []
+    monkeypatch.setattr(adapter, "get_duration_seconds", lambda path: seen.append(path) or 600.5)
+    pkg = _package(tmp_path, duration=None)
+    with pytest.raises(ValueError, match=r"600\.5 s.*set kind to video"):
+        adapter.publish(tmp_path, pkg)
+    assert not uploads and seen == [Path(pkg["assets"][0]["path"])]
+
+
+def test_adapter_uploads_a_measured_short_tagged(tmp_path, monkeypatch):  # [DT-P4]
+    uploads = _uploader(monkeypatch)
+    monkeypatch.setattr(adapter, "get_duration_seconds", lambda _: 59.0)
+    adapter.publish(tmp_path, _package(tmp_path, duration=None))
+    assert len(uploads) == 1 and uploads[0]["description"].endswith("#Shorts")
+
+
+def test_adapter_unmeasurable_video_uploads_with_a_warning(tmp_path, monkeypatch, capsys):  # [DT-P4]
+    uploads = _uploader(monkeypatch)
+    monkeypatch.setattr(adapter, "get_duration_seconds", lambda _: (_ for _ in ()).throw(OSError("no ffprobe")))
+    adapter.publish(tmp_path, _package(tmp_path, duration=None))
+    assert len(uploads) == 1
+    out = capsys.readouterr().out
+    assert "WARN" in out and "no ffprobe" in out and "180" in out
+
+
+def test_adapter_uses_a_recorded_duration_without_measuring(tmp_path, monkeypatch):  # [DT-P4]
+    uploads = _uploader(monkeypatch)
+    monkeypatch.setattr(adapter, "get_duration_seconds", lambda _: pytest.fail("already known"))
+    adapter.publish(tmp_path, _package(tmp_path, duration=42.0))
+    assert len(uploads) == 1
+
+
+def test_adapter_does_not_measure_for_a_plain_video(tmp_path, monkeypatch):  # [DT-P4]
+    uploads = _uploader(monkeypatch)
+    monkeypatch.setattr(adapter, "get_duration_seconds", lambda _: pytest.fail("no limit to check"))
+    adapter.publish(tmp_path, _package(tmp_path, duration=None, kind="video"))
+    assert len(uploads) == 1
 
 
 def test_adapter_short_appends_shorts_tag_and_returns_the_result(tmp_path, monkeypatch):

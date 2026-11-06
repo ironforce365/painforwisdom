@@ -75,6 +75,100 @@ test('closing before the inputs arrive keeps focus on the play button', async ({
   await expect(button(page)).toBeFocused();
 });
 
+test('[DT-S1] an empty inbox says so and offers the upload', async ({ page }) => {
+  freshServerState();
+  await page.route('**/api/inputs', (route) => route.fulfill({ json: { inbox: '/home/x/inbox', inputs: [] } }));
+  await page.goto('/#/runs/fx-done');
+  await openModal(page);
+  await expect(page.getByTestId('launch-empty')).toContainText('inbox is empty');
+  await expect(page.getByTestId('launch-path')).toHaveText('/home/x/inbox');
+  await expect(page.getByTestId('launch-upload')).toHaveText('Upload');
+  await expect(page.getByTestId('launch-close')).toHaveText('Close');
+});
+
+test('[DT-S2] controls read as text: start in the header, auto-approve in the popup', async ({ page }) => {
+  freshServerState();
+  await page.goto('/#/runs/fx-done');
+  await expect(button(page)).toHaveText('Start run');
+  await expect(page.locator('header.bar').getByTestId('launch-button')).toBeVisible();
+  await openModal(page);
+  await expect(page.getByTestId('launch-auto')).toHaveText('Auto-approve');
+  await expect(tile(page, TXT)).toBeVisible();
+});
+
+test('[DT-S3] a tile warns which runs used the input and can still start', async ({ page, request }) => {
+  freshServerState();
+  const { inputs } = await (await request.get('/api/inputs')).json();
+  const used = inputs.find((i) => i.previous_runs.length);
+  const fresh = inputs.find((i) => !i.previous_runs.length);
+  await page.goto('/#/runs/fx-done');
+  await openModal(page);
+  const warned = tile(page, used.name);
+  await expect(warned.getByTestId('tile-previous')).toContainText('Already ran');
+  for (const id of used.previous_runs) await expect(warned.getByTestId('tile-previous')).toContainText(id);
+  await expect(warned).toHaveAttribute('data-warn', 'true');
+  if (fresh) await expect(tile(page, fresh.name).getByTestId('tile-previous')).toHaveCount(0);
+  const posted = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/api/runs'));
+  await page.route('**/api/runs', (route) => (route.request().method() === 'POST'
+    ? route.continue({ postData: JSON.stringify({ ...route.request().postDataJSON(), fake: { scenario: 'ok', step_ms: 20 } }) }) : route.continue()));
+  await warned.click();
+  expect((await posted).status()).toBe(201);
+});
+
+test('[DT-S4] another run active: start is locked with a link to it, from the header and the popup', async ({ page }) => {
+  freshServerState({ live: true });
+  await page.goto('/#/runs/fx-done');
+  await expect(button(page)).toBeDisabled();
+  await expect(button(page)).toHaveText('Run active');
+  const link = page.getByTestId('launch-active-link');
+  await expect(link).toContainText('fx-running');
+  await link.click();
+  await expect(page).toHaveURL(/#\/runs\/fx-running$/);
+  await expect(page.getByTestId('run-fx-running')).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('[DT-S4] a 409 from the popup links to the active run and closes on the way there', async ({ page, errors }) => {
+  freshServerState();
+  errors.allow(/status of 409/);
+  capturePosts(page, { status: 409, json: { detail: 'run active', run_id: 'fx-stopped' } });
+  await page.goto('/#/runs/fx-done');
+  await openModal(page);
+  await tile(page, TXT).click();
+  await expect(page.getByTestId('launch-lock')).toBeVisible();
+  const link = page.getByTestId('launch-lock-link');
+  await expect(link).toHaveText('fx-stopped');
+  await link.click();
+  await expect(modal(page)).toBeHidden();
+  await expect(page).toHaveURL(/#\/runs\/fx-stopped$/);
+});
+
+test('[DT-S5] a refused upload names the file and why; the rest go on', async ({ page, errors }) => {
+  freshServerState();
+  errors.allow(/status of 409/);
+  await page.goto('/#/runs/fx-done');
+  await openModal(page);
+  await modal(page).dispatchEvent('drop', { dataTransfer: await transfer(page, [TXT, 'fine.txt']) });
+  await expect(tile(page, 'fine.txt')).toBeFocused();
+  await expect(page.getByTestId('launch-error')).toContainText(`${TXT}: input exists`);
+  await page.getByTestId('launch-close').click();
+  await openModal(page);
+  await expect(page.getByTestId('launch-error')).toBeHidden();
+});
+
+test('a failure without a body shows the bare message', async ({ page, errors }) => {
+  freshServerState();
+  errors.allow(/status of 500/);
+  errors.allow(/requestfailed|ERR_FAILED/);
+  await page.route('**/api/inputs/*', (route) => route.abort());
+  capturePosts(page, { status: 500, body: 'boom' });
+  await page.goto('/#/runs/fx-done');
+  await openModal(page);
+  await tile(page, TXT).click();
+  await expect(page.getByTestId('launch-error')).toContainText('HTTP 500');
+  await modal(page).dispatchEvent('drop', { dataTransfer: await transfer(page, ['x.txt']) });
+  await expect(page.getByTestId('launch-error')).toContainText('x.txt:');
+});
+
 test('tiles show file name and relative age', async ({ page }) => {
   freshServerState();
   const now = Date.now() / 1000;
@@ -143,20 +237,28 @@ test('a live run at boot shows the button busy', async ({ page }) => {
   freshServerState({ live: true });
   await page.goto('/');
   await expect(page).toHaveURL(/#\/runs\/fx-running$/);
+  await expect(page.getByTestId('launch-active-link')).toBeVisible();
   await expect(button(page)).toHaveAttribute('data-state', 'busy');
   await expect(button(page)).toBeDisabled();
 });
 
 test('409 locks the popup and the button until the active run ends', async ({ page, errors }) => {
-  freshServerState({ live: true });
+  freshServerState();
   errors.allow(/status of 409/);
+  const busy = 'fx-stopped';
+  setStatus(busy, 'running');
+  await page.route(`**/api/runs/${busy}`, async (route) => {
+    const res = await route.fetch();
+    const run = await res.json();
+    // A runner that only the 409 told this page about: the list does not name it as active.
+    await route.fulfill({ response: res, json: JSON.parse(fs.readFileSync(path.join(PROCESSED, busy, 'langgraph', 'run.json'), 'utf8')).status === 'running' ? { ...run, status: 'running' } : { ...run, status: 'done' } });
+  });
+  capturePosts(page, { status: 409, json: { detail: 'run active', run_id: busy } });
   await page.goto('/#/runs/fx-done');
   await openModal(page);
   const posted = page.waitForResponse((r) => r.request().method() === 'POST');
   await tile(page, TXT).click();
-  const res = await posted;
-  expect(res.status()).toBe(409);
-  const { run_id: busy } = await res.json();
+  await posted;
   await expect(page.getByTestId('launch-lock')).toBeVisible();
   await expect(modal(page)).toBeVisible();
   await expect(button(page)).toHaveAttribute('data-state', 'busy');
@@ -170,7 +272,7 @@ test('409 locks the popup and the button until the active run ends', async ({ pa
 });
 
 test('busy survives a failed check and clears when the active run is gone', async ({ page, errors }) => {
-  freshServerState({ live: true });
+  freshServerState();
   errors.allow(/status of 40[49]|net::ERR_FAILED/);
   const bodies = capturePosts(page, { status: 409, json: { detail: 'run active', run_id: 'gone' } });
   let checks = 0;
@@ -200,14 +302,14 @@ test('404 shakes the tile and shows the error badge', async ({ page, errors }) =
   await expect(button(page)).toHaveAttribute('data-state', 'idle');
 });
 
-test('empty inbox shows the tray icon and the inbox path only', async ({ page }) => {
+test('empty inbox keeps keys and focus sane', async ({ page }) => {
   freshServerState();
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.route('**/api/inputs', (route) => route.fulfill({ json: { inbox: '/home/x/inbox', inputs: [] } }));
   await page.goto('/#/runs/fx-done');
   await openModal(page);
   await expect(page.getByTestId('launch-empty')).toBeVisible();
-  await expect(page.getByTestId('launch-empty')).toHaveText('/home/x/inbox');
+  await expect(page.getByTestId('launch-path')).toHaveText('/home/x/inbox');
   await expect(page.getByTestId('launch-close')).toBeFocused();
   await page.keyboard.press('ArrowRight'); // no tiles: nothing to move to
   await expect(page.getByTestId('launch-close')).toBeFocused();
@@ -303,8 +405,9 @@ test.describe('shots', () => {
   });
 
   test('shot locked', async ({ page, errors }) => {
-    freshServerState({ live: true });
+    freshServerState();
     errors.allow(/status of 409/);
+    capturePosts(page, { status: 409, json: { detail: 'run active', run_id: 'fx-stopped' } });
     await page.goto('/#/runs/fx-done');
     await openModal(page);
     await tile(page, TXT).click();

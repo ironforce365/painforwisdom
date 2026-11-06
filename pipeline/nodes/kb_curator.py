@@ -6,11 +6,13 @@ labelled YAML-ish blocks, and this node parses + applies it.
 
 If the plan proposes a new theme or framework, we suspend the graph via
 `interrupt(...)` so the orchestrator (run.py) can prompt Gonzalo via Telegram
-and resume with `Command(resume=<reply>)`. We then re-prompt the LLM with the
+and resume with his reply. We then re-prompt the LLM with the
 approval reply baked in and apply the resulting plan.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import re
 import time
@@ -186,6 +188,8 @@ Rules:
 _MAX_TOKENS = 16000
 
 _PLAN_PATTERN = re.compile(r"---kb-plan---\s*\n(.*?)\n---kb-plan---", re.DOTALL)
+_USAGE_KEYS = ("input_tokens", "output_tokens", "cache_read_tokens", "cache_creation_tokens", "cost_usd", "duration_s")
+_DISCARDED = "discarded"  # in plans.json, beside the sha256 keys: usage of the calls whose plan was thrown away
 
 
 def _retry_prompt_for_format(text: str) -> str:
@@ -324,9 +328,64 @@ def _call_llm_for_plan(state: State, approval_history: List[Tuple[str, str]]) ->
         result2 = call_llm(model, system_prompt, retry_msg, max_tokens=_MAX_TOKENS)
         plan = _parse_plan(result2["text"], diag=result2)
         # Sum cost / tokens conservatively across both calls
-        for k in ("input_tokens", "output_tokens", "cache_read_tokens", "cache_creation_tokens", "cost_usd", "duration_s"):
+        for k in _USAGE_KEYS:
             result2[k] = (result.get(k, 0) or 0) + (result2.get(k, 0) or 0)
+        result2["llm_calls"] = 2
         return plan, result2
+
+
+def _plans_path(state: State) -> Path:
+    return Path(state["run_dir"]) / "kb-curator" / "plans.json"
+
+
+def _plan_key(approval_history: List[Tuple[str, str]]) -> str:
+    return hashlib.sha256(json.dumps(approval_history).encode()).hexdigest()
+
+
+def _read_plans(path: Path) -> Dict[str, Any]:
+    try:
+        plans = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}
+    return plans if isinstance(plans, dict) else {}
+
+
+def _write_plans(path: Path, plans: Dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".plans.json.{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(plans))
+    os.replace(tmp, path)
+
+
+def _plan_for(state: State, approval_history: List[Tuple[str, str]]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """The plan for this history, and what its LLM call cost. Asks the LLM only the first time.
+
+    interrupt() replays the node from its top on every resume, and on a retry. A fresh call there could answer
+    differently from the plan the user replied to, so the reply would be dropped or land on a proposal never shown.
+    """
+    path = _plans_path(state)
+    key = _plan_key(approval_history)
+    known = _read_plans(path).get(key)
+    if known is not None:
+        return known["plan"], known["usage"]
+    plan, result = _call_llm_for_plan(state, approval_history)
+    usage = {**{k: result.get(k, 0) for k in _USAGE_KEYS}, "llm_calls": result.get("llm_calls", 1)}
+    if not isinstance(plan, dict):  # raises in the caller as before; nothing here to replay
+        return plan, usage
+    # The stored form from the start (YAML reads a date, JSON keeps a string): a replay must build the same proposal.
+    plan = json.loads(json.dumps(plan, default=str))
+    _write_plans(path, {**_read_plans(path), key: {"plan": plan, "usage": usage}})
+    return plan, usage
+
+
+def _discard_plan(state: State, approval_history: List[Tuple[str, str]]) -> None:
+    """A plan that cannot be applied is asked for again on retry. Nobody answered it, and its call stays counted."""
+    path = _plans_path(state)
+    plans = _read_plans(path)
+    known = plans.pop(_plan_key(approval_history), None)
+    if known is not None:
+        plans[_DISCARDED] = [*plans.get(_DISCARDED, []), known["usage"]]
+        _write_plans(path, plans)
 
 
 def _replace_section(body: str, heading: str, text: str) -> str:
@@ -458,6 +517,7 @@ def _apply_proceed(state: State, plan: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+_RAW_PLAN_CAP = 2000
 _REPLY_HINT = (
     "Reply freely. Examples:\n"
     "  • `yes` — approve as-is\n"
@@ -487,6 +547,28 @@ def _proposal_text(plan: Dict[str, Any]) -> str:
     )
 
 
+def _unknown_action_text(plan: Dict[str, Any]) -> str:
+    raw = yaml.safe_dump(plan, sort_keys=False, allow_unicode=True)
+    return (
+        f"⚠️ CURATOR — unknown action `{plan.get('action')}`\n"
+        f"Reason: {plan.get('reason')}\n\n"
+        f"Plan:\n{raw[:_RAW_PLAN_CAP]}\n\n"
+        "Reply with what the curator should do: your answer goes back to it and it plans again."
+    )
+
+
+def _interrupt_payload(plan: Dict[str, Any]) -> Dict[str, Any]:
+    action = plan.get("action")
+    if not (isinstance(action, str) and action.startswith("NEEDS_APPROVAL")):
+        return {"kind": "curator", "proposal": _unknown_action_text(plan), "raw_plan": plan}
+    return {"kind": "theme" if action == "NEEDS_APPROVAL_THEME" else "framework", "proposal": _proposal_text(plan),
+            "raw_plan": plan}
+
+
+def _call_metric(usage: Dict[str, Any], phase: str) -> Dict[str, Any]:
+    return {**usage, "duration_s": round(usage["duration_s"], 2), "phase": phase}
+
+
 def node_kb_curator(state: State) -> Dict[str, Any]:
     assert_inputs("kb_curator", state)
     t0 = time.time()
@@ -495,59 +577,37 @@ def node_kb_curator(state: State) -> Dict[str, Any]:
     approval_history: List[Tuple[str, str]] = []
     metrics: List[Dict[str, Any]] = []
 
-    plan, result = _call_llm_for_plan(state, approval_history)
-    metrics.append(
-        {
-            "duration_s": round(result["duration_s"], 2),
-            "input_tokens": result["input_tokens"],
-            "output_tokens": result["output_tokens"],
-            "cache_read_tokens": result["cache_read_tokens"],
-            "cache_creation_tokens": result["cache_creation_tokens"],
-            "cost_usd": result["cost_usd"],
-            "phase": "initial",
-        }
-    )
+    plan, usage = _plan_for(state, approval_history)
+    metrics.append(_call_metric(usage, "initial"))
 
-    while plan.get("action", "").startswith("NEEDS_APPROVAL"):
-        proposal_msg = _proposal_text(plan)
+    # Any action but PROCEED asks: an unknown one (ALREADY_PROCESSED) must not crash a run that a retry would repeat.
+    while plan.get("action") != "PROCEED":
+        payload = _interrupt_payload(plan)
+        proposal_msg = payload["proposal"]
         print(f"[kb-curator] suspending for approval:\n{proposal_msg}")
-        # interrupt() suspends the graph; orchestrator handles Telegram round-trip
-        # and resumes with Command(resume=<reply text>).
-        reply: Optional[str] = interrupt(
-            {
-                "kind": "theme" if plan["action"] == "NEEDS_APPROVAL_THEME" else "framework",
-                "proposal": proposal_msg,
-                "raw_plan": plan,
-            }
-        )
+        # interrupt() suspends the graph; orchestrator handles the human round-trip
+        # and resumes the graph with the reply text.
+        reply: Optional[str] = interrupt(payload)
         reply = (reply or "").strip()
         print(f"[kb-curator] resumed with reply: {reply!r}")
         approval_history.append((proposal_msg, reply))
-        plan, result = _call_llm_for_plan(state, approval_history)
-        metrics.append(
-            {
-                "duration_s": round(result["duration_s"], 2),
-                "input_tokens": result["input_tokens"],
-                "output_tokens": result["output_tokens"],
-                "cache_read_tokens": result["cache_read_tokens"],
-                "cache_creation_tokens": result["cache_creation_tokens"],
-                "cost_usd": result["cost_usd"],
-                "phase": f"resume_{len(approval_history)}",
-            }
-        )
+        plan, usage = _plan_for(state, approval_history)
+        metrics.append(_call_metric(usage, f"resume_{len(approval_history)}"))
 
-    if plan.get("action") != "PROCEED":
-        raise RuntimeError(f"kb-curator: unexpected terminal action: {plan.get('action')}")
-
-    out = _apply_proceed(state, plan)
+    try:
+        out = _apply_proceed(state, plan)
+    except Exception:
+        _discard_plan(state, approval_history)
+        raise
     duration = time.time() - t0
 
+    metrics += [_call_metric(usage, "discarded") for usage in _read_plans(_plans_path(state)).get(_DISCARDED, [])]
     total_cost = sum(m["cost_usd"] for m in metrics)
     append_metric(
         run_telemetry_path(state["run_dir"]),
         "kb-curator",
         duration_s=round(duration, 2),
-        llm_calls=len(metrics),
+        llm_calls=sum(m["llm_calls"] for m in metrics),
         approvals=len(approval_history),
         total_cost_usd=round(total_cost, 6),
         per_call=metrics,

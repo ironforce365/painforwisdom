@@ -1,0 +1,13 @@
+/* Logs view (spec 2026-11-05-console-end-to-end §4). */
+#logs { background: var(--bg); }
+body[data-view="logs"] #logs { display: flex; flex-direction: column; }
+.logs-head { flex: none; display: flex; align-items: center; gap: 12px; padding: 4px 12px; border-bottom: 1px solid var(--line); }
+.logs-count { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.logs-follow { margin-left: auto; padding: 2px 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface-2); color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; }
+.logs-follow[aria-checked="true"] { color: var(--text); border-color: var(--run); }
+.logs-follow:focus-visible { outline: 2px solid var(--run); outline-offset: 1px; }
+.logs-scroll { flex: 1; min-height: 0; overflow: auto; padding: 6px 12px; font: 12px/1.45 ui-monospace, monospace; }
+.logs-scroll:focus-visible { outline: 2px solid var(--run); outline-offset: -2px; }
+.log-line { white-space: pre-wrap; overflow-wrap: anywhere; }
+.logs-empty { color: var(--muted); font-family: system-ui, sans-serif; }
+.logs-empty[hidden] { display: none; }

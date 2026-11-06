@@ -6,7 +6,8 @@ import os
 from pathlib import Path
 from typing import Any
 
-CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "publishing.json"
+CONFIG_PATH = Path(os.environ.get("PIPELINE_PUBLISHING_CONFIG")  # tests only
+                   or Path(__file__).resolve().parent.parent / "config" / "publishing.json")
 
 
 def _deep_merge(base: dict[str, Any], over: dict[str, Any]) -> dict[str, Any]:

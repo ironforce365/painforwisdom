@@ -1,0 +1,2 @@
+{"ts": 1793201000.0, "node": "extract", "event": "start", "attempt": 1}
+{"ts": 1793201005.0, "node": "extract", "event": "end", "attempt": 1, "duration_s": 5.0, "noop": false, "outputs": {}}

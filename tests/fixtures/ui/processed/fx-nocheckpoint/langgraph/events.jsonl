@@ -1,0 +1,2 @@
+{"ts": 1793201500.0, "node": "extract", "event": "start", "attempt": 1}
+{"ts": 1793201505.0, "node": "extract", "event": "error", "attempt": 1, "error": "InputContractError: extract: transcript_text missing"}

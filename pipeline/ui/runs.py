@@ -4,13 +4,17 @@ from __future__ import annotations
 import json
 import os
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
+from pipeline import hitl, pricing, runtime
+from pipeline.publish import package as publish_package
 from pipeline.ui.mapping import node_for_stage
 
 ACTIVE = {"running", "waiting_hitl", "waiting_reply"}
-FINISHED = {"done", "failed", "crashed"}
+ENDED_NOT_OK = {"failed", "crashed", "stopped"}
+FINISHED = {"done", *ENDED_NOT_OK}
 TOKEN_FIELDS = ("input_tokens", "output_tokens", "cache_read_tokens", "cache_creation_tokens")
 NOT_FACTS = {"ts", "stage", "per_call", "cost_usd", "total_cost_usd", *TOKEN_FIELDS}
 
@@ -140,8 +144,23 @@ def _row_calls(row: dict) -> int:
 
 def _blank_telemetry() -> dict[str, Any]:
     # duration_s stays None until a C4 row exists: telemetry.js falls back to the node's elapsed span.
-    return {"duration_s": None, **{k: 0 for k in TOKEN_FIELDS}, "cost_usd": 0.0, "model": None,
+    return {"duration_s": None, **{k: 0 for k in TOKEN_FIELDS}, "cost_usd": 0.0, "cost_estimated": False, "model": None,
             "calls": 0, "in_flight": 0, "live": False}
+
+
+def _charge(agg: dict, logged: float, model: Optional[str], tokens: dict[str, int]) -> None:
+    """The billed cost; under subscription billing (logged 0) the API-equivalent, computed here so older runs get it too."""
+    if logged or not any(tokens.values()):
+        agg["cost_usd"] += logged
+        return
+    read, write = tokens["cache_read_tokens"], tokens["cache_creation_tokens"]
+    # input_tokens is litellm's prompt_tokens, which already holds both cache counts (pipeline/llm.py).
+    est = pricing.cost(model, max(0, tokens["input_tokens"] - read - write), tokens["output_tokens"], read, write)
+    if est is None:
+        agg["unpriced"] = True
+    else:
+        agg["cost_usd"] += est
+        agg["cost_estimated"] = True
 
 
 def _apply_usage(per_node: dict[str, dict], final: set[str], usage: Iterable[dict], active: bool) -> None:
@@ -163,34 +182,48 @@ def _apply_usage(per_node: dict[str, dict], final: set[str], usage: Iterable[dic
         agg["model"] = lines[-1].get("model") or agg["model"]
         for k in TOKEN_FIELDS:
             agg[k] = sum(int(ln.get(k) or 0) for ln in ends)
-        agg["cost_usd"] = sum(float(ln.get("cost_usd") or 0.0) for ln in ends)
+        agg["cost_usd"] = 0.0
+        for ln in ends:
+            _charge(agg, float(ln.get("cost_usd") or 0.0), ln.get("model") or agg["model"],
+                    {k: int(ln.get(k) or 0) for k in TOKEN_FIELDS})
 
 
 def telemetry(rows: Iterable[dict], total_s: Optional[float], hitl_wait_s: float,
               usage: Iterable[dict] = (), active: bool = False) -> dict:
     per_node: dict[str, dict] = {}
     final: set[str] = set()
+    usage = list(usage)
+    # kb_curator rows carry per_call and no model; the usage lines know it.
+    usage_model = {str(ln["node"]): ln["model"] for ln in usage if ln.get("node") and ln.get("model")}
     for row in rows:
         node = node_for_stage(str(row.get("stage", "")))
         if node is None:
             continue
         agg = per_node.setdefault(node, _blank_telemetry())
         agg["duration_s"] = round((agg["duration_s"] or 0.0) + float(row.get("duration_s") or 0.0), 3)
-        for k, v in _row_tokens(row).items():
+        tokens = _row_tokens(row)
+        for k, v in tokens.items():
             agg[k] += v
-        agg["cost_usd"] += _row_cost(row)
-        agg["model"] = row.get("model") or agg["model"]
+        agg["model"] = row.get("model") or agg["model"] or usage_model.get(node)
+        _charge(agg, _row_cost(row), row.get("model") or usage_model.get(node), tokens)
         agg["calls"] += _row_calls(row)
         if _row_has_tokens(row):
             final.add(node)
     _apply_usage(per_node, final, usage, active)
     tokens = {short: sum(p[k] for p in per_node.values())
               for short, k in zip(("input", "output", "cache_read", "cache_creation"), TOKEN_FIELDS)}
+    unpriced = False
+    for p in per_node.values():
+        if p.pop("unpriced", False) and not p["cost_usd"]:
+            p["cost_usd"], unpriced = None, True
+    cost = sum(p["cost_usd"] or 0.0 for p in per_node.values())
     return {
         "total_s": total_s,
         "work_s": None if total_s is None else total_s - (hitl_wait_s or 0.0),
         "tokens": tokens,
-        "cost_usd": sum(p["cost_usd"] for p in per_node.values()),
+        # Never a fake 0: None when nothing could be priced. A partly priced run sums what it can.
+        "cost_usd": None if unpriced and not cost else cost,
+        "cost_estimated": any(p["cost_estimated"] for p in per_node.values()),
         "calls": sum(p["calls"] for p in per_node.values()),
         "in_flight": sum(p["in_flight"] for p in per_node.values()),
         "per_node": per_node,
@@ -232,14 +265,16 @@ def _record(rd: Path, now: Optional[float]) -> dict:
     rows = read_jsonl(rd / "runs.jsonl")
     rec: dict[str, Any]
     path = rd / "run.json"
-    legacy = not path.is_file()
-    if legacy:
-        rec = _legacy_record(rd, rows)
-    else:
+    rec = {}
+    if path.is_file():
         try:
             rec = json.loads(path.read_text())
         except ValueError:
             rec = {"status": "failed", "error": "run.json unreadable"}
+    # A legacy run's run.json can only hold the flags the console set on it (`dismissed`).
+    legacy = "status" not in rec
+    if legacy:
+        rec = {**_legacy_record(rd, rows), **rec}
     status = rec.get("status")
     alive = status in ACTIVE and pid_alive(rec.get("pid"))
     if status in ACTIVE and not alive:
@@ -254,8 +289,123 @@ def _record(rd: Path, now: Optional[float]) -> dict:
         "input": rec.get("input") or {"kind": None, "path": None}, "started_at": started,
         "ended_at": rec.get("ended_at"), "hitl_wait_s": float(rec.get("hitl_wait_s") or 0.0),
         "error": rec.get("error"), "total_s": None if started is None or end is None else end - started,
-        "legacy": legacy, "events": events, "rows": rows,
+        "legacy": legacy, "events": events, "rows": rows, "dismissed": bool(rec.get("dismissed")), "pid": rec.get("pid"),
     }
+
+
+def update_record(rd: Path, **fields: Any) -> None:
+    """Merge `fields` into run.json, replacing the file atomically."""
+    path = rd / "run.json"
+    try:
+        rec = json.loads(path.read_text())
+    except (FileNotFoundError, ValueError):
+        rec = {}
+    tmp = path.with_name(f".run.json.{uuid.uuid4().hex}.tmp")
+    tmp.write_text(json.dumps({**rec, **fields}, indent=2))
+    os.replace(tmp, path)
+
+
+def active_run_id(root: Path) -> Optional[str]:
+    """The first run with a live runner, reading only run.json files."""
+    if not root.is_dir():
+        return None
+    for child in sorted(root.iterdir()):
+        try:
+            rec = json.loads((child / "langgraph" / "run.json").read_text())
+        except (OSError, ValueError):
+            continue
+        if rec.get("status") in ACTIVE and pid_alive(rec.get("pid")):
+            return child.name
+    return None
+
+
+def input_file(rd: Path, rec: dict) -> Optional[Path]:
+    """The run's input as it is on disk now: where it was launched from, else archived under source/."""
+    path = rec["input"].get("path")
+    archive = rd.parent / "source"
+    if path:
+        launched = (runtime.PROJECT_ROOT / str(path)).resolve()
+        for p in (launched, archive / launched.name):
+            if p.is_file():
+                return p.resolve()
+    return next((p.resolve() for p in sorted(archive.glob("*")) if p.is_file()), None)
+
+
+def pending_for(rd: Path, status: Optional[str]) -> Optional[dict]:
+    return hitl.read_pending(rd) if status in ACTIVE else None
+
+
+def _failed_node(events: list[dict]) -> tuple[Optional[str], Optional[str]]:
+    """(node, error) of the last node whose error no later attempt cleared; else the last one left unfinished."""
+    errors: dict[str, Any] = {}
+    unfinished: dict[str, bool] = {}
+    for ev in events:
+        node, kind = ev.get("node"), ev.get("event")
+        if kind == "error":
+            errors.pop(node, None)
+            errors[node] = ev.get("error")
+        elif kind in {"start", "end"}:
+            errors.pop(node, None)
+            unfinished.pop(node, None)
+            if kind == "start":
+                unfinished[node] = True
+    if errors:
+        node = list(errors)[-1]
+        return node, errors[node]
+    return (list(unfinished)[-1], None) if unfinished else (None, None)
+
+
+_E6 = "This run waits for a Telegram reply under an older release that cannot be answered from the console."
+_FAILURE_TEXT = {"failed": "The run failed without recording a reason.",
+                 "crashed": "The runner process died without recording a reason.",
+                 "stopped": "The run was stopped."}
+_FAILURE_HINT = {"failed": "Retry from the last checkpoint, or restart from scratch.",
+                 "crashed": "Its process is gone. Retry from the last checkpoint, or restart from scratch.",
+                 "stopped": "Retry from the last checkpoint, or restart from scratch."}
+
+
+def tokens_total(tokens: dict) -> int:
+    """input is litellm's prompt_tokens, which already holds both cache counts (pipeline/llm.py)."""
+    return tokens["input"] + tokens["output"]
+
+
+def failure(rec: dict, pending: Optional[dict]) -> Optional[dict]:
+    status = rec["status"]
+    node, node_error = _failed_node(rec["events"])
+    if status in {"waiting_reply", "waiting_hitl"} and pending is None:
+        return {"node": node, "error": rec["error"] or node_error or _E6,
+                "hint": "Answer on Telegram, or stop it and retry from the last checkpoint." if rec["error"] or node_error
+                else "Answer on Telegram, or stop it."}
+    if status not in ENDED_NOT_OK:
+        return None
+    return {"node": node, "error": rec["error"] or node_error or _FAILURE_TEXT[status], "hint": _FAILURE_HINT[status]}
+
+
+def _publish_attention(rd: Path) -> list[dict]:
+    out = []
+    for target in publish_package.NODE_DIRS:
+        try:
+            pkg = publish_package.read(rd, target)
+        except ValueError:
+            continue
+        if pkg and pkg.get("status") in {"pending", "failed"}:
+            out.append({"kind": "publish", "label": f"{target}: package {pkg['status']}"})
+    return out
+
+
+def needs_decision(rec: dict, rd: Path, pending: Optional[dict], node: Optional[str]) -> list[dict]:
+    """What the run wants from the user, ignoring `dismissed`."""
+    status = rec["status"]
+    if status in ACTIVE:
+        if pending:
+            return [{"kind": pending.get("kind", "approval"), "label": str(pending.get("title", "Decision needed"))}]
+        if status == "waiting_reply":
+            return [{"kind": "error", "label": "Waiting for a reply on Telegram"}]
+        return [{"kind": "approval", "label": "Waiting for approval on Telegram"}] if status == "waiting_hitl" else []
+    out = []
+    if status in ENDED_NOT_OK:
+        out.append({"kind": status, "label": f"{status.capitalize()} at {node}" if node else status.capitalize()})
+    return out + _publish_attention(rd)
 
 
 def load_run(root: Path, run_id: str, node_ids: list[str], now: Optional[float] = None) -> Optional[dict]:
@@ -267,8 +417,10 @@ def load_run(root: Path, run_id: str, node_ids: list[str], now: Optional[float] 
         nodes = _legacy_nodes(rec["rows"], node_ids)
     else:
         nodes = node_states(rec["events"], node_ids, rec["status"] in FINISHED, rec["input"].get("kind"))
-    keys = ("run_id", "status", "verdict", "profile", "input", "started_at", "ended_at", "hitl_wait_s", "error")
-    return {**{k: rec[k] for k in keys}, "nodes": resolve_outputs(apply_rows(nodes, rec["rows"]), rd),
+    keys = ("run_id", "status", "verdict", "profile", "input", "started_at", "ended_at", "hitl_wait_s", "error", "dismissed")
+    pending = pending_for(rd, rec["status"])
+    return {**{k: rec[k] for k in keys}, "pending": pending, "failure": failure(rec, pending),
+            "nodes": resolve_outputs(apply_rows(nodes, rec["rows"]), rd),
             "telemetry": telemetry(rec["rows"], rec["total_s"], rec["hitl_wait_s"],
                                    read_jsonl(rd / "usage.jsonl"), rec["status"] in ACTIVE)}
 
@@ -283,11 +435,18 @@ def list_runs(root: Path, now: Optional[float] = None) -> list[dict]:
             continue
         rec = _record(rd, now)
         path = rec["input"].get("path")
+        pending = pending_for(rd, rec["status"])
+        failed = failure(rec, pending)
+        node = failed["node"] if failed else None
+        tele = telemetry(rec["rows"], rec["total_s"], rec["hitl_wait_s"], read_jsonl(rd / "usage.jsonl"),
+                         rec["status"] in ACTIVE)
         out.append({
             "run_id": rec["run_id"], "status": rec["status"], "verdict": rec["verdict"],
             "started_at": rec["started_at"], "ended_at": rec["ended_at"],
             "input": {"kind": rec["input"].get("kind"), "name": Path(path).name if path else None},
-            "total_s": rec["total_s"],
+            "total_s": rec["total_s"], "cost_usd": tele["cost_usd"], "cost_estimated": tele["cost_estimated"],
+            "tokens": tokens_total(tele["tokens"]), "failed_node": node,
+            "attention": [] if rec["dismissed"] else needs_decision(rec, rd, pending, node),
         })
     out.sort(key=lambda r: (r["started_at"] or 0.0, r["run_id"]), reverse=True)
     return out

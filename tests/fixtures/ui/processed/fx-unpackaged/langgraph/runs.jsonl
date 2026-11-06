@@ -1,0 +1,4 @@
+{"ts": "2026-10-28T00:01:00", "stage": "extract", "duration_s": 20.0, "model": "claude-sonnet-5-5", "input_tokens": 3000, "output_tokens": 800, "cache_read_tokens": 1000, "cache_creation_tokens": 1000, "cost_usd": 0.0}
+{"ts": "2026-10-28T00:02:00", "stage": "kb-curator", "duration_s": 40.0, "llm_calls": 1, "approvals": 0, "total_cost_usd": 0.0, "per_call": [{"duration_s": 40.0, "input_tokens": 8000, "output_tokens": 2000, "cache_read_tokens": 0, "cache_creation_tokens": 4000, "cost_usd": 0.0, "phase": "initial"}]}
+{"ts": "2026-10-28T00:03:00", "stage": "writer", "duration_s": 30.0, "model": "mystery-model", "input_tokens": 500, "output_tokens": 300, "cache_read_tokens": 0, "cache_creation_tokens": 0, "cost_usd": 0.0}
+{"ts": "2026-10-28T00:04:00", "stage": "wordpress-draft", "duration_s": 1.0, "skipped": true, "reason": "manual"}

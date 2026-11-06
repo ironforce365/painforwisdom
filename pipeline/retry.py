@@ -25,7 +25,9 @@ Run-level behaviour mirrors ``pipeline.run``:
     mirrors a normal successful run.
   - On failure, leave the video in quarantine and continue with the next.
   - HITL approvals (kb_curator) and per-node error prompts still escalate
-    to Telegram unless ``--auto-approve`` is passed.
+    through ``pipeline.hitl`` (console mailbox or Telegram) unless
+    ``--auto-approve`` is passed.
+  - A run with a ``run.json`` keeps it true (status, pid, final verdict).
 
 Profiles:
   --profile prod (default) loads ``.env`` and the prod checkpoint DB.
@@ -34,6 +36,7 @@ Profiles:
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import time
 from pathlib import Path
@@ -74,18 +77,22 @@ os.environ["PIPELINE_PROFILE"] = _PROFILE  # nodes read it through pipeline.publ
 if _PROFILE == "sandbox":
     os.environ["TELEGRAM_MESSAGE_PREFIX"] = "[SANDBOX] "
 
-from langgraph.types import Command  # noqa: E402
-
+from pipeline import hitl  # noqa: E402
 from pipeline.contracts import InputContractError  # noqa: E402
-from pipeline.graph import build_graph  # noqa: E402
+from pipeline.graph import _error_text, build_graph  # noqa: E402
 from pipeline.run import (  # noqa: E402
     VIDEO_EXTENSIONS,
-    _ask_indefinitely,
+    _answer_interrupt,
+    _approval_request,
+    _classify_non_recoverable,
     _format_error_prompt,
-    _format_proposal,
     _get_pending_interrupt,
     _last_failed_node,
     _move_into,
+    _pending_work,
+    _refuse_unattended_curator,
+    _require_finished,
+    _write_run_record,
 )
 from pipeline.telegram import send as telegram_send  # noqa: E402
 
@@ -97,16 +104,16 @@ DEFAULT_QUARANTINE = PROJECT_ROOT / "bulk" / "quarantine"
 # --- Checkpoint inspection --------------------------------------------------
 
 
-def _candidate_run_ids() -> List[str]:
+def _candidate_run_ids(root: Path = PROCESSED_ROOT) -> List[str]:
     """Return run_ids that look like failed runs (no ``source/`` archive).
 
     Sorted most-recent-first so the discovery loop finds the latest match
     first when two runs both touched the same video.
     """
-    if not PROCESSED_ROOT.is_dir():
+    if not root.is_dir():
         return []
     ids: List[str] = []
-    for entry in PROCESSED_ROOT.iterdir():
+    for entry in root.iterdir():
         if not entry.is_dir():
             continue
         if entry.name.startswith("_"):
@@ -136,15 +143,14 @@ def _is_terminal(graph, run_id: str) -> bool:
     Used to skip threads that already completed (would no-op on resume).
     """
     try:
-        snap = graph.get_state({"configurable": {"thread_id": run_id}})
+        return not _pending_work(graph, {"configurable": {"thread_id": run_id}})
     except Exception:  # noqa: BLE001
         return False
-    return not snap.next
 
 
-def _find_run_id_for_video(graph, video_path: Path) -> Optional[str]:
+def _find_run_id_for_video(graph, video_path: Path, root: Path = PROCESSED_ROOT) -> Optional[str]:
     target = video_path.name
-    for run_id in _candidate_run_ids():
+    for run_id in _candidate_run_ids(root):
         state = _state_for(graph, run_id)
         if not state:
             continue
@@ -169,6 +175,26 @@ def _video_for_run_id(graph, run_id: str) -> Optional[Path]:
     return None
 
 
+# --- Run record -------------------------------------------------------------
+
+
+def _run_dir(args: argparse.Namespace, run_id: str) -> Path:
+    return Path(args.processed_root) / run_id / args.run_suffix
+
+
+def _update_record(run_dir: Path, **fields: Any) -> None:
+    """Only a run that has a run.json: a legacy run reads from runs.jsonl, and a stub record would hide it."""
+    if (run_dir / "run.json").is_file():
+        _write_run_record(run_dir, **fields)
+
+
+def _prior_hitl_wait(run_dir: Path) -> float:
+    try:
+        return float(json.loads((run_dir / "run.json").read_text()).get("hitl_wait_s") or 0.0)
+    except (OSError, ValueError):
+        return 0.0
+
+
 # --- Resume driver ----------------------------------------------------------
 
 
@@ -176,6 +202,7 @@ def _resume_graph(
     graph,
     config: Dict[str, Any],
     args: argparse.Namespace,
+    run_dir: Path,
 ) -> Tuple[Dict[str, Any], float]:
     """Drive the graph from its checkpoint to completion.
 
@@ -187,6 +214,7 @@ def _resume_graph(
     rounds = 0
     last_state: Dict[str, Any] = {}
     hitl_wait = 0.0
+    prior_wait = _prior_hitl_wait(run_dir)
 
     while True:
         try:
@@ -195,36 +223,46 @@ def _resume_graph(
         except (InputContractError, Exception) as exc:  # noqa: BLE001
             stage = _last_failed_node(graph, config)
             print(f"[retry] pipeline raised in {stage}: {type(exc).__name__}: {exc}")
+            non_recoverable = _classify_non_recoverable(exc)
+            prompt = _format_error_prompt(stage, exc, non_recoverable)
             if args.auto_approve:
                 if args.telegram_on_error:
-                    rc = telegram_send(_format_error_prompt(stage, exc))
+                    rc = telegram_send(prompt)
                     if rc != 0:
                         print(f"[retry] telegram-on-error send rc={rc} (non-fatal)")
                 raise
-            prompt = _format_error_prompt(stage, exc)
             t_wait = time.time()
-            reply = _ask_indefinitely(prompt, args.reminder_interval).strip().lower()
+            _update_record(run_dir, status="waiting_reply")
+            reply = hitl.ask(run_dir, hitl.error_request(stage, _error_text(exc), prompt, non_recoverable),
+                             args.reminder_interval)
             hitl_wait += time.time() - t_wait
+            _update_record(run_dir, status="running", hitl_wait_s=prior_wait + hitl_wait)
+            reply = (reply or "").strip().lower()
             print(f"[retry] error-recovery reply: {reply!r}")
-            if reply.startswith("retry"):
+            if reply.startswith("retry") and not non_recoverable:
                 pending = None
                 continue
             raise
 
         payload = _get_pending_interrupt(graph, config)
         if payload is None:
+            _require_finished(graph, config)
             return last_state, hitl_wait
         rounds += 1
         print(f"[retry] HITL interrupt #{rounds}: {payload.get('kind')}")
         if args.auto_approve:
+            _refuse_unattended_curator(payload, rounds)
             reply = "yes"
             print("[retry] --auto-approve: bypassing Telegram, resuming with 'yes'")
         else:
             t_wait = time.time()
-            reply = _ask_indefinitely(_format_proposal(payload), args.reminder_interval)
+            _update_record(run_dir, status="waiting_hitl")
+            reply = hitl.ask(run_dir, _approval_request(graph, config, payload), args.reminder_interval)
             hitl_wait += time.time() - t_wait
+            _update_record(run_dir, status="running", hitl_wait_s=prior_wait + hitl_wait)
         print(f"[retry] resume reply: {reply!r}")
-        pending = Command(resume=reply)  # type: ignore[assignment]
+        _answer_interrupt(graph, config, reply)
+        pending = None
 
 
 # --- One-target retry -------------------------------------------------------
@@ -245,23 +283,30 @@ def _retry_one(
     """
     config = {"configurable": {"thread_id": run_id}}
     print(f"\n[retry] === run_id={run_id} ===")
+    run_dir = _run_dir(args, run_id)
+    source_dir = Path(args.processed_root) / run_id / "source"
 
     state = _state_for(graph, run_id)
     if state is None:
         print(f"[retry] no checkpoint state for thread {run_id!r}; nothing to resume.")
+        if not args.dry_run:
+            _update_record(run_dir, status="failed", ended_at=time.time(),
+                           error=f"no checkpoint state for run {run_id}: restart it from scratch")
         return 2
 
     if _is_terminal(graph, run_id):
         verdict = state.get("validator_verdict", "?")
         print(f"[retry] checkpoint already terminal (verdict={verdict}); nothing to do.")
+        if not args.dry_run:
+            _update_record(run_dir, status="done", verdict=None if verdict == "?" else verdict,
+                           ended_at=time.time(), error=None)
         # Still archive the video if it's sitting in quarantine.
-        if video and video.is_file() and verdict in {"PASS", "PARTIAL"}:
-            archive = PROCESSED_ROOT / run_id / "source"
-            _move_into(video, archive)
-            print(f"[retry] archived stale quarantine video → {archive / video.name}")
+        if video and video.is_file() and verdict in {"PASS", "PARTIAL"} and not args.no_archive:
+            _move_into(video, source_dir)
+            print(f"[retry] archived stale quarantine video → {source_dir / video.name}")
         return 0 if verdict in {"PASS", "PARTIAL"} else 2
 
-    next_nodes = list(getattr(graph.get_state(config), "next", []) or [])
+    next_nodes = _pending_work(graph, config)
     print(f"[retry] resuming at next={next_nodes or '?'}")
     rc = telegram_send(
         f"🔁 Pipeline retry — run_id `{run_id}`\n"
@@ -276,20 +321,25 @@ def _retry_one(
         return 0
 
     t_start = time.time()
+    _update_record(run_dir, status="running", verdict=None, pid=os.getpid(), ended_at=None, error=None)
     try:
-        result, hitl_wait = _resume_graph(graph, config, args)
+        result, hitl_wait = _resume_graph(graph, config, args, run_dir)
     except Exception as exc:  # noqa: BLE001
         print(f"[retry] resume aborted: {type(exc).__name__}: {exc}")
+        _update_record(run_dir, status="failed", ended_at=time.time(), error=_error_text(exc))
         return 2
+    except BaseException as exc:
+        _update_record(run_dir, status="failed", ended_at=time.time(), error=_error_text(exc))
+        raise
 
     total = time.time() - t_start - hitl_wait
     verdict = result.get("validator_verdict", "?")
     print(f"[retry] DONE total={total:.1f}s verdict={verdict} run_id={run_id}")
+    _update_record(run_dir, status="done", verdict=None if verdict == "?" else verdict, ended_at=time.time(), error=None)
 
-    if verdict in {"PASS", "PARTIAL"} and video and video.is_file():
-        archive = PROCESSED_ROOT / run_id / "source"
-        _move_into(video, archive)
-        print(f"[retry] archived quarantine video → {archive / video.name}")
+    if verdict in {"PASS", "PARTIAL"} and video and video.is_file() and not args.no_archive:
+        _move_into(video, source_dir)
+        print(f"[retry] archived quarantine video → {source_dir / video.name}")
     return 0 if verdict in {"PASS", "PARTIAL"} else 2
 
 
@@ -312,7 +362,7 @@ def _discover_targets(
         video_path = Path(args.video).resolve()
         if not video_path.is_file():
             raise SystemExit(f"video not found: {video_path}")
-        rid = _find_run_id_for_video(graph, video_path)
+        rid = _find_run_id_for_video(graph, video_path, Path(args.processed_root))
         if rid is None:
             raise SystemExit(
                 f"no checkpoint thread found whose state matches {video_path.name}. "
@@ -334,7 +384,7 @@ def _discover_targets(
         return []
 
     for video in videos:
-        rid = _find_run_id_for_video(graph, video)
+        rid = _find_run_id_for_video(graph, video, Path(args.processed_root))
         if rid is None:
             print(
                 f"[retry] WARN no checkpoint thread for {video.name}; "
@@ -363,6 +413,14 @@ def main() -> int:
         "--run-suffix",
         default="langgraph",
         help="Subdir under processed/<run_id>/ (default: langgraph). Mirrors pipeline.run.",
+    )
+    ap.add_argument(
+        "--processed-root", type=Path, default=PROCESSED_ROOT,
+        help="Root of per-run output dirs (default: <project>/processed). Mirrors pipeline.run.",
+    )
+    ap.add_argument(
+        "--no-archive", action="store_true",
+        help="Leave the video where it is on success. The console passes it: its inputs and packages point at the file.",
     )
     ap.add_argument(
         "--reminder-interval",

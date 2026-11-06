@@ -12,6 +12,8 @@ from pipeline.ui import artifacts
 from pipeline.ui.app import create_app, read_version
 from pipeline.ui.settings import Settings
 
+pytestmark = pytest.mark.integration
+
 FIX = Path(__file__).parent / "fixtures" / "ui"
 
 
@@ -27,7 +29,7 @@ def settings(tmp_path, monkeypatch) -> Settings:
 
 @pytest.fixture
 def client(settings) -> TestClient:
-    return TestClient(create_app(settings))
+    return TestClient(create_app(settings), base_url="http://127.0.0.1")
 
 
 def test_health_index_and_static(client):
@@ -73,10 +75,12 @@ def test_runs_list(client):
 def test_run_detail(client):
     r = client.get("/api/runs/fx-done").json()
     assert set(r) == {"run_id", "status", "verdict", "profile", "input", "started_at", "ended_at",
-                      "hitl_wait_s", "error", "nodes", "telemetry"}
+                      "hitl_wait_s", "error", "nodes", "telemetry", "pending", "failure", "actions", "action_blockers",
+                      "dismissed"}
     assert r["status"] == "done" and r["profile"] == "sandbox"
     assert len(r["nodes"]) == 16
-    assert set(r["telemetry"]) == {"total_s", "work_s", "tokens", "cost_usd", "calls", "in_flight", "per_node"}
+    assert set(r["telemetry"]) == {"total_s", "work_s", "tokens", "cost_usd", "cost_estimated", "calls", "in_flight",
+                                   "per_node"}
 
 
 def test_unknown_run_is_404(client):
@@ -85,7 +89,7 @@ def test_unknown_run_is_404(client):
     assert client.get("/api/runs/nope/artifacts/abc").status_code == 404
 
 
-def test_artifacts_list_and_fetch(client):
+def test_artifacts_list_and_fetch(client):  # [DT-R2] [DT-D3]
     arts = client.get("/api/runs/fx-done/artifacts").json()["artifacts"]
     assert all(set(a) == {"id", "node", "name", "kind", "bytes"} for a in arts)
     by_kind = {a["kind"]: a for a in arts}

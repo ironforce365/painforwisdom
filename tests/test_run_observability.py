@@ -10,6 +10,7 @@ import json
 import os
 import sys
 import tempfile
+import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -224,12 +225,13 @@ def test_run_json_done_with_hitl(tmp_path, monkeypatch, harness):
         seen.append(_record(tmp_path)["status"])
         return {"validator_verdict": "PASS", "summary_report_path": answer}
 
-    def fake_ask(prompt, interval):
+    def fake_ask(rd, request, interval, max_reminders=None):
+        assert request["kind"] == "approval" and request["node"] == "n" and max_reminders is None
         seen.append(_record(tmp_path)["status"])
         return "yes"
 
     harness(node)
-    monkeypatch.setattr(run, "_ask_indefinitely", fake_ask)
+    monkeypatch.setattr(run.hitl, "ask", fake_ask)
     assert run._process_one_video(_args(tmp_path), "rid") == 0
     assert seen == ["waiting_hitl", "running"]
     rec = _record(tmp_path)
@@ -252,7 +254,7 @@ def test_run_json_auto_approve_never_waits(tmp_path, monkeypatch, harness):
         raise AssertionError("must not ask")
 
     harness(node)
-    monkeypatch.setattr(run, "_ask_indefinitely", boom)
+    monkeypatch.setattr(run.hitl, "ask", boom)
     assert run._process_one_video(_args(tmp_path, auto_approve=True), "rid") == 2
     rec = _record(tmp_path)
     assert rec["status"] == "done" and rec["verdict"] is None
@@ -282,12 +284,13 @@ def test_run_json_waiting_reply_then_running_on_retry(tmp_path, monkeypatch, har
         seen.append(_record(tmp_path)["status"])
         return {"validator_verdict": "PARTIAL"}
 
-    def fake_bounded(prompt, interval, max_reminders=5):
+    def fake_bounded(rd, request, interval, max_reminders=None):
+        assert request["kind"] == "error" and "flaky" in request["error"] and max_reminders == 5
         seen.append(_record(tmp_path)["status"])
         return "retry"
 
     harness(node)
-    monkeypatch.setattr(run, "_ask_bounded", fake_bounded)
+    monkeypatch.setattr(run.hitl, "ask", fake_bounded)
     assert run._process_one_video(_args(tmp_path), "rid") == 0
     assert seen == ["waiting_reply", "running"]
     assert _record(tmp_path)["status"] == "done"
@@ -298,11 +301,95 @@ def test_run_json_failed_after_abort_reply(tmp_path, monkeypatch, harness):
         raise RuntimeError("nope")
 
     harness(node)
-    monkeypatch.setattr(run, "_ask_bounded", lambda *a, **k: "abort")
+    monkeypatch.setattr(run.hitl, "ask", lambda *a, **k: "abort")
     with pytest.raises(RuntimeError):
         run._process_one_video(_args(tmp_path), "rid")
     rec = _record(tmp_path)
     assert rec["status"] == "failed" and rec["error"] == "RuntimeError: nope"
+
+
+def test_second_failure_re_enters_the_prompt_loop(tmp_path, monkeypatch, harness):  # [DT-E2]
+    calls = {"n": 0}
+    asks: List[str] = []
+
+    def node(state):
+        calls["n"] += 1
+        if calls["n"] <= 2:
+            raise RuntimeError(f"flaky {calls['n']}")
+        return {"validator_verdict": "PASS"}
+
+    def fake_ask(rd, request, interval, max_reminders=None):
+        asks.append(request["error"])
+        return "retry"
+
+    harness(node)
+    monkeypatch.setattr(run.hitl, "ask", fake_ask)
+    assert run._process_one_video(_args(tmp_path), "rid") == 0
+    assert asks == ["RuntimeError: flaky 1", "RuntimeError: flaky 2"]
+    assert _record(tmp_path)["status"] == "done"
+
+
+def test_budget_exhausted_fails_the_run(tmp_path, monkeypatch, harness):  # [DT-E5]
+    def node(state):
+        raise RuntimeError("nope")
+
+    harness(node)
+    monkeypatch.setattr(run.hitl, "ask", lambda *a, **k: None)
+    with pytest.raises(RuntimeError):
+        run._process_one_video(_args(tmp_path), "rid")
+    assert _record(tmp_path)["status"] == "failed"
+
+
+def test_non_recoverable_offers_only_abort(tmp_path, monkeypatch, harness):  # [DT-E4]
+    seen: List[Dict[str, Any]] = []
+
+    def node(state):
+        raise RuntimeError("Invalid authentication credentials")
+
+    def fake_ask(rd, request, interval, max_reminders=None):
+        seen.append(request)
+        return "abort"
+
+    harness(node)
+    monkeypatch.setattr(run.hitl, "ask", fake_ask)
+    with pytest.raises(RuntimeError):
+        run._process_one_video(_args(tmp_path), "rid")
+    assert [o["reply"] for o in seen[0]["options"]] == ["abort"] and seen[0]["non_recoverable"]
+
+
+def test_auto_approve_refuses_a_curator_decision(tmp_path, monkeypatch, harness):  # [DT-A5]
+    def node(state):
+        interrupt({"kind": "curator", "proposal": "ALREADY_PROCESSED"})
+        return {}
+
+    harness(node)
+    with pytest.raises(RuntimeError, match="ALREADY_PROCESSED"):
+        run._process_one_video(_args(tmp_path, auto_approve=True), "rid")
+
+
+def test_real_mailbox_answers_a_failing_run(tmp_path, monkeypatch, harness):  # [DT-E1]
+    calls = {"n": 0}
+
+    def node(state):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("flaky")
+        return {"validator_verdict": "PASS"}
+
+    real_ask = run.hitl.ask
+
+    def _answer(rd):
+        assert run.hitl.write_reply(rd, run.hitl.read_pending(rd)["id"], "retry")
+
+    def answering(rd, request, interval, max_reminders=None):
+        threading.Timer(0.1, _answer, (rd,)).start()
+        return real_ask(rd, request, 30, max_reminders, telegram=False, poll_s=0.01)
+
+    harness(node)
+    monkeypatch.setattr(run.hitl, "ask", answering)
+    assert run._process_one_video(_args(tmp_path), "rid") == 0
+    rd = tmp_path / "processed" / "rid" / "langgraph"
+    assert not (rd / "pending.json").exists() and not (rd / "reply.json").exists()
 
 
 # --- run id from outside -----------------------------------------------------

@@ -1,0 +1,8 @@
+{"ts": 1793203000.0, "node": "extract", "event": "start", "attempt": 1}
+{"ts": 1793203005.0, "node": "extract", "event": "end", "attempt": 1, "duration_s": 5.0, "noop": false, "outputs": {}}
+{"ts": 1793203010.0, "node": "kb_curator", "event": "start", "attempt": 1}
+{"ts": 1793203015.0, "node": "kb_curator", "event": "end", "attempt": 1, "duration_s": 5.0, "noop": false, "outputs": {}}
+{"ts": 1793203020.0, "node": "writer", "event": "start", "attempt": 1}
+{"ts": 1793203025.0, "node": "writer", "event": "end", "attempt": 1, "duration_s": 5.0, "noop": false, "outputs": {}}
+{"ts": 1793203040.0, "node": "research", "event": "start", "attempt": 1}
+{"ts": 1793203100.0, "node": "research", "event": "error", "attempt": 1, "error": "RuntimeError: research agent returned no rows"}

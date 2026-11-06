@@ -38,7 +38,9 @@ unset _caller_bot_token _caller_chat_id _caller_parse_mode
 
 BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 CHAT_ID="${TELEGRAM_CHAT_ID:-}"
-POLL_INTERVAL=5   # seconds between polls
+POLL_INTERVAL="${TELEGRAM_POLL_INTERVAL:-5}"   # seconds between polls
+POST_FAILED=75   # `ask` exit code: the question never went out
+LONG_POLL_MAX_TIME=45   # the 30 s long poll, plus room: a hung connection counts as a failed poll
 
 if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
     echo "ERROR: TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID must be set in .env or environment" >&2
@@ -55,10 +57,11 @@ _send() {
     if [ -n "${TELEGRAM_PARSE_MODE:-}" ]; then
         parse_mode_args=(--data-urlencode "parse_mode=${TELEGRAM_PARSE_MODE}")
     fi
+    # `|| return`: `ask` tests this call, which turns off set -e in here.
     response=$(curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
         --data-urlencode "chat_id=${CHAT_ID}" \
         "${parse_mode_args[@]}" \
-        --data-urlencode "text=${text}")
+        --data-urlencode "text=${text}") || return $?
     ok=$(echo "$response" | python3 -c "import sys,json; print(json.load(sys.stdin).get('ok','false'))" 2>/dev/null)
     if [ "$ok" != "True" ]; then
         echo "WARNING: Telegram send failed: $response" >&2
@@ -66,25 +69,30 @@ _send() {
 }
 
 _get_last_update_id() {
-    curl -s "https://api.telegram.org/bot${BOT_TOKEN}/getUpdates?offset=-1&limit=1" | \
+    # Non-zero when Telegram could not be read, which is not "no updates": offset 1 returns every pending message.
+    curl -s --max-time "$LONG_POLL_MAX_TIME" "https://api.telegram.org/bot${BOT_TOKEN}/getUpdates?offset=-1&limit=1" | \
         python3 -c "
 import sys, json
 data = json.load(sys.stdin)
 updates = data.get('result', [])
 print(updates[-1]['update_id'] if updates else 0)
-" 2>/dev/null || echo 0
+" 2>/dev/null
 }
 
 _wait_reply() {
     # Anchor to the current last update so we only catch NEW messages
     local last_id
-    last_id=$(_get_last_update_id)
+    until last_id=$(_get_last_update_id); do
+        sleep "$POLL_INTERVAL"
+    done
     local offset=$((last_id + 1))
 
     while true; do
 
+        # A failed poll (timeout, no network, a gateway's HTML) is another round, never the end of the wait.
         local response
-        response=$(curl -s "https://api.telegram.org/bot${BOT_TOKEN}/getUpdates?offset=${offset}&timeout=30")
+        response=$(curl -s --max-time "$LONG_POLL_MAX_TIME" \
+            "https://api.telegram.org/bot${BOT_TOKEN}/getUpdates?offset=${offset}&timeout=30") || response=""
 
         local reply
         reply=$(echo "$response" | python3 -c "
@@ -97,7 +105,7 @@ for u in updates:
     if text:
         print(text)
         break
-" 2>/dev/null)
+" 2>/dev/null) || reply=""
 
         if [ -n "$reply" ]; then
             echo "$reply"
@@ -117,7 +125,7 @@ case "${1:-}" in
         ;;
     ask)
         # Send a question and wait indefinitely for a reply
-        _send "${2:?Usage: $0 ask <message>}"
+        _send "${2:?Usage: $0 ask <message>}" || exit "$POST_FAILED"
         _wait_reply
         ;;
     *)

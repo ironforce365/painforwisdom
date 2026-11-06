@@ -6,15 +6,19 @@ import json
 import os
 import shutil
 import sys
+import threading
 import time
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
+from pipeline import hitl
 from pipeline.ui import fake_runner, launcher, runs
 from pipeline.ui.app import create_app
 from pipeline.ui.settings import Settings
+
+pytestmark = pytest.mark.integration
 
 FIX = Path(__file__).parent / "fixtures" / "ui"
 REPO = Path(__file__).resolve().parent.parent
@@ -47,7 +51,7 @@ def spawned(monkeypatch) -> list:
 
 
 def _client(processed: Path, runner: str = "real", inbox: Path = FIX / "inbox") -> TestClient:
-    return TestClient(create_app(Settings(processed_root=processed, inbox=inbox, runner=runner)))
+    return TestClient(create_app(Settings(processed_root=processed, inbox=inbox, runner=runner)), base_url="http://127.0.0.1")
 
 
 # --- listing ---------------------------------------------------------------
@@ -105,9 +109,9 @@ def test_argv_fake_defaults_and_explicit():
     base = [sys.executable, "-m", "pipeline.ui.fake_runner", "--run-id", "r1", "--processed-root", "/p",
             "--input", "/in/t.txt"]
     assert launcher.build_argv(s, "r1", Path("/in/t.txt"), "transcript", False, None) == [
-        *base, "--scenario", "ok", "--step-ms", "200"]
-    assert launcher.build_argv(s, "r1", Path("/in/t.txt"), "transcript", True,
-                               {"scenario": "hitl", "step_ms": 5}) == [*base, "--scenario", "hitl", "--step-ms", "5"]
+        *base, "--scenario", "ok", "--step-ms", "200", "--wait-s", "120"]
+    assert launcher.build_argv(s, "r1", Path("/in/t.txt"), "transcript", True, {"scenario": "hitl", "step_ms": 5}) == [
+        *base, "--scenario", "hitl", "--step-ms", "5", "--wait-s", "120", "--auto-approve"]
 
 
 def test_new_run_id_unique(tmp_path):
@@ -205,10 +209,18 @@ def _events(rd: Path) -> list[dict]:
 def test_fake_runner_hitl_in_process(tmp_path):
     inp = tmp_path / "v.mp4"
     inp.write_bytes(b"\0")
-    rc = fake_runner.main(["--run-id", "h1", "--processed-root", str(tmp_path / "p"), "--input", str(inp),
-                           "--scenario", "hitl", "--step-ms", "10"])
     rd = tmp_path / "p" / "h1" / "langgraph"
-    assert rc == 0
+    out = {}
+    t = threading.Thread(target=lambda: out.setdefault("rc", fake_runner.main([
+        "--run-id", "h1", "--processed-root", str(tmp_path / "p"), "--input", str(inp), "--scenario", "hitl",
+        "--step-ms", "10"])))
+    t.start()
+    while (pending := hitl.read_pending(rd)) is None:
+        time.sleep(0.01)
+    time.sleep(0.05)
+    assert hitl.write_reply(rd, pending["id"], "yes")
+    t.join(30)
+    assert out["rc"] == 0
     rec = json.loads((rd / "run.json").read_text())
     assert rec["status"] == "done" and rec["verdict"] == "PASS" and rec["hitl_wait_s"] >= 0.03
     ev = _events(rd)
@@ -289,9 +301,10 @@ def test_fake_runner_spawned_to_completion(processed):
 
 # --- upload ------------------------------------------------------------------
 
-def test_upload_201_lands_in_inbox_and_lists_first(processed, tmp_path):
+def test_upload_201_lands_in_inbox_and_lists_first(processed, tmp_path):  # [DT-S1]
     inbox = tmp_path / "new-inbox"  # missing: created on first upload
     client = _client(processed, inbox=inbox)
+    assert client.get("/api/inputs").json()["inputs"] == []
     res = client.put("/api/inputs/run.MP4", content=b"x" * 2048)
     assert res.status_code == 201
     assert {k: res.json()[k] for k in ("name", "kind", "bytes")} == {"name": "run.MP4", "kind": "video", "bytes": 2048}
@@ -300,7 +313,7 @@ def test_upload_201_lands_in_inbox_and_lists_first(processed, tmp_path):
     assert client.get("/api/inputs").json()["inputs"][0]["name"] == "run.MP4"
 
 
-def test_upload_409_never_overwrites(processed, tmp_path):
+def test_upload_409_never_overwrites(processed, tmp_path):  # [DT-S5]
     inbox = tmp_path / "inbox"
     inbox.mkdir()
     (inbox / "t.txt").write_text("keep")
@@ -320,7 +333,7 @@ def test_publish_upload_race_is_409_and_drops_part(tmp_path):
 
 
 @pytest.mark.parametrize("name", [".hidden.txt", "notes.md", "a\\b.txt", "noext"])
-def test_upload_bad_name_is_400(processed, tmp_path, name):
+def test_upload_bad_name_is_400(processed, tmp_path, name):  # [DT-S5]
     inbox = tmp_path / "inbox"
     res = _client(processed, inbox=inbox).put(f"/api/inputs/{name}", content=b"x")
     assert res.status_code == 400

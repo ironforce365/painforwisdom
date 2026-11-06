@@ -16,8 +16,9 @@ Pointers only. Detail lives in the docs named below; do not copy it here.
 - Why a thing is built the way it is: `docs/superpowers/specs/`.
 
 ## Tests (`.github/workflows/ci.yml` is the reference)
-- Pipeline: `python -m pytest tests -q -rs` from repo root.
-- Console browser tests: `cd pipeline/ui/e2e && npm test` (CI); `npm run test:real` is opt-in, sandbox only (`OPERATIONS.md` §9).
+- Pipeline: `python -m pytest tests -q -rs` from repo root. CI splits it into `pipeline unit (core)`, `pipeline unit (console)` (`tests/test_ui_*`, `test_console_*`, `test_node_result*`) and `pipeline integration`. Mark a file using a server, subprocess or external binary with `pytestmark = pytest.mark.integration`. A new file falls into core by default.
+- Decision tree: `python -m pytest tests/test_decision_tree.py -q`, its own CI job.
+- Console browser tests: `cd pipeline/ui/e2e && npm test` (whole suite + 100% coverage gate). CI runs it in shards plus `console coverage gate` (`OPERATIONS.md` §9); `npm run test:real` is opt-in, sandbox only.
 - Coach: on host, from repo root `PYTHONPATH=services/coach python -m pytest services/coach/tests -q`
   (CI runs it from `services/coach/` in four groups: grounding, agent, telegram+vault_rag, rest).
 - Voice test (`services/coach/tests/test_telegram_voice.py`) needs `CUDA_VISIBLE_DEVICES=`.

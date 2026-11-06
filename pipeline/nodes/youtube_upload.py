@@ -12,21 +12,14 @@ from typing import Any, Dict, Optional
 
 from pipeline.contracts import assert_inputs
 from pipeline.image_extractor import get_duration_seconds
-from pipeline.nodes.youtube_metadata import TAGS_MAX_CHARS, TITLE_MAX, skip_reason
+from pipeline.nodes.youtube_metadata import skip_reason
 from pipeline.publish import package as publish_package
-from pipeline.publish import run_target
+from pipeline.publish import run_target, specs
 from pipeline.publishing_config import current_profile, load
 from pipeline.runtime import append_metric, run_telemetry_path
 from pipeline.state import State
 
-_spec = publish_package.field_spec
-FIELD_SPECS = {
-    "title": _spec("string", "Title", TITLE_MAX, required=True),
-    "description": _spec("text", "Description", 5000),
-    "tags": _spec("tags", "Tags", TAGS_MAX_CHARS),
-    "privacy_status": _spec("enum", "Privacy", options=["private", "unlisted", "public"]),
-    "kind": _spec("enum", "Kind", options=["short", "video"]),
-}
+FIELD_SPECS = specs.YOUTUBE
 
 
 def _write_marker(out_dir: Path, name: str, body: str) -> None:
@@ -69,16 +62,20 @@ def node_youtube_upload(state: State) -> Dict[str, Any]:
         print("[youtube-upload] already published")
         return {"youtube_video_id": existing["result"]["id"], "youtube_url": existing["result"]["url"],
                 "youtube_skipped": False}
+    if existing and existing["status"] == "publishing":  # a publisher holds it: its result lands there
+        append_metric(telemetry, "youtube-upload", duration_s=round(time.time() - t0, 2), skipped=True, reason="publishing")
+        print("[youtube-upload] a publish is in progress, leaving it alone")
+        return {"youtube_skipped": True, "youtube_skip_reason": "publishing"}
 
     config = load(current_profile())["youtube"]
-    mode = config["mode"]
+    mode = publish_package.replay_mode(existing, config["mode"])
     metadata = _read_metadata(state)
     title, tags = metadata.get("title", ""), metadata.get("tags", [])
 
     if mode != "off":
         video = Path(state["video_path"])
         warning = metadata.get("warning")
-        publish_package.write(run_dir, publish_package.new_package(
+        publish_package.write(run_dir, publish_package.kept_on_replay(existing, publish_package.new_package(
             "youtube",
             mode,
             {
@@ -91,7 +88,7 @@ def node_youtube_upload(state: State) -> Dict[str, Any]:
             FIELD_SPECS,
             readonly={"duration_s": _duration_s(video), **({"warning": warning} if warning else {})},
             assets=[{"role": "video", "path": str(video)}],
-        ))
+        )))
 
     if mode != "auto":
         _write_marker(out_dir, "SKIPPED.md", f"YouTube upload skipped: mode={mode}.\n")

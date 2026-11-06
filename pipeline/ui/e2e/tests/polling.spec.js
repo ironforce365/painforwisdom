@@ -10,7 +10,7 @@ function counter(page, test) {
 
 test('polls a live run every second until it ends, then stops; list refreshes every 5 s', async ({ page, request }) => {
   const res = await request.post('/api/runs', {
-    data: { input: 'transcript_2026-10-30.txt', fake: { scenario: 'ok', step_ms: 30 } },
+    data: { input: 'transcript_2026-10-30.txt', fake: { scenario: 'ok', step_ms: 400 } }, // outlives the page load: polled live
   });
   expect(res.status()).toBe(201);
   const { run_id: id } = await res.json();

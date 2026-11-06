@@ -1,0 +1,7 @@
+"Title","Type","Author/Host","Specific Location","Category","Research Angle","Relevance","Source URL","Paywall","Coaching Theme","Vault Entry","Reachable","Reachability Reason"
+"Endure","Book","Alex Hutchinson","Chapter 4","Going Deeper","limits","Why the mind quits first.","https://example.org/endure","true","endurance","2026-10-28-x","yes",""
+"A Tiny Book","Book","Fixture Author","Chapter 1","Comprehensive Understanding","practice","A local copy.","file://tiny-book.txt","false","endurance","2026-10-28-x","yes","local library"
+"No Link Paper","Paper","Nobody","","Going Deeper","theory","No URL at all.","","unknown","endurance","2026-10-28-x","unknown","no-http-url"
+"Escaping Book","Book","Nobody","","Going Deeper","theory","Outside the library.","file:///etc/passwd","false","endurance","2026-10-28-x","yes",""
+"Traversal Book","Book","Nobody","","Going Deeper","theory","Climbs out.","file://../publishing.json","false","endurance","2026-10-28-x","yes",""
+"Script Link","Article","Nobody","","Going Deeper","theory","Not a link.","javascript:alert(1)","false","endurance","2026-10-28-x","no",""

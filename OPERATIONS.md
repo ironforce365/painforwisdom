@@ -170,13 +170,13 @@ LangGraph SqliteSaver checkpoints persist across process restarts:
 python -m pipeline.run --from-transcript ... --run-id <existing_run_id>
 ```
 
-The pending `interrupt()` re-prompts on Telegram so you can reply with the approval.
+The pending `interrupt()` asks again, in the console and on Telegram; answer in either.
 
 ---
 
 ## 7. Notifications quick reference
 
-All pipeline events go to Telegram. The pipeline pauses indefinitely at:
+All pipeline events go to Telegram, and every question below also appears in the console (§9); the first answer from either wins. The pipeline pauses at:
 
 - **Stage 3 approval** (`kb_curator`) — new theme/framework. Reply `yes`, `no`, or an alternative slug.
 - **Error escalation** — after RetryPolicy is exhausted on a persistent (non-transient) error. Reply `retry` (re-invoke from checkpoint) or `abort`.
@@ -287,10 +287,16 @@ python -m pipeline.ui --profile sandbox --inbox /path/to/inbox
 - Runs write to `--processed-root` / `PIPELINE_UI_PROCESSED_ROOT` (default `processed/` of the checkout the
   server runs from); the UI reads the same root.
 - Prod is never the default: `--profile prod` (or `PIPELINE_UI_PROFILE=prod`) must be chosen explicitly; it reads `.env`.
-- HITL approvals still go through Telegram. The popup's auto-approve toggle passes `--auto-approve` instead.
+- Operate everything here; Telegram is a notification and a second answer channel. Decision map: `pipeline/ui/e2e/decision_tree.json`, design: `docs/superpowers/specs/2026-11-05-console-end-to-end.md`.
+- Needs-you bar (header): every run wanting a decision; one click opens it.
+- Action banner: approvals (approve, reject, free text), errors (retry, abort), failures with node, reason and blockers; stop, retry from checkpoint, restart, dismiss. A run started by an older release can only be stopped, then retried.
+- The popup's auto-approve toggle passes `--auto-approve`, which gives up after 10 approvals in one run.
+- Costs are API-equivalent (`≈`) under subscription billing, from `config/pricing.json`. Update it when prices or models change; an unknown model shows `–`.
 - One active run at a time (a second launch returns 409 and shows the live run).
-- Output view (document button in the header, or `#/runs/<id>/output`; `Esc` closes): thumbnail, blog post, knowledge base, research and audit cards, plus an editor per publish package. Confirming spawns the publisher and shows the link or the error.
-- Debug panel (DAG corner, collapsible): live tokens, calls in flight, cost and times for the run; click a node to scope it to that node, click again or use the chip to return.
+- Views: Graph (wheel zoom, drag pan, `+ - 0`), Output and Logs, as tabs and in the route `#/runs/<id>/<view>`. The inspector docks beside the graph.
+- Output: one section at a time (`j`/`k`): summary, blog, YouTube, WordPress, knowledge base, research, audit, files. Text files edit in place. A package can be prepared for an older run, saved without publishing, and published; the result or error shows in place. Local books open from the research table, served only from `$STATE_ROOT/books`.
+- Metrics bar (bottom, one line): tokens, cache, cost, time for the run or the selected node. `Details` opens the per-node table.
+- The server only answers `Host` 127.0.0.1, localhost or [::1], and refuses cross-origin writes.
 
 ### Prod console service
 
@@ -345,7 +351,13 @@ Tests (from `pipeline/ui/e2e/`):
 
 ```bash
 npm ci && npx playwright install chromium
-npm test        # fake runner + fixtures, 100% browser coverage gate; what CI runs
+npm test        # fake runner + fixtures, whole suite, 100% browser coverage gate
+# What CI runs: `console browser (i/4)` shards, then `console coverage gate` merges their raw coverage.
+# Locally, one shard after another (parallel runs in one checkout collide in test-results/):
+rm -rf coverage-shards
+npm run test:shard -- --shard=1/2   # raw coverage to coverage-shards/1-of-2, no gate
+npm run test:shard -- --shard=2/2
+npm run coverage:merge              # needs every shard of the split; throws below 100%
 # Real sandbox runs through the UI (transcript, then video). Minutes per run; never in CI.
 # Needs .env.sandbox at the repo root; resets the sandbox before each run.
 PYTHON=/home/gonzalo/miniconda3/envs/painforwisdom-poc/bin/python \

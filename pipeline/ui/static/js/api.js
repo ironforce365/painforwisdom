@@ -45,6 +45,23 @@ export const launchRun = (body) => request('/api/runs', {
   headers: { 'content-type': 'application/json' },
   body: JSON.stringify(body),
 });
+const send = (method, path, body) => request(path, {
+  method,
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify(body),
+});
+export const replyRun = (id, pendingId, reply) => send('POST', `/api/runs/${enc(id)}/reply`, { id: pendingId, reply });
+export const stopRun = (id) => send('POST', `/api/runs/${enc(id)}/stop`, {});
+export const retryRun = (id, autoApprove = false) => send('POST', `/api/runs/${enc(id)}/retry`, { auto_approve: autoApprove });
+export const restartRun = (id, autoApprove = false) => send('POST', `/api/runs/${enc(id)}/restart`, { auto_approve: autoApprove });
+export const dismissRun = (id, dismissed = true) => send('POST', `/api/runs/${enc(id)}/dismiss`, { dismissed });
+export const getLog = (id, tail = 500) => request(`/api/runs/${enc(id)}/log?tail=${tail}`);
+export const getResearch = (id) => request(`/api/runs/${enc(id)}/research`);
+export const researchFileUrl = (id, n) => `/api/runs/${enc(id)}/research/${enc(n)}/file`;
+export const saveArtifact = (id, artifactId, text) => request(`/api/runs/${enc(id)}/artifacts/${enc(artifactId)}`, { method: 'PUT', body: text });
+export const savePackage = (id, target, fields) => send('PUT', `/api/runs/${enc(id)}/publish/${enc(target)}`, { fields });
+export const preparePackage = (id, target) => send('POST', `/api/runs/${enc(id)}/publish/${enc(target)}/prepare`, {});
+export const packageAssetUrl = (id, target, role) => `/api/runs/${enc(id)}/publish/${enc(target)}/asset/${enc(role)}`;
 export const publishPackages = (id) => request(`/api/runs/${enc(id)}/publish`);
 export const publish = (id, target, fields) => request(`/api/runs/${enc(id)}/publish/${enc(target)}`, {
   method: 'POST',

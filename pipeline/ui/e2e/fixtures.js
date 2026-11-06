@@ -10,7 +10,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURES = path.resolve(HERE, '../../../tests/fixtures/ui');
 export const PROCESSED = path.join(process.env.PFW_UI_TMP, 'processed');
 export const INBOX = path.join(process.env.PFW_UI_TMP, 'inbox');
-const UI_RUN = /_ui(_\d+)?$/;
+const LIVE_FIXTURES = ['fx-running', 'fx-hitl', 'fx-error', 'fx-oldwait'];
 
 function alive(pid) {
   try {
@@ -21,16 +21,25 @@ function alive(pid) {
   }
 }
 
+function isFakeRunner(pid) {
+  try {
+    return fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').includes('pipeline.ui.fake_runner');
+  } catch {
+    return false;
+  }
+}
+
+/** Launched runs and retried fixtures alike. A live fixture's pid is this process, never signalled. */
 function killRunners() {
   if (!fs.existsSync(PROCESSED)) return;
-  for (const name of fs.readdirSync(PROCESSED).filter((n) => UI_RUN.test(n))) {
+  for (const name of fs.readdirSync(PROCESSED)) {
     let pid;
     try {
       pid = JSON.parse(fs.readFileSync(path.join(PROCESSED, name, 'langgraph', 'run.json'), 'utf8')).pid;
     } catch {
       continue;
     }
-    if (!Number.isInteger(pid) || pid <= 0) continue;
+    if (!Number.isInteger(pid) || pid <= 0 || !isFakeRunner(pid)) continue;
     try {
       process.kill(-pid, 'SIGKILL'); // fake runner has its own session (start_new_session)
     } catch {
@@ -48,7 +57,7 @@ function setPid(runId, pid) {
   fs.writeFileSync(file, JSON.stringify({ ...rec, pid }, null, 2));
 }
 
-/** Reset the server's processed root to C6 and its inbox to the fixture inbox. `live` makes fx-running/fx-hitl alive (pid of this process). */
+/** Reset the server's processed root to C6 and its inbox to the fixture inbox. `live` makes LIVE_FIXTURES alive (pid of this process). */
 export function freshServerState({ live = false } = {}) {
   killRunners();
   fs.rmSync(PROCESSED, { recursive: true, force: true });
@@ -56,10 +65,15 @@ export function freshServerState({ live = false } = {}) {
   fs.cpSync(path.join(FIXTURES, 'vault'), path.join(process.env.PFW_UI_TMP, 'vault'), { recursive: true });
   fs.rmSync(INBOX, { recursive: true, force: true });
   fs.cpSync(path.join(FIXTURES, 'inbox'), INBOX, { recursive: true });
-  if (live) {
-    setPid('fx-running', process.pid);
-    setPid('fx-hitl', process.pid);
-  }
+  if (live) LIVE_FIXTURES.forEach((id) => setPid(id, process.pid));
+}
+
+/** Answer the fake run's C11 request once it appears; the `hitl` scenario waits for this. */
+export async function answerPending(request, runId, reply = 'yes') {
+  await expect.poll(async () => (await (await request.get(`/api/runs/${runId}`)).json()).pending?.id, { timeout: 30_000 }).toBeTruthy();
+  const { pending } = await (await request.get(`/api/runs/${runId}`)).json();
+  const res = await request.post(`/api/runs/${runId}/reply`, { data: { id: pending.id, reply } });
+  expect(res.status()).toBe(202);
 }
 
 export const test = base.extend({
@@ -76,7 +90,12 @@ export const test = base.extend({
     page.on('console', (m) => {
       if (m.type() === 'error') errors.seen.push(`console: ${m.text()} @ ${m.location().url}`);
     });
-    page.on('requestfailed', (r) => errors.seen.push(`requestfailed: ${r.url()} ${r.failure()?.errorText}`));
+    page.on('requestfailed', (r) => {
+      const text = r.failure()?.errorText;
+      // Leaving a section detaches its <video>, and the browser cancels the load: correct, and timing-dependent.
+      if (text === 'net::ERR_ABORTED' && r.url().includes('/asset/')) return;
+      errors.seen.push(`requestfailed: ${r.url()} ${text}`);
+    });
     await page.coverage.startJSCoverage({ resetOnNavigation: false });
     await use(page);
     const coverage = await page.coverage.stopJSCoverage();

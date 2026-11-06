@@ -22,10 +22,10 @@ Profile selection:
 
 HITL handling:
 - kb_curator's ``interrupt()`` (theme/framework approval) goes through
-  Telegram via ``_ask_indefinitely``. The pipeline waits forever, re-posting
-  the prompt every ``--reminder-interval`` seconds.
+  ``pipeline.hitl``: the console mailbox races Telegram. The pipeline waits
+  forever, re-posting the prompt every ``--reminder-interval`` seconds.
 - Persistent node failures (after LangGraph's RetryPolicy has exhausted
-  transient retries) escalate to Telegram with a ``retry / abort`` ask.
+  transient retries) escalate the same way with a ``retry / abort`` ask.
 """
 from __future__ import annotations
 
@@ -81,12 +81,12 @@ if _PROFILE == "sandbox":
     os.environ["TELEGRAM_MESSAGE_PREFIX"] = "[SANDBOX] "
 
 # Heavy imports must come after env load.
-from langgraph.types import Command  # noqa: E402
+from langgraph._internal._constants import RESUME  # noqa: E402
 
+from pipeline import hitl  # noqa: E402
 from pipeline.contracts import InputContractError  # noqa: E402
 from pipeline.graph import _error_text, build_graph  # noqa: E402
 from pipeline.runtime import date_from_filename  # noqa: E402
-from pipeline.telegram import ask as telegram_ask  # noqa: E402
 from pipeline.telegram import send as telegram_send  # noqa: E402
 
 VIDEO_EXTENSIONS = (".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi")
@@ -146,52 +146,69 @@ def _format_error_prompt(
 
 
 def _get_pending_interrupt(graph, config) -> Optional[Dict[str, Any]]:
-    snap = graph.get_state(config)
-    if not snap.next:
-        return None
-    for task in snap.tasks:
+    # Not gated on `snap.next`: it leaves out a task that holds writes, and an answered interrupt is one, so a node
+    # that asks a second time has `next == ()` with the interrupt on its task.
+    for task in graph.get_state(config).tasks:
         for intr in task.interrupts:
             return intr.value if hasattr(intr, "value") else intr
     return None
 
 
-def _ask_indefinitely(prompt: str, reminder_interval: int) -> str:
-    """Post `prompt` and wait forever for a Telegram reply, re-posting every
-    `reminder_interval` seconds (the re-post serves as the reminder)."""
-    waited = 0
-    while True:
-        started = time.monotonic()
-        reply = telegram_ask(prompt, timeout_seconds=reminder_interval)
-        if reply:
-            return reply
-        # ask() also returns None when telegram_io.sh fails instantly (no token,
-        # network down); sleep out the interval so that cannot become a busy loop.
-        remaining = reminder_interval - (time.monotonic() - started)
-        if remaining > 1:
-            print(f"[run] telegram ask failed fast — waiting {int(remaining)}s before retrying")
-            time.sleep(remaining)
-        waited += reminder_interval
-        print(f"[run] no reply after {waited // 60} min — re-posting prompt as reminder")
+def _answer_interrupt(graph, config, reply: str) -> None:
+    """Store the answer on the interrupted task: the next invoke(None) replays the node and its interrupt() returns it.
 
-
-def _ask_bounded(
-    prompt: str, reminder_interval: int, max_reminders: int = 5
-) -> Optional[str]:
-    """Like `_ask_indefinitely` but gives up after `max_reminders` re-posts.
-
-    Returns the reply on success, or None when the reminder budget is
-    exhausted. Used for error-recovery prompts so a stuck pipeline does not
-    block indefinitely waiting for a Telegram reply that may never come.
+    Not Command(resume=reply): that stays in the checkpoint as a thread-wide value, and a later invoke(None) hands it
+    to the next interrupt() nobody answered. Here a failure keeps the answer, and a new question still gets asked.
     """
-    for n in range(1, max_reminders + 1):
-        reply = telegram_ask(prompt, timeout_seconds=reminder_interval)
-        if reply:
-            return reply
-        print(
-            f"[run] no reply after reminder {n}/{max_reminders} "
-            f"({(n * reminder_interval) // 60} min total) — re-posting"
-        )
-    return None
+    snap = graph.get_state(config)
+    task = next(t for t in snap.tasks if t.interrupts)
+    writes = graph.checkpointer.get_tuple(snap.config).pending_writes
+    answered = next((v for tid, channel, v in writes if tid == task.id and channel == RESUME), [])
+    graph.checkpointer.put_writes(snap.config, [(RESUME, [*answered, reply])], task.id)
+
+
+def _pending_work(graph, config) -> List[str]:
+    """The nodes still to run. `snap.next` alone misses a task with writes: answered, or failed after an answer."""
+    snap = graph.get_state(config)
+    return sorted({*snap.next, *(task.name for task in snap.tasks)})
+
+
+def _require_finished(graph, config) -> None:
+    """invoke() returned and nothing asks: only a finished graph may be recorded `done`."""
+    left = _pending_work(graph, config)
+    if left:
+        raise RuntimeError(f"the graph stopped with work pending in {', '.join(left)}: the run did not finish")
+
+
+_APPROVAL_TITLES = {
+    "theme": "New theme: approval needed",
+    "framework": "New framework: approval needed",
+    "curator": "Curator: decision needed",
+}
+
+
+def _interrupted_node(graph, config) -> str:
+    for task in graph.get_state(config).tasks:
+        if task.interrupts:
+            return task.name
+    return "?"
+
+
+def _approval_request(graph, config, payload: Dict[str, Any]) -> Dict[str, Any]:
+    kind = str(payload.get("kind", "?"))
+    return hitl.approval_request(_interrupted_node(graph, config), _APPROVAL_TITLES.get(kind, f"{kind}: approval needed"),
+                                 _format_proposal(payload))
+
+
+MAX_AUTO_APPROVALS = 10
+
+
+def _refuse_unattended_curator(payload: Dict[str, Any], rounds: int = 0) -> None:
+    """--auto-approve answers `yes` forever: an action only a human can settle, or a proposer that never stops, would loop on the LLM."""
+    if payload.get("kind") == "curator":
+        raise RuntimeError(f"kb-curator needs a decision, --auto-approve cannot give one: {payload.get('proposal', '')}")
+    if rounds > MAX_AUTO_APPROVALS:
+        raise RuntimeError(f"--auto-approve gave up after {MAX_AUTO_APPROVALS} approvals: the node keeps asking")
 
 
 def _last_failed_node(graph, config) -> str:
@@ -327,7 +344,8 @@ def _drive_graph(
                 raise
             t_wait = time.time()
             _write_run_record(run_dir, status="waiting_reply")
-            reply_raw = _ask_bounded(prompt, args.reminder_interval, max_reminders=5)
+            reply_raw = hitl.ask(run_dir, hitl.error_request(stage, _error_text(exc), prompt, non_recoverable_reason),
+                                 args.reminder_interval, max_reminders=5)
             hitl_wait += time.time() - t_wait
             _write_run_record(run_dir, status="running", hitl_wait_s=hitl_wait)
             if reply_raw is None:
@@ -341,10 +359,10 @@ def _drive_graph(
                         "[run] retry requested but error is non-recoverable — aborting anyway"
                     )
                     raise
-                # Re-invoke with `None` — LangGraph resumes from the last
-                # successful checkpoint and re-runs the failed node.
+                # Back to the `try` with `None`: LangGraph resumes from the last
+                # successful checkpoint and re-runs the failed node, so a second
+                # failure lands in this handler again (DT-E2).
                 pending = None
-                last_state = graph.invoke(None, config=config)
                 continue
             # abort / anything else
             raise
@@ -352,20 +370,23 @@ def _drive_graph(
         # Check for HITL interrupts (kb_curator approval).
         payload = _get_pending_interrupt(graph, config)
         if payload is None:
+            _require_finished(graph, config)
             return last_state, hitl_wait
         rounds += 1
         print(f"[run] HITL interrupt #{rounds}: {payload.get('kind')}")
         if args.auto_approve:
+            _refuse_unattended_curator(payload, rounds)
             reply = "yes"
             print("[run] --auto-approve: bypassing Telegram, resuming with 'yes'")
         else:
             t_wait = time.time()
             _write_run_record(run_dir, status="waiting_hitl")
-            reply = _ask_indefinitely(_format_proposal(payload), args.reminder_interval)
+            reply = hitl.ask(run_dir, _approval_request(graph, config, payload), args.reminder_interval)
             hitl_wait += time.time() - t_wait
             _write_run_record(run_dir, status="running", hitl_wait_s=hitl_wait)
         print(f"[run] resume reply: {reply!r}")
-        pending = Command(resume=reply)  # type: ignore[assignment]
+        _answer_interrupt(graph, config, reply)
+        pending = None
 
 
 def _process_one_video(

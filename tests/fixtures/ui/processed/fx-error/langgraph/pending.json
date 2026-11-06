@@ -1,0 +1,23 @@
+{
+  "id": "fx-error-pending",
+  "kind": "error",
+  "node": "research",
+  "title": "Error in research",
+  "prompt": "\u26a0\ufe0f Pipeline error in `research`\n\nRuntimeError: research agent returned no rows\n\nReply: `retry` (re-run from checkpoint) | `abort` (quarantine this video)",
+  "error": "RuntimeError: research agent returned no rows",
+  "non_recoverable": null,
+  "options": [
+    {
+      "reply": "retry",
+      "label": "Retry",
+      "style": "primary"
+    },
+    {
+      "reply": "abort",
+      "label": "Abort",
+      "style": "danger"
+    }
+  ],
+  "free_text": false,
+  "created_at": 1793203100.0
+}
