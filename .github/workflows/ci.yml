@@ -46,9 +46,9 @@ jobs:
           python-version: "3.11"
           cache: pip
           cache-dependency-path: pipeline/requirements.txt
-      - name: Install system deps
+      - uses: ./.github/actions/setup-ffmpeg
         if: matrix.ffmpeg
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+        timeout-minutes: 2
       # Full requirements: pipeline.graph, reached from every job, imports every node module.
       - run: pip install -r pipeline/requirements.txt pytest
       - run: |
@@ -95,7 +95,9 @@ jobs:
           cache: npm
           cache-dependency-path: pipeline/ui/e2e/package-lock.json
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
+      # No --with-deps: the runner image already has Chromium's libraries. On it, that flag only added fonts through apt.
+      - run: npx playwright install --only-shell chromium
+        timeout-minutes: 2
       - run: npm run test:shard -- --shard=${{ matrix.shard }}/${{ strategy.job-total }}
       - uses: actions/upload-artifact@v4
         with:
@@ -180,8 +182,8 @@ jobs:
           python-version: "3.11"
           cache: pip
           cache-dependency-path: services/coach/requirements.txt
-      - name: Install system deps
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg libsndfile1
+      - uses: ./.github/actions/setup-ffmpeg
+        timeout-minutes: 2
       # CPU torch: the CUDA wheels are ~5GB and tests never touch a GPU.
       - run: pip install --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt
       - run: pip install -e . --no-deps

@@ -16,6 +16,10 @@ test('polls a live run every second until it ends, then stops; list refreshes ev
   const { run_id: id } = await res.json();
   const detail = counter(page, (p) => p === `/api/runs/${id}`);
   const list = counter(page, (p) => p === '/api/runs');
+  let detailStatus;
+  page.on('response', async (r) => {
+    if (new URL(r.url()).pathname === `/api/runs/${id}`) detailStatus = (await r.json()).status;
+  });
   await page.clock.install();
   await page.goto(`/#/runs/${id}`);
   await expect(page.getByTestId(`run-${id}`)).toBeVisible();
@@ -26,6 +30,11 @@ test('polls a live run every second until it ends, then stops; list refreshes ev
   await expect(page.getByTestId('node-summarizer')).toHaveAttribute('data-state', 'done');
   await expect(page.getByTestId(`run-${id}`).getByTestId('spinner')).toBeHidden();
   expect(detail.n).toBeGreaterThan(1);
+  // The list can say done first: the detail chain then polls once more, and only its own `done` stops it.
+  await expect.poll(async () => {
+    await page.clock.runFor(1000);
+    return detailStatus;
+  }).toBe('done');
   const [d, l] = [detail.n, list.n];
   await page.clock.runFor(10_000);
   await expect.poll(() => list.n).toBeGreaterThanOrEqual(l + 2);
