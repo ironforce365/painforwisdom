@@ -248,7 +248,8 @@ test.describe('summary', () => {
     await expect(page.getByTestId('summary-link-notion')).toHaveCount(1);
   });
 
-  test('[DT-D1] next steps for a run that can prepare, a failed publish and a run still publishing', async ({ page }) => {
+  // Separate tests: coverage from a page navigated away from can be lost, and this is the only test reaching the failed step.
+  test('[DT-D1] next steps for a failed publish and a run still publishing', async ({ page }) => {
     const wordpress = { ...readPkg('fx-done', 'wordpress-draft'), status: 'failed', error: 'boom' };
     const youtube = { ...readPkg('fx-published', 'youtube-upload'), status: 'publishing' };
     await mockPublish(page, 'fx-done', { wordpress, youtube });
@@ -257,7 +258,9 @@ test.describe('summary', () => {
     await expect(next).toHaveCount(2);
     await expect(next.first()).toContainText('still publishing');
     await expect(next.last()).toContainText('failed');
+  });
 
+  test('[DT-D1] next step for a run that can prepare', async ({ page }) => {
     await deep(page, 'fx-unpackaged');
     await expect(page.getByTestId('summary-next-item').first()).toContainText('Prepare');
   });
