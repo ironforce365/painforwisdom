@@ -331,7 +331,7 @@ def test_list_runs_newest_first_and_shape(root):
                     "input": {"kind": "transcript", "name": "transcript_2026-10-30.txt"},
                     "total_s": pytest.approx(298.0), "cost_usd": done["cost_usd"], "cost_estimated": False,
                     "tokens": done["tokens"], "failed_node": None,
-                    "attention": [{"kind": "publish", "label": "wordpress: package pending"}]}
+                    "attention": [{"kind": "publish", "label": "wordpress: package pending", "target": "wordpress"}]}
 
 
 def test_list_runs_missing_root(tmp_path):

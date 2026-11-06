@@ -16,6 +16,7 @@ function plainInput(tag, props, value) {
 const CONTROLS = {
   string: (id, spec, value) => plainInput('input', { type: 'text', 'data-testid': `field-${id}`, 'aria-label': spec.label }, value),
   url: (id, spec, value) => plainInput('input', { type: 'url', 'data-testid': `field-${id}`, 'aria-label': spec.label }, value),
+  date: (id, spec, value) => plainInput('input', { type: 'date', 'data-testid': `field-${id}`, 'aria-label': spec.label }, value),
   text: (id, spec, value) => plainInput('textarea', { rows: 4, 'data-testid': `field-${id}`, 'aria-label': spec.label }, value),
   markdown: (id, spec, value) => {
     const control = plainInput('textarea', { class: 'ed-input', 'data-testid': `field-${id}`, 'aria-label': spec.label }, value);
@@ -65,6 +66,7 @@ function problems(specs, values) {
 /**
  * A video this browser cannot decode gets a converted copy swapped in. HEVC from a phone gives no error event:
  * audio plays over a black box, so the signal is a width of 0. The package and the upload keep the original.
+ * Keeps following after the section is left: the same element comes back when it is reopened.
  */
 function convertWhenUndecodable(env, target, role, media, id, cannotShow) {
   const ORIGINAL_SAFE = 'The upload sends the original file.';
@@ -95,7 +97,6 @@ function convertWhenUndecodable(env, target, role, media, id, cannotShow) {
     say('failed', `Could not convert a preview: ${error} ${ORIGINAL_SAFE} `, retry);
   };
   const follow = ({ status, error }) => {
-    if (!media.isConnected) return; // the section was left
     if (status === 'none') begin(); // the console restarted under the conversion
     else if (status === 'failed') failed(error);
     else if (status === 'ready') {

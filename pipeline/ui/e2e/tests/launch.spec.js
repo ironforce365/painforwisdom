@@ -77,7 +77,7 @@ test('closing before the inputs arrive keeps focus on the play button', async ({
 
 test('[DT-S1] an empty inbox says so and offers the upload', async ({ page }) => {
   freshServerState();
-  await page.route('**/api/inputs', (route) => route.fulfill({ json: { inbox: '/home/x/inbox', inputs: [] } }));
+  await page.route('**/api/inputs', (route) => route.fulfill({ json: { inbox: '/home/x/inbox', default_language: 'en', inputs: [] } }));
   await page.goto('/#/runs/fx-done');
   await openModal(page);
   await expect(page.getByTestId('launch-empty')).toContainText('inbox is empty');
@@ -174,7 +174,7 @@ test('tiles show file name and relative age', async ({ page }) => {
   const now = Date.now() / 1000;
   const inputs = [[5, 's'], [120, 'm'], [7200, 'h'], [200_000, 'd'], [-60, 'future']].map(([ago, n]) => (
     { name: `${n}.txt`, kind: 'transcript', bytes: 1, mtime: now - ago }));
-  await page.route('**/api/inputs', (route) => route.fulfill({ json: { inbox: '/x/inbox', inputs } }));
+  await page.route('**/api/inputs', (route) => route.fulfill({ json: { inbox: '/x/inbox', default_language: 'en', inputs } }));
   await page.goto('/#/runs/fx-done');
   await openModal(page);
   for (const [name, age] of [['s', /^[56]s$/], ['m', /^2m$/], ['h', /^2h$/], ['d', /^2d$/], ['future', /^1s$/]]) {
@@ -187,7 +187,7 @@ test('arrows move between tiles, Tab is trapped, Enter starts', async ({ page })
   freshServerState();
   const bodies = capturePosts(page, { status: 201, json: { run_id: 'fx-done' } });
   const inputs = [MP4, TXT].map((name) => ({ name, kind: 'transcript', bytes: 1, mtime: 0 }));
-  await page.route('**/api/inputs', (route) => route.fulfill({ json: { inbox: '/x/inbox', inputs } }));
+  await page.route('**/api/inputs', (route) => route.fulfill({ json: { inbox: '/x/inbox', default_language: 'en', inputs } }));
   await page.goto('/#/runs/fx-done');
   await openModal(page);
   const [first, second] = [tile(page, MP4), tile(page, TXT)];
@@ -210,7 +210,7 @@ test('arrows move between tiles, Tab is trapped, Enter starts', async ({ page })
 
   await page.keyboard.press('Enter');
   await expect(modal(page)).toBeHidden();
-  expect(bodies).toEqual([{ input: TXT, auto_approve: false }]);
+  expect(bodies).toEqual([{ input: TXT, auto_approve: false, language: 'en' }]);
 });
 
 test('starting a fake ok run closes the popup, selects the run and the DAG goes live to done', async ({ page }) => {
@@ -223,7 +223,7 @@ test('starting a fake ok run closes the popup, selects the run and the DAG goes 
   const res = await posted;
   expect(res.status()).toBe(201);
   const { run_id: id } = await res.json();
-  expect(bodies).toEqual([{ input: TXT, auto_approve: false }]);
+  expect(bodies).toEqual([{ input: TXT, auto_approve: false, language: 'en' }]);
   await expect(modal(page)).toBeHidden();
   await expect(page).toHaveURL(new RegExp(`#/runs/${id}$`));
   await expect(button(page)).toHaveAttribute('data-state', 'busy');
@@ -305,7 +305,7 @@ test('404 shakes the tile and shows the error badge', async ({ page, errors }) =
 test('empty inbox keeps keys and focus sane', async ({ page }) => {
   freshServerState();
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  await page.route('**/api/inputs', (route) => route.fulfill({ json: { inbox: '/home/x/inbox', inputs: [] } }));
+  await page.route('**/api/inputs', (route) => route.fulfill({ json: { inbox: '/home/x/inbox', default_language: 'en', inputs: [] } }));
   await page.goto('/#/runs/fx-done');
   await openModal(page);
   await expect(page.getByTestId('launch-empty')).toBeVisible();
@@ -315,6 +315,60 @@ test('empty inbox keeps keys and focus sane', async ({ page }) => {
   await expect(page.getByTestId('launch-close')).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(modal(page)).toBeHidden();
+});
+
+test('[DT-S6] the language starts from the catalog, is sent, and goes back to the catalog on the next opening', async ({ page }) => {
+  freshServerState();
+  const bodies = capturePosts(page, { status: 201, json: { run_id: 'fx-done' } });
+  await page.route('**/api/inputs', async (route) => {
+    const response = await route.fetch();
+    await route.fulfill({ response, json: { ...(await response.json()), default_language: 'pt' } });
+  });
+  await page.goto('/#/runs/fx-done');
+  await openModal(page);
+  const language = page.getByTestId('launch-language');
+  await expect(language).toHaveValue('pt');
+  await language.fill(' es ');
+  await tile(page, MP4).click();
+  await expect(modal(page)).toBeHidden();
+  expect(bodies).toEqual([{ input: MP4, auto_approve: false, language: 'es' }]);
+  await openModal(page);
+  await expect(language).toHaveValue('pt'); // a Spanish video must not silently set the next run's language
+});
+
+test('[DT-S6] a real run records the language, and a code that is not one says why', async ({ page, request, errors }) => {
+  freshServerState();
+  errors.allow(/status of 400/);
+  const posted = () => page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/api/runs'));
+  capturePosts(page);
+  await page.goto('/#/runs/fx-done');
+  await openModal(page);
+  const language = page.getByTestId('launch-language');
+  await language.fill('Spanish');
+  await tile(page, TXT).click();
+  await expect(page.getByTestId('launch-error')).toContainText('language');
+  await expect(modal(page)).toBeVisible();
+  await language.fill('es');
+  const res = posted();
+  await tile(page, TXT).click();
+  const { run_id: id } = await (await res).json();
+  await expect.poll(async () => (await (await request.get(`/api/runs/${id}`)).json()).language).toBe('es');
+  await expect(button(page)).toHaveAttribute('data-state', 'idle', { timeout: 30_000 });
+});
+
+test('[DT-S6] arrow keys move the caret inside the language field, and an upload keeps what was typed', async ({ page }) => {
+  freshServerState();
+  await page.goto('/#/runs/fx-done');
+  await openModal(page);
+  const language = page.getByTestId('launch-language');
+  await language.fill('es');
+  await language.press('ArrowLeft');
+  await expect(language).toBeFocused();
+  expect(await language.evaluate((node) => node.selectionStart)).toBe(1);
+  await page.route('**/api/inputs/*', (route) => route.fulfill({ status: 201, json: {} }));
+  await page.getByTestId('launch-file').setInputFiles({ name: 'new.txt', mimeType: 'text/plain', buffer: Buffer.from('x') });
+  await expect(tile(page, TXT)).toBeFocused();
+  await expect(language).toHaveValue('es');
 });
 
 test('auto-approve toggle is off by default and is sent in the body', async ({ page }) => {
@@ -329,7 +383,7 @@ test('auto-approve toggle is off by default and is sent in the body', async ({ p
   await expect(toggle).toHaveAttribute('aria-checked', 'true');
   await tile(page, MP4).click();
   await expect(modal(page)).toBeHidden();
-  expect(bodies).toEqual([{ input: MP4, auto_approve: true }]);
+  expect(bodies).toEqual([{ input: MP4, auto_approve: true, language: 'en' }]);
   await expect(button(page)).toHaveAttribute('data-state', 'idle'); // fx-done is not active
 });
 
@@ -428,7 +482,7 @@ test.describe('shots', () => {
 
   test('shot empty inbox', async ({ page }) => {
     freshServerState();
-    await page.route('**/api/inputs', (route) => route.fulfill({ json: { inbox: '/home/x/state/inbox', inputs: [] } }));
+    await page.route('**/api/inputs', (route) => route.fulfill({ json: { inbox: '/home/x/state/inbox', default_language: 'en', inputs: [] } }));
     await page.goto('/#/runs/fx-done');
     await openModal(page);
     await expect(page.getByTestId('launch-empty')).toBeVisible();

@@ -75,6 +75,12 @@ export function mount(root, ctx) {
     type: 'button', class: 'launch-auto', role: 'switch', 'aria-checked': 'false', 'data-testid': 'launch-auto',
     title: 'Skip the approval pauses',
   }, svgIcon('bolt'), 'Auto-approve');
+  const language = el('input', {
+    type: 'text', class: 'launch-language', 'data-testid': 'launch-language', spellcheck: 'false', autocomplete: 'off',
+  });
+  const languageField = el('label', {
+    class: 'launch-language-field', title: 'Language spoken in the video, as a code like en or es. Whisper and the YouTube fields use it.',
+  }, 'Language', language);
   const lockLink = activeLink('launch-lock-link');
   const lock = el('span', { class: 'launch-lock', 'data-testid': 'launch-lock' },
     ownIcon('lock', 'icon'), 'Locked: active run ', lockLink);
@@ -90,7 +96,7 @@ export function mount(root, ctx) {
   const picker = el('input', { type: 'file', multiple: '', accept: ACCEPT, hidden: '', 'data-testid': 'launch-file' });
   const tiles = el('div', { class: 'launch-tiles', 'data-testid': 'launch-tiles' });
   const panel = el('div', { class: 'launch-panel' },
-    el('div', { class: 'launch-head' }, el('strong', { class: 'launch-title' }, 'Start a run'), auto, upload, picker, lock, close), failure, tiles);
+    el('div', { class: 'launch-head' }, el('strong', { class: 'launch-title' }, 'Start a run'), auto, languageField, upload, picker, lock, close), failure, tiles);
   const modal = el('div', {
     class: 'launch-overlay', 'data-testid': 'launch-modal', role: 'dialog', 'aria-modal': 'true',
     'aria-label': 'choose an input', 'data-locked': 'false',
@@ -150,6 +156,7 @@ export function mount(root, ctx) {
       hide();
       return;
     }
+    if (!fresh) language.value = body.default_language; // each opening starts over: the last video's language is not the next one's
     const empty = el('div', { class: 'launch-empty', 'data-testid': 'launch-empty', role: 'img', 'aria-label': 'inbox is empty' },
       svgIcon('inbox'), 'The inbox is empty. Upload a file or drop one here.', el('span', { class: 'launch-path', 'data-testid': 'launch-path' }, body.inbox));
     tiles.replaceChildren(...(body.inputs.length ? body.inputs.map((input) => tileEl(input, start)) : [empty]));
@@ -185,7 +192,7 @@ export function mount(root, ctx) {
     showFailure('');
     try {
       const { run_id: id } = await ctx.api.launchRun({
-        input: name, auto_approve: auto.getAttribute('aria-checked') === 'true',
+        input: name, auto_approve: auto.getAttribute('aria-checked') === 'true', language: language.value.trim(),
       });
       setBusy(id);
       hide();
@@ -236,7 +243,7 @@ export function mount(root, ctx) {
   });
   modal.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') hide();
-    else if (e.key in STEPS) {
+    else if (e.key in STEPS && e.target !== language) {
       e.preventDefault();
       move(STEPS[e.key]);
     } else if (e.key === 'Tab') trap(e);

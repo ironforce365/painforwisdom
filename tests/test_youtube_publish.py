@@ -2,16 +2,17 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from pipeline import publish as publish_core
-from pipeline import publishing_config
+from pipeline import publishing_config, youtube_client
 from pipeline.nodes import youtube_metadata, youtube_upload
 from pipeline.nodes.validators.branch_youtube import node_bv_youtube
-from pipeline.publish import package
+from pipeline.publish import package, video_meta
 from pipeline.publish import youtube as adapter
 
 # What run 2026-11-03_055748_ui's prompt produced: load_agent_prompt strips "## OUTPUT", so the agent never saw JSON.
@@ -174,7 +175,8 @@ def test_manual_writes_a_pending_package_and_uploads_nothing(state, monkeypatch)
     assert out == {"youtube_skipped": True, "youtube_skip_reason": "manual"} and not uploads
     assert "youtube_metadata_path" not in out
     assert pkg["status"] == "pending" and pkg["mode"] == "manual"
-    assert pkg["fields"] == {"title": "T", "description": "D", "tags": ["a"], "privacy_status": "private", "kind": "short"}
+    assert pkg["fields"] == {"title": "T", "description": "D", "tags": ["a"], "privacy_status": "private", "kind": "short",
+                             "recording_date": "", "location": "", "audio_language": "en", "text_language": "en"}
     assert pkg["readonly"] == {"duration_s": 42.0}
     assert pkg["assets"] == [{"role": "video", "path": state["video_path"]}]
     specs = pkg["field_specs"]
@@ -410,3 +412,112 @@ def test_youtube_is_registered_and_reaches_the_adapter(state, monkeypatch):
 ])
 def test_validator_modes(update, verdict):
     assert node_bv_youtube(update)["branch_verdict_youtube"] == verdict
+
+
+# --- recording date, location, languages ---
+
+
+def _probe(monkeypatch, tags=None, raises=None):
+    def run(argv, **_):
+        if raises:
+            raise raises
+        return SimpleNamespace(returncode=0, stdout=json.dumps({"format": {"tags": tags or {}}}))
+
+    monkeypatch.setattr(video_meta.subprocess, "run", run)
+
+
+def test_recording_date_is_the_local_day_and_location_is_coarse(monkeypatch):  # [DT-P3]
+    """A phone records UTC: an evening run must not land on the next day. 2 decimals is about 1 km, not a front door."""
+    monkeypatch.setenv("TZ", "America/Los_Angeles")
+    time.tzset()
+    _probe(monkeypatch, {"creation_time": "2026-09-03T01:30:00.000000Z", "location": "+33.1750-117.1864/"})
+    try:
+        assert video_meta.recorded(Path("v.mp4")) == {"recording_date": "2026-09-02", "location": "33.17, -117.19"}
+    finally:
+        monkeypatch.delenv("TZ")
+        time.tzset()
+
+
+@pytest.mark.parametrize("tags,raises", [({}, None), ({"creation_time": "nonsense", "location": "nowhere"}, None),
+                                         (None, FileNotFoundError("ffprobe"))])
+def test_a_video_without_usable_tags_leaves_them_for_the_form(monkeypatch, tags, raises):  # [DT-P3]
+    _probe(monkeypatch, tags, raises)
+    assert video_meta.recorded(Path("v.mp4")) == {"recording_date": "", "location": ""}
+
+
+def test_unreadable_probe_output_leaves_them_for_the_form(monkeypatch):  # [DT-P3]
+    monkeypatch.setattr(video_meta.subprocess, "run", lambda *a, **k: SimpleNamespace(returncode=1, stdout="not json"))
+    assert video_meta.recorded(Path("v.mp4")) == {"recording_date": "", "location": ""}
+
+
+def test_the_adapter_sends_recording_details_and_languages(tmp_path, monkeypatch):  # [DT-P4]
+    uploads = _uploader(monkeypatch)
+    adapter.publish(tmp_path, _package(tmp_path, recording_date="2026-09-02", location="33.18, -117.19",
+                                       audio_language="en", text_language="es"))
+    call = uploads[0]
+    assert call["recording_date"] == "2026-09-02T00:00:00.000Z"
+    assert call["location"] == (33.18, -117.19)
+    assert call["default_audio_language"] == "en" and call["default_language"] == "es"
+
+
+def test_a_package_older_than_these_fields_still_publishes(tmp_path, monkeypatch):  # [DT-P4]
+    uploads = _uploader(monkeypatch)
+    adapter.publish(tmp_path, _package(tmp_path))
+    call = uploads[0]
+    assert call["recording_date"] is None and call["location"] is None
+    assert call["default_audio_language"] == "" and call["default_language"] == ""
+
+
+@pytest.mark.parametrize("fields,problem", [
+    ({"recording_date": "09/02/2026"}, "recording_date"),
+    ({"location": "somewhere"}, "location"),
+    ({"location": "133.18, -117.19"}, "location"),
+    ({"location": "33.18, -217.19"}, "location"),
+])
+def test_a_bad_value_stops_before_anything_is_uploaded(tmp_path, monkeypatch, fields, problem):  # [DT-P5]
+    uploads = _uploader(monkeypatch)
+    with pytest.raises(ValueError, match=problem):
+        adapter.publish(tmp_path, _package(tmp_path, **fields))
+    assert not uploads
+
+
+def _client_upload(monkeypatch, tmp_path, **kwargs) -> dict:
+    sent: dict = {}
+
+    class Request:
+        def next_chunk(self):
+            return None, {"id": "vid", "snippet": {}, "recordingDetails": {}}
+
+    def insert(part, body, media_body):
+        sent.update(part=part, body=body)
+        return Request()
+
+    service = SimpleNamespace(videos=lambda: SimpleNamespace(insert=insert))
+    monkeypatch.setattr(youtube_client, "build_youtube_service", lambda: service)
+    video = tmp_path / "v.mp4"
+    video.write_bytes(b"\0")
+    youtube_client.upload_draft_short(video, title="T", description="D", tags=[], **kwargs)
+    return sent
+
+
+def test_the_client_asks_youtube_to_store_them(tmp_path, monkeypatch):  # [DT-P4]
+    sent = _client_upload(monkeypatch, tmp_path, recording_date="2026-09-02T00:00:00.000Z", location=(33.18, -117.19),
+                          default_language="es", default_audio_language="en")
+    assert sent["part"] == "snippet,status,recordingDetails"
+    assert sent["body"]["recordingDetails"] == {"recordingDate": "2026-09-02T00:00:00.000Z",
+                                                "location": {"latitude": 33.18, "longitude": -117.19}}
+    assert sent["body"]["snippet"]["defaultLanguage"] == "es"
+    assert sent["body"]["snippet"]["defaultAudioLanguage"] == "en"
+
+
+def test_the_client_sends_nothing_for_what_is_empty(tmp_path, monkeypatch):  # [DT-P4]
+    sent = _client_upload(monkeypatch, tmp_path)
+    assert sent["part"] == "snippet,status" and "recordingDetails" not in sent["body"]
+    assert "defaultLanguage" not in sent["body"]["snippet"] and "defaultAudioLanguage" not in sent["body"]["snippet"]
+
+
+def test_the_package_languages_follow_the_run(state, monkeypatch):  # [DT-S6]
+    _uploader(monkeypatch)
+    youtube_upload.node_youtube_upload(_with_metadata({**state, "language": "es"}))
+    fields = package.read(Path(state["run_dir"]), "youtube")["fields"]
+    assert fields["audio_language"] == "es" and fields["text_language"] == "es"

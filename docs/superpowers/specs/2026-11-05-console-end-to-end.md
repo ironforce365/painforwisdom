@@ -28,7 +28,8 @@ START
 ├─ S2 inbox has inputs ────────────────────▶ choose; toggle auto-approve
 ├─ S3 input already ran ───────────────────▶ tile warns and names the runs; can still start
 ├─ S4 another run active ──────────────────▶ launch locked; link to the active run
-└─ S5 bad upload (name, exists) ───────────▶ error shown; rest continue
+├─ S5 bad upload (name, exists) ───────────▶ error shown; rest continue
+└─ S6 choose the language ─────────────────▶ starts from the catalog; Whisper and YouTube use it; restart keeps it
 RUNNING
 ├─ R1 watch: live graph, metrics, logs
 ├─ R2 inspect any node: facts, findings, artifacts, error
@@ -140,7 +141,7 @@ Each item adds `cost_usd`, `cost_estimated`, `tokens` (total), `failed_node`, `a
 
 `GET /api/runs/{id}/publish` becomes `{"targets":{…},"prepare":{"youtube":{"can":bool,"reason":str|null,"mode":"off|manual|auto"},"wordpress":{…}}}`. `targets` is always present. **This changes the old `{}` empty shape; update its tests.**
 
-`GET /api/inputs` items add `previous_runs: [run_id]` (S3).
+`GET /api/inputs` items add `previous_runs: [run_id]` (S3). It also returns `default_language`, `language` in C10; `POST /api/runs` takes an optional `language` and 400s on anything but a lowercase 2-3 letter code (S6).
 
 `GET /api/runs/{id}/result`: when the run is not ended it behaves as today.
 

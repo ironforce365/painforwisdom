@@ -374,15 +374,37 @@ test.describe('ended, ok', () => {
     await expect(banner(page)).toBeHidden();
   });
 
-  test('a finished run with a pending package says so, links to Output, and can be dismissed', async ({ page }) => {
+  test('[DT-N1] a finished run with a pending package names it, opens that package, and can be dismissed', async ({ page, errors }) => {
+    errors.allow(/asset\/featured_image/);
     await page.goto('/#/runs/fx-done');
-    await expect(page.getByTestId('action-title')).toContainText('needs a decision');
-    await page.getByTestId('action-open-output').click();
+    await expect(page.getByTestId('action-title')).toHaveText('Waiting for you to publish: WordPress.');
+    await page.getByTestId('action-open-wordpress').click();
     await expect(page.locator('body')).toHaveAttribute('data-view', 'output');
+    await expect(page.getByTestId('output-nav-wordpress')).toHaveAttribute('aria-current', 'true');
+    await expect(page.getByTestId('field-wordpress-title')).toBeVisible();
+
+    // Already on Output, in another section: the same button still goes there. It used to do nothing.
+    await page.getByTestId('output-nav-summary').click();
+    await expect(page.getByTestId('field-wordpress-title')).toBeHidden();
+    await page.getByTestId('action-open-wordpress').click();
+    await expect(page.getByTestId('field-wordpress-title')).toBeVisible();
+
     await page.getByTestId('action-dismiss').click();
     await expect(page.getByTestId('action-title')).toContainText('Dismissed');
     await expect(page.getByTestId('needs-you-item-fx-done')).toHaveCount(0);
   });
+});
+
+test('[DT-N1] a package that failed to publish says so', async ({ page }) => {
+  await page.route('**/api/runs/fx-done', async (route) => {
+    const res = await route.fetch();
+    const body = await res.json();
+    body.waiting_packages = [{ target: 'wordpress', status: 'failed' }, { target: 'youtube', status: 'pending' }];
+    await route.fulfill({ response: res, json: body });
+  });
+  await page.goto('/#/runs/fx-done');
+  await expect(page.getByTestId('action-title')).toHaveText('Waiting for you to publish: WordPress (failed), YouTube.');
+  await expect(page.getByTestId('action-open-youtube')).toHaveText('Open YouTube');
 });
 
 test.describe('failed API calls show their detail', () => {

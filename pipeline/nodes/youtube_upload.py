@@ -14,8 +14,8 @@ from pipeline.contracts import assert_inputs
 from pipeline.image_extractor import get_duration_seconds
 from pipeline.nodes.youtube_metadata import skip_reason
 from pipeline.publish import package as publish_package
-from pipeline.publish import run_target, specs
-from pipeline.publishing_config import current_profile, load
+from pipeline.publish import run_target, specs, video_meta
+from pipeline.publishing_config import current_profile, load, run_language
 from pipeline.runtime import append_metric, run_telemetry_path
 from pipeline.state import State
 
@@ -84,6 +84,7 @@ def node_youtube_upload(state: State) -> Dict[str, Any]:
                 "tags": tags,
                 "privacy_status": config["privacy_status"],
                 "kind": config["kind"],
+                **video_meta.youtube_fields(video, run_language(state.get("language"))),
             },
             FIELD_SPECS,
             readonly={"duration_s": _duration_s(video), **({"warning": warning} if warning else {})},

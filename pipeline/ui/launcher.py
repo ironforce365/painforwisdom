@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -10,7 +11,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from pipeline import runtime
+from pipeline import publishing_config, runtime
 from pipeline.ui import runs
 from pipeline.ui.settings import Settings
 
@@ -18,6 +19,7 @@ from pipeline.ui.settings import Settings
 VIDEO_EXTENSIONS = (".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi")
 CHECKOUT_ROOT = runtime.PROJECT_ROOT
 FAKE_DEFAULTS = {"scenario": "ok", "step_ms": 200, "wait_s": 120}
+LANGUAGE_CODE = re.compile(r"[a-z]{2,3}")  # the form Whisper's --language takes; it rejects a code it does not know
 
 _lock = threading.Lock()
 
@@ -80,17 +82,29 @@ def new_run_id(root: Path, stamp: Optional[str] = None) -> str:
     return rid
 
 
+def default_language(settings: Settings) -> str:
+    return publishing_config.load(settings.profile)["language"]
+
+
+def _run_language(settings: Settings, chosen: Optional[str]) -> str:
+    if not chosen:
+        return default_language(settings)
+    if not LANGUAGE_CODE.fullmatch(chosen):
+        raise LaunchError(400, f"language must be a code like en or es, not {chosen!r}")
+    return chosen
+
+
 def build_argv(settings: Settings, run_id: str, path: Path, kind: str, auto_approve: bool,
-               fake: Optional[dict]) -> list[str]:
+               fake: Optional[dict], language: str) -> list[str]:
     if settings.runner == "fake":
         f = {**FAKE_DEFAULTS, **(fake or {})}
         argv = [sys.executable, "-m", "pipeline.ui.fake_runner", "--run-id", run_id,
-                "--processed-root", str(settings.processed_root), "--input", str(path),
+                "--processed-root", str(settings.processed_root), "--input", str(path), "--language", language,
                 "--scenario", f["scenario"], "--step-ms", str(f["step_ms"]), "--wait-s", str(f["wait_s"])]
         return argv + ["--auto-approve"] if auto_approve else argv
     flag = "--video" if kind == "video" else "--from-transcript"
     argv = [sys.executable, "-m", "pipeline.run", "--profile", settings.profile, "--run-id", run_id,
-            "--processed-root", str(settings.processed_root), flag, str(path)]
+            "--processed-root", str(settings.processed_root), "--language", language, flag, str(path)]
     return argv + ["--auto-approve"] if auto_approve else argv
 
 
@@ -130,16 +144,18 @@ def write_provisional(rd: Path, record: dict) -> None:
         tmp.unlink()
 
 
-def launch(settings: Settings, name: str, auto_approve: bool, fake: Optional[dict]) -> str:
+def launch(settings: Settings, name: str, auto_approve: bool, fake: Optional[dict], language: Optional[str] = None) -> str:
     if fake is not None and settings.runner != "fake":
         raise LaunchError(400, "fake is only accepted by the fake runner")
     match = next((i for i in list_inputs(settings.inbox) if i["name"] == name), None)
     if match is None:
         raise LaunchError(404, "unknown input")
-    return launch_path(settings, (settings.inbox / match["name"]).resolve(), match["kind"], auto_approve, fake)
+    return launch_path(settings, (settings.inbox / match["name"]).resolve(), match["kind"], auto_approve, fake, language)
 
 
-def launch_path(settings: Settings, path: Path, kind: str, auto_approve: bool, fake: Optional[dict]) -> str:
+def launch_path(settings: Settings, path: Path, kind: str, auto_approve: bool, fake: Optional[dict],
+                language: Optional[str] = None) -> str:
+    language = _run_language(settings, language)
     with _lock:
         busy = active_run(settings.processed_root)
         if busy is not None:
@@ -147,10 +163,10 @@ def launch_path(settings: Settings, path: Path, kind: str, auto_approve: bool, f
         run_id = new_run_id(settings.processed_root)
         rd = settings.processed_root / run_id / "langgraph"
         rd.mkdir(parents=True)
-        pid = spawn(build_argv(settings, run_id, path, kind, auto_approve, fake), rd / "stdout.log")
+        pid = spawn(build_argv(settings, run_id, path, kind, auto_approve, fake, language), rd / "stdout.log")
         write_provisional(rd, {
             "run_id": run_id, "status": "running", "verdict": None, "pid": pid, "profile": settings.profile,
-            "input": {"kind": kind, "path": str(path)}, "started_at": time.time(), "ended_at": None,
+            "language": language, "input": {"kind": kind, "path": str(path)}, "started_at": time.time(), "ended_at": None,
             "hitl_wait_s": 0.0, "error": None,
         })
     return run_id

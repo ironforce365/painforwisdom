@@ -75,7 +75,7 @@ class Rig:
         transcript = self.tmp_path / "2026-11-05-t.txt"
         transcript.write_text("words")
         base = dict(processed_root=self.processed, run_suffix="langgraph", from_transcript=str(transcript), profile="sandbox",
-                    auto_approve=False, telegram_on_error=False, reminder_interval=600, target_seconds=600, dry_run=False,
+                    language=None, auto_approve=False, telegram_on_error=False, reminder_interval=600, target_seconds=600, dry_run=False,
                     no_archive=True)
         return argparse.Namespace(**{**base, **kw})
 

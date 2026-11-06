@@ -87,3 +87,16 @@ test('the bar stays in the header at both widths and never pushes Start run off'
     expect(bar.x + bar.width).toBeLessThanOrEqual(start.x);
   }
 });
+
+test('[DT-N1] a run waiting on a package opens that package; one that failed opens the run', async ({ page, errors }) => {
+  errors.allow(/asset\/featured_image/);
+  freshServerState();
+  await page.goto('/#/runs/fx-modeoff');
+  await page.getByTestId('needs-you-item-fx-done').click();
+  await expect(page.locator('body')).toHaveAttribute('data-view', 'output');
+  await expect(page.getByTestId('output-nav-wordpress')).toHaveAttribute('aria-current', 'true');
+  await expect(page).toHaveURL(/#\/runs\/fx-done\/output$/);
+
+  await page.getByTestId('needs-you-item-fx-failed').click();
+  await expect(page.getByTestId('run-fx-failed')).toHaveAttribute('aria-pressed', 'true');
+});

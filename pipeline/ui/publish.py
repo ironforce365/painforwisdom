@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from pipeline import publishing_config, runtime
-from pipeline.publish import package, specs
+from pipeline.publish import package, specs, video_meta
 from pipeline.ui import launcher, runs
 from pipeline.ui.settings import Settings
 
@@ -131,7 +131,7 @@ def _blog_summary(rd: Path, body: str) -> str:
     return " ".join(" ".join(lines).split()[:_EXCERPT_WORDS])
 
 
-def _youtube_package(rd: Path, config: dict, video: Path) -> dict:
+def _youtube_package(rd: Path, config: dict, video: Path, language: str) -> dict:
     meta = _read_json(rd / "youtube-upload" / "metadata.json")
     title, description = meta.get("title"), meta.get("description")
     readonly: dict[str, Any] = {"duration_s": None}
@@ -147,6 +147,7 @@ def _youtube_package(rd: Path, config: dict, video: Path) -> dict:
         "tags": _strs(meta.get("tags")),
         "privacy_status": config["privacy_status"],
         "kind": config["kind"],
+        **video_meta.youtube_fields(video, language),
     }
     return package.new_package("youtube", "manual", fields, specs.YOUTUBE, readonly=readonly,
                                assets=[{"role": "video", "path": str(video)}])
@@ -178,7 +179,8 @@ def prepare(settings: Settings, run_id: str, target: str) -> dict:
     if not state["can"]:
         conflict = reconcile(rd, target) is not None or rec["status"] in runs.ACTIVE
         raise PublishError(409 if conflict else 422, {"detail": state["reason"]})
-    config = publishing_config.load(rec["profile"] or settings.profile)[target]
+    catalog = publishing_config.load(rec["profile"] or settings.profile)
+    config = catalog[target]
     package.package_path(rd, target).parent.mkdir(parents=True, exist_ok=True)
     if not package.acquire_lock(rd, target, os.getpid()):
         raise PublishError(409, {"detail": "publishing"})
@@ -187,7 +189,7 @@ def prepare(settings: Settings, run_id: str, target: str) -> dict:
             raise PublishError(409, {"detail": "a package already exists"})
         if target == "wordpress":
             return package.write(rd, _wordpress_package(rd, rec, config, _blog_source(rd)))
-        return package.write(rd, _youtube_package(rd, config, _input_video(rd, rec)))
+        return package.write(rd, _youtube_package(rd, config, _input_video(rd, rec), rec["language"] or catalog["language"]))
     finally:
         package.release_lock(rd, target)
 

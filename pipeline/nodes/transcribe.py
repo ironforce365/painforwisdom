@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from pipeline.contracts import assert_inputs
+from pipeline.publishing_config import run_language
 from pipeline.runtime import (
     EXTRACT_TRANSCRIPTION,
     PROJECT_ROOT,
@@ -34,11 +35,11 @@ _OOM_RE = re.compile(
 )
 
 
-def _run_whisper_shell(video: str, date: str, env_extra: Dict[str, str]) -> subprocess.CompletedProcess:
+def _run_whisper_shell(video: str, language: str, date: str, env_extra: Dict[str, str]) -> subprocess.CompletedProcess:
     env = os.environ.copy()
     env.update(env_extra)
     return subprocess.run(
-        [str(EXTRACT_TRANSCRIPTION), video, "English", date],
+        [str(EXTRACT_TRANSCRIPTION), video, language, date],
         capture_output=True,
         text=True,
         cwd=str(PROJECT_ROOT),
@@ -52,9 +53,10 @@ def node_transcribe(state: State) -> Dict[str, Any]:
     video = state["video_path"]
     run_dir = state["run_dir"]
     date = date_from_filename(video)
-    print(f"[transcribe] start video={os.path.basename(video)} date={date}")
+    language = run_language(state.get("language"))
+    print(f"[transcribe] start video={os.path.basename(video)} date={date} language={language}")
 
-    proc = _run_whisper_shell(video, date, env_extra={})
+    proc = _run_whisper_shell(video, language, date, env_extra={})
     fallback: Optional[str] = None
     if proc.returncode != 0:
         combined = (proc.stderr or "") + (proc.stdout or "")
@@ -67,7 +69,7 @@ def node_transcribe(state: State) -> Dict[str, Any]:
                 )
             except Exception:  # noqa: BLE001
                 pass
-            proc = _run_whisper_shell(video, date, env_extra={"WHISPER_DEVICE": "cpu"})
+            proc = _run_whisper_shell(video, language, date, env_extra={"WHISPER_DEVICE": "cpu"})
             fallback = "cpu"
         if proc.returncode != 0:
             print(proc.stdout)

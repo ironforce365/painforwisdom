@@ -114,20 +114,15 @@ test('[DT-P12] a console restarted mid-conversion is asked again', async ({ page
   expect(posts.length).toBe(2);
 });
 
-test('[DT-P12] leaving the section stops asking', async ({ page, request }) => {
-  await page.route(PREVIEW, (route) => route.fulfill({ status: 202, json: { status: 'converting', error: null } }));
-  await page.clock.install();
-  const gets = counted(page, 'GET');
-  await openVideo(page, request, HEVC);
+test('[DT-P12] leaving the section while it converts still shows the copy on the way back', async ({ page, request }) => {
+  const video = await openVideo(page, request, HEVC);
   await expect(status(page)).toHaveAttribute('data-state', 'converting');
   await page.getByTestId('output-nav-blog').click();
   await expect(page.getByTestId('youtube-video')).toBeHidden();
-  await page.clock.runFor(1000); // the one poll already scheduled
-  await page.evaluate(() => fetch('/health'));
-  const after = gets.length;
-  await page.clock.runFor(5000);
-  await page.evaluate(() => fetch('/health'));
-  expect(gets.length).toBe(after);
+  await page.waitForTimeout(2500); // the fake conversion finishes while the section is away
+  await page.getByTestId('output-nav-youtube').click();
+  await expect(status(page)).toHaveAttribute('data-state', 'ready', { timeout: 30_000 });
+  await expect.poll(() => width(video)).toBe(16);
 });
 
 test('[DT-P12] a file the browser rejects outright also gets a copy', async ({ page, request, errors }) => {
@@ -167,4 +162,18 @@ test('[DT-P12] a copy that will not load says it cannot be shown, without conver
   await openVideo(page, request, HEVC);
   await expect(page.getByTestId('asset-missing-youtube-video')).toBeVisible({ timeout: 30_000 });
   expect(posts.length).toBe(1);
+});
+
+test('[DT-P3] the YouTube form edits and saves recording date, location and languages', async ({ page, request }) => {
+  await openVideo(page, request);
+  const date = page.getByTestId('field-youtube-recording_date');
+  await expect(date).toHaveAttribute('type', 'date');
+  await date.fill('2026-09-02');
+  await page.getByTestId('field-youtube-location').fill('33.18, -117.19');
+  await expect(page.getByTestId('field-youtube-audio_language')).toHaveValue('en');
+  await page.getByTestId('field-youtube-text_language').fill('es');
+  await page.getByTestId('save-youtube').click();
+  await expect(page.getByTestId('publish-notice-youtube')).toHaveText('Saved');
+  const { fields } = JSON.parse(fs.readFileSync(pkgFile, 'utf8'));
+  expect(fields).toMatchObject({ recording_date: '2026-09-02', location: '33.18, -117.19', audio_language: 'en', text_language: 'es' });
 });

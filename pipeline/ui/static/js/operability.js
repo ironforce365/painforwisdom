@@ -62,6 +62,11 @@ export function mount(root, ctx) {
     sync();
   });
   ctx.bus.on('run:updated', (run) => viewFor(runId).update(run));
+  ctx.bus.on('output:open', (section) => {
+    shared.section = section;
+    if (current === 'output') sync();
+    else ctx.showView('output');
+  });
   document.addEventListener('keydown', (e) => {
     const delta = KEYS[e.key];
     if (panel.hidden || !runId || !delta || e.ctrlKey || e.metaKey || e.altKey || typing(e.target)) return;

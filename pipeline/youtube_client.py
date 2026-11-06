@@ -20,7 +20,7 @@ import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 
 class YouTubeClientError(RuntimeError):
@@ -87,6 +87,10 @@ def upload_draft_short(
     category_id: str = "22",
     privacy_status: str = "private",
     made_for_kids: bool = False,
+    recording_date: Optional[str] = None,
+    location: Optional[Tuple[float, float]] = None,
+    default_language: str = "",
+    default_audio_language: str = "",
     max_retries: int = 3,
     initial_backoff_s: float = 4.0,
 ) -> UploadResult:
@@ -123,6 +127,17 @@ def upload_draft_short(
             "selfDeclaredMadeForKids": made_for_kids,
         },
     }
+    if default_language:
+        body["snippet"]["defaultLanguage"] = default_language
+    if default_audio_language:
+        body["snippet"]["defaultAudioLanguage"] = default_audio_language
+    recording: Dict[str, Any] = {}
+    if recording_date:
+        recording["recordingDate"] = recording_date
+    if location:
+        recording["location"] = {"latitude": location[0], "longitude": location[1]}
+    if recording:
+        body["recordingDetails"] = recording
     media = MediaFileUpload(str(video_path), chunksize=-1, resumable=True)
 
     attempt = 0
@@ -131,13 +146,16 @@ def upload_draft_short(
     while attempt <= max_retries:
         try:
             request = youtube.videos().insert(  # type: ignore[attr-defined]
-                part="snippet,status",
+                part="snippet,status,recordingDetails" if recording else "snippet,status",
                 body=body,
                 media_body=media,
             )
             response = None
             while response is None:
                 _status, response = request.next_chunk()
+            snippet = response.get("snippet", {})
+            print(f"[youtube] stored: recordingDetails={response.get('recordingDetails')} "  # YouTube may ignore what it was sent
+                  f"defaultLanguage={snippet.get('defaultLanguage')} defaultAudioLanguage={snippet.get('defaultAudioLanguage')}")
             video_id = response.get("id") or ""
             if not video_id:
                 raise YouTubeClientError(f"upload returned no video_id: {response}")

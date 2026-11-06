@@ -24,7 +24,11 @@ export function mount(root, ctx) {
       type: 'button', class: 'needs-item', 'data-testid': `needs-you-item-${run.run_id}`, 'data-run-id': run.run_id,
       'data-kind': run.attention[0].kind, title: run.run_id,
     }, el('b', {}, run.input.name ?? run.run_id), ' ', el('span', {}, run.attention.map((a) => a.label).join(' · ')));
-    item.addEventListener('click', () => ctx.bus.emit('run:selected', run.run_id));
+    item.addEventListener('click', () => {
+      ctx.bus.emit('run:selected', run.run_id);
+      const { target } = run.attention[0];
+      if (target) ctx.bus.emit('output:open', target);
+    });
     return item;
   };
 

@@ -86,6 +86,7 @@ from langgraph._internal._constants import RESUME  # noqa: E402
 from pipeline import hitl  # noqa: E402
 from pipeline.contracts import InputContractError  # noqa: E402
 from pipeline.graph import _error_text, build_graph  # noqa: E402
+from pipeline.publishing_config import run_language  # noqa: E402
 from pipeline.runtime import date_from_filename  # noqa: E402
 from pipeline.telegram import send as telegram_send  # noqa: E402
 
@@ -278,6 +279,7 @@ def _build_initial_state(args: argparse.Namespace, video: Optional[Path], run_id
                 "transcript_text": text,
                 "transcript_word_count": word_count,
                 "video_date": video_date,
+                "language": run_language(args.language),
                 "run_id": run_id,
                 "run_dir": str(run_dir),
                 "metrics": [],
@@ -288,6 +290,7 @@ def _build_initial_state(args: argparse.Namespace, video: Optional[Path], run_id
     return (
         {
             "video_path": str(video),
+            "language": run_language(args.language),
             "run_id": run_id,
             "run_dir": str(run_dir),
             "metrics": [],
@@ -407,7 +410,7 @@ def _process_one_video(
     input_path = Path(video if video else args.from_transcript).resolve()
     _write_run_record(
         run_dir, run_id=run_id, status="running", verdict=None, pid=os.getpid(),
-        profile=args.profile, input={"kind": source, "path": str(input_path)},
+        profile=args.profile, input={"kind": source, "path": str(input_path)}, language=run_language(args.language),
         started_at=t_start, ended_at=None, hitl_wait_s=0.0, error=None,
     )
     try:
@@ -534,6 +537,7 @@ def main() -> int:
     src.add_argument("--from-transcript", help="Path to a transcript .txt — skips Whisper, runs extract→...→validator (test mode)")
     ap.add_argument("--profile", choices=["prod", "sandbox"], default="prod", help="Env profile (default: prod)")
     ap.add_argument("--run-id", default=None, help="Override run id base (default: timestamp)")
+    ap.add_argument("--language", default=None, help="Code spoken in the video, e.g. es (default: language in config/publishing.json)")
     ap.add_argument(
         "--run-suffix", default="langgraph", help="Subdir under processed/<run_id>/ (default: langgraph)"
     )

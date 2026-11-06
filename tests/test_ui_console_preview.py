@@ -16,7 +16,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from pipeline import publishing_config
-from pipeline.publish import package
+from pipeline.publish import package, video_meta
 from pipeline.ui import artifacts, preview
 from pipeline.ui.app import create_app
 from pipeline.ui.settings import Settings
@@ -273,3 +273,34 @@ def test_the_fake_runner_converts_without_ffmpeg(processed):  # [DT-P12]
 def test_a_foreign_page_cannot_start_a_conversion(client):  # [DT-P12]
     assert client.post(PREVIEW, headers={"Origin": "https://evil.example"}).status_code == 403
     assert client.get(PREVIEW).json()["status"] == "none"
+
+
+@pytest.mark.integration
+def test_real_ffprobe_reads_the_tags_a_phone_writes(client, processed, tmp_path):  # [DT-P2]
+    phone = tmp_path / "phone.mp4"
+    subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=s=64x64:d=0.2:r=10",
+                    "-metadata", "creation_time=2026-09-02T19:48:32.000000Z", "-metadata", "location=+33.1750-117.1864/",
+                    str(phone)], check=True)
+    assert video_meta.recorded(phone)["location"] == "33.17, -117.19"
+    assert video_meta.recorded(phone)["recording_date"] == "2026-09-02"
+
+
+def test_prepare_fills_the_language_and_keeps_the_specs_in_step(client):  # [DT-P2]
+    fields = client.get("/api/runs/fx-unpackaged/publish").json()["targets"]["youtube"]
+    assert fields["fields"]["audio_language"] == "en" and fields["fields"]["text_language"] == "en"
+    assert set(fields["field_specs"]) == set(fields["fields"])
+    assert fields["field_specs"]["recording_date"]["type"] == "date"
+
+
+def test_prepare_uses_the_language_the_run_chose(processed):  # [DT-S6] [DT-P2]
+    path = processed / "fx-unpackaged" / "langgraph" / "run.json"
+    path.write_text(json.dumps({**json.loads(path.read_text()), "language": "es"}))
+    fields = client_for(processed).get("/api/runs/fx-unpackaged/publish").json()["targets"]["youtube"]["fields"]
+    assert fields["audio_language"] == "es" and fields["text_language"] == "es"
+
+
+def test_the_run_detail_names_the_packages_waiting_even_when_dismissed(processed):  # [DT-N1]
+    client = client_for(processed)
+    assert client.get("/api/runs/fx-done").json()["waiting_packages"] == [{"target": "wordpress", "status": "pending"}]
+    assert client.post("/api/runs/fx-done/dismiss", json={"dismissed": True}).status_code == 200
+    assert client.get("/api/runs/fx-done").json()["waiting_packages"] == [{"target": "wordpress", "status": "pending"}]

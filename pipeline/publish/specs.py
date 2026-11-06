@@ -28,6 +28,10 @@ YOUTUBE = {
     "tags": field_spec("tags", "Tags", YOUTUBE_TAGS_MAX_CHARS),
     "privacy_status": field_spec("enum", "Privacy", options=["private", "unlisted", "public"]),
     "kind": field_spec("enum", "Kind", options=["short", "video"]),
+    "recording_date": field_spec("date", "Recording date"),
+    "location": field_spec("string", "Video location (latitude, longitude)", 40),
+    "audio_language": field_spec("string", "Video language (code, e.g. en)", 35),
+    "text_language": field_spec("string", "Title and description language (code, e.g. en)", 35),
 }
 
 FIELD_SPECS = {"wordpress": WORDPRESS, "youtube": YOUTUBE}

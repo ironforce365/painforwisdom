@@ -5,6 +5,7 @@ import ast
 import json
 import os
 import shutil
+import subprocess
 import sys
 import threading
 import time
@@ -96,21 +97,21 @@ def _settings(runner="real", profile="sandbox", root=Path("/p")) -> Settings:
 
 def test_argv_real_video_and_transcript():
     s = _settings()
-    assert launcher.build_argv(s, "r1", Path("/in/v.mp4"), "video", False, None) == [
+    assert launcher.build_argv(s, "r1", Path("/in/v.mp4"), "video", False, None, "en") == [
         sys.executable, "-m", "pipeline.run", "--profile", "sandbox", "--run-id", "r1",
-        "--processed-root", "/p", "--video", "/in/v.mp4"]
-    assert launcher.build_argv(_settings(profile="prod"), "r2", Path("/in/t.txt"), "transcript", True, None) == [
+        "--processed-root", "/p", "--language", "en", "--video", "/in/v.mp4"]
+    assert launcher.build_argv(_settings(profile="prod"), "r2", Path("/in/t.txt"), "transcript", True, None, "es") == [
         sys.executable, "-m", "pipeline.run", "--profile", "prod", "--run-id", "r2",
-        "--processed-root", "/p", "--from-transcript", "/in/t.txt", "--auto-approve"]
+        "--processed-root", "/p", "--language", "es", "--from-transcript", "/in/t.txt", "--auto-approve"]
 
 
 def test_argv_fake_defaults_and_explicit():
     s = _settings(runner="fake")
     base = [sys.executable, "-m", "pipeline.ui.fake_runner", "--run-id", "r1", "--processed-root", "/p",
-            "--input", "/in/t.txt"]
-    assert launcher.build_argv(s, "r1", Path("/in/t.txt"), "transcript", False, None) == [
+            "--input", "/in/t.txt", "--language", "en"]
+    assert launcher.build_argv(s, "r1", Path("/in/t.txt"), "transcript", False, None, "en") == [
         *base, "--scenario", "ok", "--step-ms", "200", "--wait-s", "120"]
-    assert launcher.build_argv(s, "r1", Path("/in/t.txt"), "transcript", True, {"scenario": "hitl", "step_ms": 5}) == [
+    assert launcher.build_argv(s, "r1", Path("/in/t.txt"), "transcript", True, {"scenario": "hitl", "step_ms": 5}, "en") == [
         *base, "--scenario", "hitl", "--step-ms", "5", "--wait-s", "120", "--auto-approve"]
 
 
@@ -345,3 +346,41 @@ def test_upload_target_rejects_paths(tmp_path):
         with pytest.raises(launcher.LaunchError):
             launcher.upload_target(tmp_path, name)
     assert launcher.upload_target(tmp_path, "x.txt") == tmp_path / "x.txt"
+
+
+def test_the_form_offers_the_catalog_language(processed):  # [DT-S6]
+    assert _client(processed).get("/api/inputs").json()["default_language"] == "en"
+
+
+def test_the_chosen_language_reaches_the_runner_and_the_record(processed, spawned):  # [DT-S6]
+    r = _client(processed).post("/api/runs", json={"input": "PXL_20261030_070000000.mp4", "language": "es"})
+    rid = r.json()["run_id"]
+    argv = spawned[0][0]
+    assert argv[argv.index("--language") + 1] == "es"
+    assert json.loads((processed / rid / "langgraph" / "run.json").read_text())["language"] == "es"
+
+
+@pytest.mark.parametrize("body", [{}, {"language": ""}])
+def test_no_language_means_the_catalog_one(processed, spawned, body):  # [DT-S6]
+    assert _client(processed).post("/api/runs", json={"input": "PXL_20261030_070000000.mp4", **body}).status_code == 201
+    argv = spawned[0][0]
+    assert argv[argv.index("--language") + 1] == "en"
+
+
+@pytest.mark.parametrize("language", ["English", "EN", "e", "en us", "--help", "pt-BR"])
+def test_a_language_that_is_not_a_code_starts_nothing(processed, spawned, language):  # [DT-S6]
+    r = _client(processed).post("/api/runs", json={"input": "PXL_20261030_070000000.mp4", "language": language})
+    assert r.status_code == 400 and "language" in r.json()["detail"]
+    assert not spawned
+
+
+def test_the_fake_runner_records_the_language(processed, tmp_path):  # [DT-S6]
+    code = fake_runner.main(["--run-id", "lang", "--processed-root", str(processed), "--input", str(tmp_path / "t.txt"),
+                             "--step-ms", "0", "--language", "es"])
+    assert code == 0
+    assert json.loads((processed / "lang" / "langgraph" / "run.json").read_text())["language"] == "es"
+
+
+def test_the_real_runner_takes_the_flag_the_console_passes():  # [DT-S6]
+    out = subprocess.run([sys.executable, "-m", "pipeline.run", "--help"], capture_output=True, text=True, cwd=REPO)
+    assert out.returncode == 0 and "--language" in out.stdout

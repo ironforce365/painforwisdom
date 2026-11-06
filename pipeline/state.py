@@ -15,6 +15,7 @@ class State(TypedDict, total=False):
     run_id: str
     run_dir: str
     video_date: str
+    language: str  # code spoken in the video, e.g. en
 
     # Stage 1 — transcribe
     transcript_path: str
