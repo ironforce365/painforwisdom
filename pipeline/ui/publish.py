@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from pipeline import publishing_config, runtime
-from pipeline.publish import package, specs
+from pipeline.publish import package, specs, video_meta
 from pipeline.ui import launcher, runs
 from pipeline.ui.settings import Settings
 
@@ -147,6 +147,7 @@ def _youtube_package(rd: Path, config: dict, video: Path) -> dict:
         "tags": _strs(meta.get("tags")),
         "privacy_status": config["privacy_status"],
         "kind": config["kind"],
+        **video_meta.youtube_fields(video, config),
     }
     return package.new_package("youtube", "manual", fields, specs.YOUTUBE, readonly=readonly,
                                assets=[{"role": "video", "path": str(video)}])

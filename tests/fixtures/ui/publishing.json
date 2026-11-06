@@ -3,6 +3,7 @@
   "youtube": {
     "mode": "off",
     "kind": "short",
+    "language": "en",
     "privacy_status": "private",
     "category_id": "22",
     "made_for_kids": false,

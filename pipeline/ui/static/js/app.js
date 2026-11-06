@@ -17,7 +17,7 @@ const POLL_MS = 1000;
 const $ = (id) => document.getElementById(id);
 
 // The C7 event set; any other name throws. `runs:listed` carries each run-list answer; `run:refresh` asks for one now.
-const EVENTS = ['run:selected', 'run:updated', 'node:selected', 'graph:loaded', 'ui:error', 'view:changed', 'runs:listed', 'run:refresh'];
+const EVENTS = ['run:selected', 'run:updated', 'node:selected', 'graph:loaded', 'ui:error', 'view:changed', 'runs:listed', 'run:refresh', 'output:open'];
 const listeners = new Map(EVENTS.map((e) => [e, []]));
 const bus = {
   on: (event, fn) => listeners.get(event).push(fn),

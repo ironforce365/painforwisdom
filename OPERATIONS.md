@@ -347,6 +347,7 @@ writer ─┬─▶ notion_blog ────────────────
 - WordPress.com's free plan blocks writes: a publish on it ends `failed` with a 403 in `error`.
 - YouTube needs a video: a transcript run skips both YouTube nodes with reason `no video`. `youtube_metadata` writes `youtube-upload/metadata.json`; an empty title after one retry leaves a `warning` there and in the package, and the title must be filled before publishing.
 - YouTube `kind`: `short` appends `#Shorts` to the description and fails over 180 s; `video` uploads as is.
+- YouTube recording date and location start from the video's own tags (local day; location rounded to about 1 km, and editable or clearable before publishing). Both languages start from `youtube.language` in `config/publishing.json`. Caption certification has no API field: set it in Studio. `publish.log` prints what YouTube stored; it may ignore `location`, which its API has marked deprecated since 2017.
 
 Tests (from `pipeline/ui/e2e/`):
 
