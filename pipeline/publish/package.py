@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from pathlib import Path
 from typing import Any, Optional
@@ -98,6 +99,9 @@ def release_lock(run_dir: Path, target: str) -> None:
     lock_path(run_dir, target).unlink(missing_ok=True)
 
 
+_DATETIME = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}")  # what <input type="datetime-local"> gives, local time
+
+
 def _valid_url(value: str) -> bool:
     parsed = urlparse(value)
     return parsed.scheme in {"http", "https"} and bool(parsed.netloc) and not any(c in value for c in ' \t\r\n"<>')
@@ -121,6 +125,8 @@ def _field_errors(name: str, spec: dict, value: Any, required: bool = True) -> l
         return [f"{name}: must be one of {spec.get('options')}"]
     if type_ == "url" and value and not _valid_url(str(value)):
         return [f"{name}: not an http(s) url"]
+    if type_ == "datetime" and value and not _DATETIME.fullmatch(value):
+        return [f"{name}: not a date and time (YYYY-MM-DDTHH:MM)"]
     return []
 
 

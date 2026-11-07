@@ -178,3 +178,51 @@
   .out-section.files { flex-direction: column; overflow: auto; }
   .files-list { width: 100%; max-height: 180px; }
 }
+
+/* While a preview copy converts: in the video's place, so nothing jumps when it arrives. */
+.asset video[hidden] { display: none; }
+.asset-converting {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 240px;
+  background: #000;
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.asset-converting[hidden] { display: none; }
+.asset-converting .icon { width: 28px; height: 28px; color: var(--run); animation: spin 1s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .asset-converting .icon { animation-duration: 3s; } }
+
+/* Publishing: a moving bar under the panel's head, with what it is doing and for how long. */
+.pub-progress {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px 11px;
+  border: 1px solid var(--run);
+  border-radius: 6px;
+  color: var(--run);
+  font-size: 13px;
+  font-weight: 600;
+}
+.pub-progress[hidden] { display: none; }
+.pub-progress .icon { width: 16px; height: 16px; animation: spin 1s linear infinite; }
+.pub-progress-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: color-mix(in srgb, var(--run) 20%, transparent); }
+.pub-progress-bar::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 30%;
+  background: var(--run);
+  animation: pub-slide 1.4s ease-in-out infinite;
+}
+@keyframes pub-slide { from { left: -30%; } to { left: 100%; } }
+@media (prefers-reduced-motion: reduce) { .pub-progress-bar::after, .pub-progress .icon { animation-duration: 4s; } }
+
+.pub-scheduled { margin-left: 8px; color: var(--pause); font-weight: 600; }

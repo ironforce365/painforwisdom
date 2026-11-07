@@ -91,6 +91,7 @@ def upload_draft_short(
     location: Optional[Tuple[float, float]] = None,
     default_language: str = "",
     default_audio_language: str = "",
+    publish_at: Optional[str] = None,
     max_retries: int = 3,
     initial_backoff_s: float = 4.0,
 ) -> UploadResult:
@@ -127,6 +128,8 @@ def upload_draft_short(
             "selfDeclaredMadeForKids": made_for_kids,
         },
     }
+    if publish_at:  # RFC 3339, UTC; the video goes public then
+        body["status"]["publishAt"] = publish_at
     if default_language:
         body["snippet"]["defaultLanguage"] = default_language
     if default_audio_language:

@@ -20,7 +20,8 @@ function packageCard(section, label, glyph, pkg, prep) { // prep: null until the
     return { section, label, glyph, state: prep?.mode === 'off' ? 'Off' : 'Nothing yet', title: prep?.reason ?? '', go: prep?.can ? 'Prepare →' : 'Details →', needs: false };
   }
   const url = pkg.status === 'published' ? pkg.result.url : null;
-  return { section, label, glyph, state: PACKAGE_STATE[pkg.status], title: pkg.fields.title, url, urlText: url, needs: NEEDS.has(pkg.status), go: NEEDS.has(pkg.status) ? 'Review and publish →' : 'Details →', packaged: true };
+  const state = url && pkg.result.publish_at ? `Scheduled for ${pkg.result.publish_at.replace('T', ' ')}` : PACKAGE_STATE[pkg.status];
+  return { section, label, glyph, state, title: pkg.fields.title, url, urlText: url, needs: NEEDS.has(pkg.status), go: NEEDS.has(pkg.status) ? 'Review and publish →' : 'Details →', packaged: true };
 }
 
 /** The same cards, saying what a dry run did instead: there is nothing to publish and nothing was saved. */
