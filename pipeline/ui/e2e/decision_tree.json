@@ -538,5 +538,23 @@
       "integration": true,
       "browser": true
     }
+  },
+  "P13": {
+    "title": "Preview copy made by the run",
+    "user_action": "Open the YouTube package: the copy plays, or an animation until it is ready",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "P14": {
+    "title": "Schedule a YouTube publish",
+    "user_action": "Pick the date and time it goes public, then publish",
+    "levels": {
+      "unit": true,
+      "integration": "the adapter is tested with YouTube stubbed; a real scheduled upload would publish to the channel",
+      "browser": true
+    }
   }
 }

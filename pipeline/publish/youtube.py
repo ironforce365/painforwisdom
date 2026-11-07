@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -23,6 +23,19 @@ def _recording_date(value: str) -> Optional[str]:
     except ValueError:
         raise ValueError(f"recording_date: {value!r} is not YYYY-MM-DD") from None
     return f"{value}T00:00:00.000Z"
+
+
+def _publish_at(value: str, now: Optional[datetime] = None) -> Optional[str]:
+    """The form's local time as the UTC instant YouTube's publishAt wants. It must be ahead: YouTube refuses a past one."""
+    if not value:
+        return None
+    try:
+        when = datetime.strptime(value, "%Y-%m-%dT%H:%M").astimezone()  # this machine's zone: the console's user's
+    except ValueError:
+        raise ValueError(f"publish_at: {value!r} is not YYYY-MM-DDTHH:MM") from None
+    if when <= (now or datetime.now().astimezone()):
+        raise ValueError(f"publish_at: {value} has passed: clear it to publish now, or pick a later time")
+    return when.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
 
 def _location(value: str) -> Optional[tuple[float, float]]:
@@ -51,6 +64,7 @@ def publish(run_dir: Path, package: dict) -> dict:
         raise ValueError("title is empty: fill it in before publishing")
     description = fields.get("description", "")
     recording_date, location = _recording_date(fields.get("recording_date", "")), _location(fields.get("location", ""))
+    publish_at = _publish_at(fields.get("publish_at", ""))
     video = next(Path(a["path"]) for a in package["assets"] if a["role"] == "video")
     if fields["kind"] == "short":
         if duration is None:
@@ -61,8 +75,10 @@ def publish(run_dir: Path, package: dict) -> dict:
             description = f"{description} {SHORTS_TAG}".strip()
     config = load(current_profile())["youtube"]
     uploaded = upload_draft_short(video, title=fields["title"], description=description, tags=fields.get("tags", []),
-                                  category_id=config["category_id"], privacy_status=fields["privacy_status"],
+                                  category_id=config["category_id"],
+                                  # YouTube schedules only a private video, and makes it public at publish_at
+                                  privacy_status="private" if publish_at else fields["privacy_status"], publish_at=publish_at,
                                   made_for_kids=config["made_for_kids"], recording_date=recording_date, location=location,
                                   default_language=fields.get("text_language", ""),
                                   default_audio_language=fields.get("audio_language", ""))
-    return {"id": uploaded.video_id, "url": uploaded.url}
+    return {"id": uploaded.video_id, "url": uploaded.url, **({"publish_at": fields["publish_at"]} if publish_at else {})}

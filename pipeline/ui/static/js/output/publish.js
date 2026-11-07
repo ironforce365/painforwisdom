@@ -1,9 +1,11 @@
 // Publish panel for any target, rendered only from the C9 package and its field_specs (spec 2026-11-03 §1.2, 2026-11-05 §2 P).
 import { el, icon, RENDER } from '../drawer.js';
+import { fmtDuration } from '../format.js';
 import { base, LABELS, reasonOf } from './model.js';
 import { button, linkEl, sync } from './ui.js';
 
 const PREVIEW_POLL_MS = 1000;
+const PUBLISHING_TEXT = { youtube: 'Uploading to YouTube', wordpress: 'Publishing to WordPress' };
 
 function plainInput(tag, props, value) {
   const input = el(tag, props);
@@ -17,6 +19,7 @@ const CONTROLS = {
   string: (id, spec, value) => plainInput('input', { type: 'text', 'data-testid': `field-${id}`, 'aria-label': spec.label }, value),
   url: (id, spec, value) => plainInput('input', { type: 'url', 'data-testid': `field-${id}`, 'aria-label': spec.label }, value),
   date: (id, spec, value) => plainInput('input', { type: 'date', 'data-testid': `field-${id}`, 'aria-label': spec.label }, value),
+  datetime: (id, spec, value) => plainInput('input', { type: 'datetime-local', 'data-testid': `field-${id}`, 'aria-label': spec.label }, value),
   text: (id, spec, value) => plainInput('textarea', { rows: 4, 'data-testid': `field-${id}`, 'aria-label': spec.label }, value),
   markdown: (id, spec, value) => {
     const control = plainInput('textarea', { class: 'ed-input', 'data-testid': `field-${id}`, 'aria-label': spec.label }, value);
@@ -64,14 +67,22 @@ function problems(specs, values) {
 }
 
 /**
- * A video this browser cannot decode gets a converted copy swapped in. HEVC from a phone gives no error event:
- * audio plays over a black box, so the signal is a width of 0. The package and the upload keep the original.
+ * The run converts a video browsers may not decode as soon as its package exists (P13), so the copy is asked for first:
+ * ready, it plays at once; on its way, an animation stands in until it is. With no copy, the original plays, and if this
+ * browser cannot decode it a copy is converted and swapped in. HEVC from a phone gives no error event: audio plays over
+ * a black box, so the signal is a width of 0. The package and the upload keep the original.
  * Keeps following after the section is left: the same element comes back when it is reopened.
  */
-function convertWhenUndecodable(env, target, role, media, id, cannotShow) {
+function convertWhenUndecodable(env, target, role, media, id, cannotShow, original) {
   const ORIGINAL_SAFE = 'The upload sends the original file.';
   const note = el('small', { class: 'notice', role: 'status', 'data-testid': `asset-preview-${id}` });
   note.hidden = true;
+  const spinner = el('div', { class: 'asset-converting', 'data-testid': `asset-converting-${id}`, role: 'img', 'aria-label': 'converting a preview' },
+    icon('arc'), el('span', {}, 'Converting a preview…'));
+  const waiting = (on) => {
+    spinner.hidden = !on;
+    media.hidden = on;
+  };
   const say = (state, ...content) => {
     note.dataset.state = state;
     note.hidden = false;
@@ -79,6 +90,7 @@ function convertWhenUndecodable(env, target, role, media, id, cannotShow) {
   };
   const giveUp = () => {
     note.hidden = true;
+    waiting(false);
     cannotShow();
   };
   let asked = false;
@@ -89,33 +101,48 @@ function convertWhenUndecodable(env, target, role, media, id, cannotShow) {
     media.autoplay = !media.paused;
     media.addEventListener('loadedmetadata', () => { media.currentTime = at; }, { once: true });
     swapped = true;
+    waiting(false);
     media.src = env.api.assetPreviewUrl(env.runId, target, role);
   };
   const failed = (error) => {
     const retry = button('Retry', { 'data-testid': `asset-preview-retry-${id}` }, 'bolt');
     retry.addEventListener('click', begin);
+    waiting(false);
+    if (!media.getAttribute('src')) media.src = original;
     say('failed', `Could not convert a preview: ${error} ${ORIGINAL_SAFE} `, retry);
   };
+  const poll = () => setTimeout(() => env.api.assetPreview(env.runId, target, role).then(follow, giveUp), PREVIEW_POLL_MS);
   const follow = ({ status, error }) => {
-    if (status === 'none') begin(); // the console restarted under the conversion
+    if (status === 'none') begin(); // the conversion went away (a restart): ask for one
     else if (status === 'failed') failed(error);
     else if (status === 'ready') {
       swap();
       say('ready', `Showing a converted copy. ${ORIGINAL_SAFE}`);
-    } else setTimeout(() => env.api.assetPreview(env.runId, target, role).then(follow, giveUp), PREVIEW_POLL_MS);
+    } else poll();
   };
   function begin() {
+    asked = true;
+    waiting(true);
     say('converting', `This browser cannot decode this video. Converting a preview… ${ORIGINAL_SAFE}`);
     env.api.startAssetPreview(env.runId, target, role).then(follow, giveUp);
   }
   const once = () => {
     if (!asked) begin();
-    asked = true;
   };
 
   media.addEventListener('loadedmetadata', () => { if (media.videoWidth === 0) once(); });
   media.addEventListener('error', () => { if (swapped) giveUp(); else once(); });
-  return note;
+  waiting(false);
+  env.api.assetPreview(env.runId, target, role).then(({ status }) => {
+    if (status === 'ready') follow({ status });
+    else if (status === 'converting') { // the run started it
+      asked = true;
+      waiting(true);
+      say('converting', `Converting a preview of this video… ${ORIGINAL_SAFE}`);
+      poll();
+    } else media.src = original;
+  }, () => { media.src = original; });
+  return [note, spinner];
 }
 
 function assetEl(env, target, asset) {
@@ -125,10 +152,10 @@ function assetEl(env, target, asset) {
   missing.hidden = true;
   const cannotShow = () => { missing.hidden = false; };
   const media = asset.role === 'video'
-    ? el('video', { src: url, controls: '', preload: 'metadata', 'data-testid': id })
+    ? el('video', { controls: '', preload: 'metadata', 'data-testid': id }) // its source once the copy's state is known
     : el('img', { src: url, alt: asset.role, 'data-testid': id });
   const figure = el('figure', { class: 'asset', 'data-testid': `asset-${id}`, title: asset.path }, media, el('figcaption', {}, base(asset.path)), missing);
-  if (asset.role === 'video') figure.prepend(convertWhenUndecodable(env, target, asset.role, media, id, cannotShow));
+  if (asset.role === 'video') figure.prepend(...convertWhenUndecodable(env, target, asset.role, media, id, cannotShow, url));
   else media.addEventListener('error', cannotShow);
   return figure;
 }
@@ -160,6 +187,27 @@ function buildForm(first, env) {
   const publish = button(`Publish to ${LABELS[target]}`, { class: 'btn primary', 'data-testid': `publish-${target}` }, 'send');
   const general = el('div', { class: 'error', 'data-testid': `publish-error-${target}`, role: 'alert' });
   const dryNote = el('span', { class: 'dry-chip', 'data-testid': `publish-dry-${target}` }, 'Dry run: nothing is published');
+  // While it publishes: a moving bar, what it is doing and for how long, so a long upload never looks stuck.
+  const progressText = el('span', { 'data-testid': `publish-progress-text-${target}` });
+  const progress = el('div', { class: 'pub-progress', 'data-testid': `publish-progress-${target}`, role: 'status' },
+    icon('arc'), progressText, el('span', { class: 'pub-progress-bar', 'aria-hidden': 'true' }));
+  progress.hidden = true;
+  let since = null;
+  let ticker = null;
+  const tick = () => {
+    progressText.textContent = `${PUBLISHING_TEXT[target]}… ${fmtDuration(Math.floor((Date.now() - since) / 1000))}`;
+  };
+  const going = (on) => {
+    progress.hidden = !on;
+    if (on && since === null) {
+      since = Date.now();
+      ticker = setInterval(tick, 1000);
+    } else if (!on && since !== null) {
+      since = null;
+      clearInterval(ticker);
+    }
+    if (on) tick();
+  };
   const side = list.filter((f) => f.spec.type !== 'markdown').map((f) => f.root);
   const prose = list.filter((f) => f.spec.type === 'markdown').map((f) => f.root);
   const readonly = el('dl', { class: 'readonly', 'data-testid': `readonly-${target}` },
@@ -180,6 +228,7 @@ function buildForm(first, env) {
   const act = (request, done) => {
     busy = true;
     notice.textContent = '';
+    if (request.publishing) going(true); // before the answer: the request itself can take a moment
     show([]);
     request.then((pkg) => {
       baseline = read();
@@ -195,7 +244,7 @@ function buildForm(first, env) {
     const values = read();
     const local = problems(specs, values);
     show(local);
-    if (!local.length) act(env.api.publish(env.runId, target, values), () => {});
+    if (!local.length) act(Object.assign(env.api.publish(env.runId, target, values), { publishing: true }), () => {});
   });
   save.addEventListener('click', () => {
     act(env.api.savePackage(env.runId, target, read()), () => { notice.textContent = 'Saved'; });
@@ -213,7 +262,7 @@ function buildForm(first, env) {
   return {
     root: el('div', { class: 'pub-form' },
       el('div', { class: 'pub-head' }, el('h2', {}, LABELS[target]), status, mode, link, notice, el('span', { class: 'pub-actions' }, dryNote, save, publish)),
-      general, fieldset),
+      progress, general, fieldset),
     dirty,
     /** Replace this form? Never over an edit, unless the package is published and the edit can no longer be saved. */
     stale: (pkg) => {
@@ -224,11 +273,14 @@ function buildForm(first, env) {
       const finished = pkg.status === 'published' || (pkg.mode === 'auto' && pkg.status !== 'failed');
       const blocked = env.locked() || pkg.status === 'publishing';
       fieldset.disabled = blocked || finished;
+      going(pkg.status === 'publishing' || (busy && since !== null));
       status.textContent = pkg.status;
       status.dataset.value = pkg.status;
       mode.textContent = pkg.mode;
       const url = pkg.status === 'published' ? pkg.result.url : '';
-      sync(link, url, () => (url ? [linkEl(url, { 'data-testid': `published-${target}` }, icon('link'), url)] : []));
+      const scheduled = url && pkg.result.publish_at ? pkg.result.publish_at.replace('T', ' ') : '';
+      sync(link, `${url} ${scheduled}`, () => (url ? [linkEl(url, { 'data-testid': `published-${target}` }, icon('link'), url),
+        ...(scheduled ? [el('span', { class: 'pub-scheduled', 'data-testid': `scheduled-${target}` }, `Scheduled: public on ${scheduled}`)] : [])] : []));
       if (data.targets.youtube?.status === 'published') prefill(data.targets.youtube.result.url);
       if (dirty()) notice.textContent = '';
       save.hidden = finished;

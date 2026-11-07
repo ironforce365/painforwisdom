@@ -37,4 +37,4 @@ def recorded(video: Path) -> dict[str, str]:
 
 def youtube_fields(video: Path, language: str) -> dict[str, str]:
     """The package fields these fill, shared by the upload node and the console's prepare."""
-    return {**recorded(video), "audio_language": language, "text_language": language}
+    return {**recorded(video), "publish_at": "", "audio_language": language, "text_language": language}

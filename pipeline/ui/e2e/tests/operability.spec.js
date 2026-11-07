@@ -892,6 +892,68 @@ test.describe('publish', () => {
     expect(written.fields.tags).toEqual(['painforwisdom', 'discipline', 'fresh']);
   });
 
+  test('[DT-P4] while it uploads, a moving bar says what it is doing and for how long', async ({ page }) => {
+    const t0 = Date.parse('2026-11-03T10:00:00Z');
+    await page.clock.install({ time: t0 });
+    const pkg = readPkg('fx-published', 'youtube-upload');
+    let state = { ...pkg, status: 'publishing' };
+    await page.route('**/api/runs/fx-published/publish', (route) => route.fulfill({ json: { targets: { youtube: state }, prepare: {} } }));
+    await go(page, 'fx-published', 'youtube');
+    const progress = page.getByTestId('publish-progress-youtube');
+    await expect(progress).toBeVisible();
+    await expect(page.getByTestId('publish-progress-text-youtube')).toHaveText('Uploading to YouTube… 0s');
+    await page.clock.runFor(65_000);
+    await expect(page.getByTestId('publish-progress-text-youtube')).toHaveText(/Uploading to YouTube… 1m 0[5-9]s/);
+    state = { ...pkg, status: 'published', result: { id: 'v1', url: 'https://example.invalid/youtube/v1' } };
+    await page.clock.runFor(3_000);
+    await expect(progress).toBeHidden();
+  });
+
+  test('[DT-P4] clicking publish shows the bar before the answer comes back', async ({ page }) => {
+    let release;
+    const held = new Promise((resolve) => { release = resolve; });
+    await page.route('**/api/runs/fx-done/publish/wordpress', async (route) => {
+      await held;
+      await route.continue();
+    });
+    await go(page, 'fx-done', 'wordpress');
+    await expect(page.getByTestId('publish-progress-wordpress')).toBeHidden();
+    await page.getByTestId('publish-wordpress').click();
+    await expect(page.getByTestId('publish-progress-wordpress')).toBeVisible();
+    await expect(page.getByTestId('publish-progress-text-wordpress')).toContainText('Publishing to WordPress…');
+    release();
+    await expect(page.getByTestId('published-wordpress')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('publish-progress-wordpress')).toBeHidden();
+  });
+
+  test('[DT-P4] a refused publish takes the bar away and says why', async ({ page, errors }) => {
+    errors.allow(/409/);
+    await page.route('**/api/runs/fx-done/publish/wordpress', (route) => route.fulfill({ status: 409, json: { detail: 'publishing' } }));
+    await go(page, 'fx-done', 'wordpress');
+    await page.getByTestId('publish-wordpress').click();
+    await expect(page.getByTestId('publish-error-wordpress')).toContainText('publishing');
+    await expect(page.getByTestId('publish-progress-wordpress')).toBeHidden();
+  });
+
+  test('[DT-P14] the YouTube form picks a publish time, and a scheduled video says when it goes public', async ({ page }) => {
+    const pkg = readPkg('fx-published', 'youtube-upload');
+    const specs = { ...pkg.field_specs, publish_at: { type: 'datetime', label: 'Publish on', max: 16, options: null, required: false } };
+    let state = { ...pkg, status: 'pending', result: null, field_specs: specs, fields: { ...pkg.fields, publish_at: '' } };
+    await page.route('**/api/runs/fx-published/publish', (route) => route.fulfill({ json: { targets: { youtube: state }, prepare: {} } }));
+    await go(page, 'fx-published', 'youtube');
+    const field = page.getByTestId('field-youtube-publish_at');
+    await expect(field).toHaveAttribute('type', 'datetime-local');
+    await field.fill('2026-11-08T09:30');
+    await expect(field).toHaveValue('2026-11-08T09:30');
+
+    state = { ...state, status: 'published', fields: { ...state.fields, publish_at: '2026-11-08T09:30' },
+      result: { id: 'v1', url: 'https://youtu.be/v1', publish_at: '2026-11-08T09:30' } };
+    await page.goto('/#/runs/fx-published');
+    await expect(page.getByTestId('run-card-state-youtube')).toHaveText('Scheduled for 2026-11-08 09:30');
+    await page.getByTestId('run-card-open-youtube').click();
+    await expect(page.getByTestId('scheduled-youtube')).toHaveText('Scheduled: public on 2026-11-08 09:30');
+  });
+
   test('[DT-P4] polls every 2 s only while publishing', async ({ page }) => {
     const t0 = Date.parse('2026-11-03T10:00:00Z');
     await page.clock.install({ time: t0 });
