@@ -29,6 +29,8 @@ def _prefix(text: str) -> str:
     tag every message with `[SANDBOX] ` and the user can ignore them at a
     glance."""
     prefix = os.environ.get("TELEGRAM_MESSAGE_PREFIX", "")
+    if os.environ.get("PIPELINE_DRY_RUN"):
+        prefix = f"[DRY RUN] {prefix}"
     return f"{prefix}{text}" if prefix else text
 
 

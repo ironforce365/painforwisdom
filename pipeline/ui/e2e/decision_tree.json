@@ -520,5 +520,23 @@
       "integration": true,
       "browser": true
     }
+  },
+  "S9": {
+    "title": "Dry run chosen at the start",
+    "user_action": "Turn on Dry run; start; run the same input again",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
+  },
+  "D11": {
+    "title": "Dry run page",
+    "user_action": "See it is a dry run; preview without publishing; run it for real",
+    "levels": {
+      "unit": true,
+      "integration": true,
+      "browser": true
+    }
   }
 }

@@ -11,6 +11,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
+from pipeline import dry_run as dry_run_mode
 from pipeline import publishing_config, runtime
 from pipeline.ui import runs
 from pipeline.ui.settings import Settings
@@ -43,7 +44,8 @@ def list_inputs(inbox: Path, processed_root: Optional[Path] = None) -> list[dict
         return []
     previous: dict[str, list[str]] = {}
     for run in runs.list_runs(processed_root) if processed_root else ():
-        previous.setdefault(run["input"]["name"], []).append(run["run_id"])
+        if not run["dry_run"]:  # it left nothing behind: the input has not "already run"
+            previous.setdefault(run["input"]["name"], []).append(run["run_id"])
     out = []
     for p in inbox.iterdir():
         kind = input_kind(p.name)
@@ -95,17 +97,18 @@ def _run_language(settings: Settings, chosen: Optional[str]) -> str:
 
 
 def build_argv(settings: Settings, run_id: str, path: Path, kind: str, auto_approve: bool,
-               fake: Optional[dict], language: str) -> list[str]:
+               fake: Optional[dict], language: str, dry_run: bool = False) -> list[str]:
+    dry = ["--dry-run"] if dry_run else []
     if settings.runner == "fake":
         f = {**FAKE_DEFAULTS, **(fake or {})}
         argv = [sys.executable, "-m", "pipeline.ui.fake_runner", "--run-id", run_id,
                 "--processed-root", str(settings.processed_root), "--input", str(path), "--language", language,
                 "--scenario", f["scenario"], "--step-ms", str(f["step_ms"]), "--wait-s", str(f["wait_s"])]
-        return argv + ["--auto-approve"] if auto_approve else argv
+        return argv + dry + (["--auto-approve"] if auto_approve else [])
     flag = "--video" if kind == "video" else "--from-transcript"
     argv = [sys.executable, "-m", "pipeline.run", "--profile", settings.profile, "--run-id", run_id,
             "--processed-root", str(settings.processed_root), "--language", language, flag, str(path)]
-    return argv + ["--auto-approve"] if auto_approve else argv
+    return argv + dry + (["--auto-approve"] if auto_approve else [])
 
 
 def build_retry_argv(settings: Settings, run_id: str, profile: Optional[str], auto_approve: bool) -> list[str]:
@@ -144,18 +147,24 @@ def write_provisional(rd: Path, record: dict) -> None:
         tmp.unlink()
 
 
-def launch(settings: Settings, name: str, auto_approve: bool, fake: Optional[dict], language: Optional[str] = None) -> str:
+def launch(settings: Settings, name: str, auto_approve: bool, fake: Optional[dict], language: Optional[str] = None,
+           dry_run: bool = False) -> str:
     if fake is not None and settings.runner != "fake":
         raise LaunchError(400, "fake is only accepted by the fake runner")
     match = next((i for i in list_inputs(settings.inbox) if i["name"] == name), None)
     if match is None:
         raise LaunchError(404, "unknown input")
-    return launch_path(settings, (settings.inbox / match["name"]).resolve(), match["kind"], auto_approve, fake, language)
+    return launch_path(settings, (settings.inbox / match["name"]).resolve(), match["kind"], auto_approve, fake, language, dry_run)
 
 
 def launch_path(settings: Settings, path: Path, kind: str, auto_approve: bool, fake: Optional[dict],
-                language: Optional[str] = None) -> str:
+                language: Optional[str] = None, dry_run: bool = False) -> str:
     language = _run_language(settings, language)
+    if dry_run and settings.runner != "fake":
+        try:
+            dry_run_mode.sandbox_notion(runtime.STATE_ROOT)  # say so here, not in a child that dies at once
+        except dry_run_mode.DryRunError as e:
+            raise LaunchError(400, str(e)) from None
     with _lock:
         busy = active_run(settings.processed_root)
         if busy is not None:
@@ -163,10 +172,10 @@ def launch_path(settings: Settings, path: Path, kind: str, auto_approve: bool, f
         run_id = new_run_id(settings.processed_root)
         rd = settings.processed_root / run_id / "langgraph"
         rd.mkdir(parents=True)
-        pid = spawn(build_argv(settings, run_id, path, kind, auto_approve, fake, language), rd / "stdout.log")
+        pid = spawn(build_argv(settings, run_id, path, kind, auto_approve, fake, language, dry_run), rd / "stdout.log")
         write_provisional(rd, {
             "run_id": run_id, "status": "running", "verdict": None, "pid": pid, "profile": settings.profile,
             "language": language, "input": {"kind": kind, "path": str(path)}, "started_at": time.time(), "ended_at": None,
-            "hitl_wait_s": 0.0, "error": None,
+            "hitl_wait_s": 0.0, "error": None, **({"dry_run": True} if dry_run else {}),
         })
     return run_id

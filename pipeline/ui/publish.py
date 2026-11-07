@@ -256,6 +256,8 @@ def confirm(settings: Settings, run_id: str, target: str, fields: dict) -> dict:
         raise PublishError(404, {"detail": "no such package"})
     if run["status"] in runs.ACTIVE:
         raise PublishError(409, {"detail": "run active"})
+    if run["dry_run"]:
+        raise PublishError(409, {"detail": "this is a dry run: nothing is published"})
     if pkg["status"] == "published":
         raise _already_published(pkg)
     errors = package.validate_fields(pkg, fields)

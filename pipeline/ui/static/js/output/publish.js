@@ -159,6 +159,7 @@ function buildForm(first, env) {
   const save = button('Save', { 'data-testid': `save-${target}` }, 'tick');
   const publish = button(`Publish to ${LABELS[target]}`, { class: 'btn primary', 'data-testid': `publish-${target}` }, 'send');
   const general = el('div', { class: 'error', 'data-testid': `publish-error-${target}`, role: 'alert' });
+  const dryNote = el('span', { class: 'dry-chip', 'data-testid': `publish-dry-${target}` }, 'Dry run: nothing is published');
   const side = list.filter((f) => f.spec.type !== 'markdown').map((f) => f.root);
   const prose = list.filter((f) => f.spec.type === 'markdown').map((f) => f.root);
   const readonly = el('dl', { class: 'readonly', 'data-testid': `readonly-${target}` },
@@ -211,7 +212,7 @@ function buildForm(first, env) {
 
   return {
     root: el('div', { class: 'pub-form' },
-      el('div', { class: 'pub-head' }, el('h2', {}, LABELS[target]), status, mode, link, notice, el('span', { class: 'pub-actions' }, save, publish)),
+      el('div', { class: 'pub-head' }, el('h2', {}, LABELS[target]), status, mode, link, notice, el('span', { class: 'pub-actions' }, dryNote, save, publish)),
       general, fieldset),
     dirty,
     /** Replace this form? Never over an edit, unless the package is published and the edit can no longer be saved. */
@@ -232,7 +233,8 @@ function buildForm(first, env) {
       if (dirty()) notice.textContent = '';
       save.hidden = finished;
       publish.hidden = finished;
-      publish.disabled = busy || blocked;
+      publish.disabled = busy || blocked || data.run.dry_run;
+      dryNote.hidden = !data.run.dry_run;
       save.disabled = busy || blocked || !dirty();
       general.replaceChildren(...(messages.length ? messages.map((m) => el('div', {}, m)) : [pkg.error ?? '']));
     },

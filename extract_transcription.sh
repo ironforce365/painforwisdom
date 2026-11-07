@@ -33,6 +33,9 @@ WHISPER_DEVICE="${WHISPER_DEVICE:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TELEGRAM="$SCRIPT_DIR/telegram_io.sh"
+# A dry run does not message from here (no [DRY RUN] tag in this script), and never moves the input.
+DRY_RUN="${PIPELINE_DRY_RUN:-}"
+[ -z "$DRY_RUN" ] || TELEGRAM=""
 
 if [ -z "$INPUT_FILE" ]; then
     echo "Missing input file"
@@ -50,7 +53,7 @@ if ! command -v ffmpeg >/dev/null 2>&1; then
 fi
 
 INPUT_BASE_DIR="$(dirname "$INPUT_FILE")"
-OUTPUT_DIR="$INPUT_BASE_DIR/auto-generated"
+OUTPUT_DIR="${TRANSCRIPT_DIR:-$INPUT_BASE_DIR/auto-generated}"
 QUARANTINE_DIR="$INPUT_BASE_DIR/quarantine"
 mkdir -p "$OUTPUT_DIR"
 
@@ -137,6 +140,11 @@ quarantine_file() {
     local report="$1"
     local basename
     basename=$(basename "$INPUT_FILE")
+    if [ -n "$DRY_RUN" ]; then
+        echo "✗ Low confidence: a real run would quarantine this input. Dry run: it stays where it is."
+        echo "$report"
+        return
+    fi
     local ts
     ts=$(date +"%Y-%m-%d_%H%M%S")
     local dest="$QUARANTINE_DIR/${ts}_${basename%.*}"

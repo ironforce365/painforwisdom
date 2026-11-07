@@ -137,7 +137,7 @@ actions.mount($('actions'), ctx);
 attention.mount($('attention'), $('needslink'), ctx);
 logs.mount($('logs'), ctx);
 runheader.mount($('runinfo'), ctx);
-rundash.mount({ back: $('runback'), tools: $('runtools'), totals: $('runtotals'), cards: $('runcards') }, ctx);
+rundash.mount({ back: $('runback'), tools: $('runtools'), totals: $('runtotals'), cards: $('runcards'), dry: $('rundry') }, ctx);
 operability.mount($('operability'), ctx);
 runs.mount($('runs'), ctx);
 views.mount($('viewtabs'), ctx);

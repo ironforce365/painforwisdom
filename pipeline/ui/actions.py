@@ -228,7 +228,7 @@ def retry(settings: Settings, run_id: str, auto_approve: bool) -> None:
         runs.update_record(rd, pid=pid)
 
 
-def restart(settings: Settings, run_id: str, auto_approve: bool) -> str:
+def restart(settings: Settings, run_id: str, auto_approve: bool, dry_run: Optional[bool] = None) -> str:
     rd = _run_dir(settings, run_id)
     busy = runs.active_run_id(settings.processed_root)
     if busy is not None:
@@ -243,7 +243,8 @@ def restart(settings: Settings, run_id: str, auto_approve: bool) -> str:
     path = runs.input_file(rd, rec)
     kind = launcher.input_kind(path.name) or rec["input"].get("kind") or "transcript"
     try:
-        return launcher.launch_path(settings, path, kind, auto_approve, None, rec["language"])
+        return launcher.launch_path(settings, path, kind, auto_approve, None, rec["language"],
+                                    rec["dry_run"] if dry_run is None else dry_run)
     except launcher.LaunchError as e:
         raise ActionError(e.status, e.detail, run_id=e.run_id) from e
 

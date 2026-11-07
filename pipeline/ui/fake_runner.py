@@ -83,7 +83,7 @@ _RESULTS = {"pre_validator": _audit("pre"), "bv_research": _audit("branch", "_re
 
 class FakeRun:
     def __init__(self, run_id: str, root: Path, input_path: Path, scenario: str, step_s: float, wait_s: float = 120,
-                 auto_approve: bool = False, language: Optional[str] = None):
+                 auto_approve: bool = False, language: Optional[str] = None, dry_run: bool = False):
         self.rd = root / run_id / "langgraph"
         self.rd.mkdir(parents=True, exist_ok=True)
         self.scenario, self.step_s, self.wait_s, self.auto_approve = scenario, step_s, wait_s, auto_approve
@@ -92,7 +92,8 @@ class FakeRun:
         kind = input_kind(input_path.name) or "transcript"
         self.record = {"run_id": run_id, "status": "running", "verdict": None, "pid": os.getpid(),
                        "profile": "sandbox", "language": language, "input": {"kind": kind, "path": str(input_path)},
-                       "started_at": time.time(), "ended_at": None, "hitl_wait_s": 0.0, "error": None}
+                       "started_at": time.time(), "ended_at": None, "hitl_wait_s": 0.0, "error": None,
+                       **({"dry_run": True} if dry_run else {})}
 
     def _append(self, name: str, row: dict) -> None:
         # Parallel nodes write from pool threads: one locked whole-line write.
@@ -370,9 +371,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     p.add_argument("--wait-s", type=float, default=120)
     p.add_argument("--auto-approve", action="store_true")
     p.add_argument("--language")
+    p.add_argument("--dry-run", action="store_true")
     args = p.parse_args(argv)
     run = FakeRun(args.run_id, args.processed_root, args.input, args.scenario, args.step_ms / 1000, args.wait_s,
-                  args.auto_approve, args.language)
+                  args.auto_approve, args.language, args.dry_run)
     run.save()
     return _finish(run)
 

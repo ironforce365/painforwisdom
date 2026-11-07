@@ -290,6 +290,7 @@ def _record(rd: Path, now: Optional[float]) -> dict:
         "ended_at": rec.get("ended_at"), "hitl_wait_s": float(rec.get("hitl_wait_s") or 0.0),
         "error": rec.get("error"), "total_s": None if started is None or end is None else end - started,
         "legacy": legacy, "events": events, "rows": rows, "dismissed": bool(rec.get("dismissed")), "pid": rec.get("pid"),
+        "dry_run": bool(rec.get("dry_run")),
     }
 
 
@@ -417,7 +418,7 @@ def needs_decision(rec: dict, rd: Path, pending: Optional[dict], node: Optional[
     out = []
     if status in ENDED_NOT_OK:
         out.append({"kind": status, "label": f"{status.capitalize()} at {node}" if node else status.capitalize()})
-    return out + _publish_attention(rd)
+    return out + ([] if rec.get("dry_run") else _publish_attention(rd))  # a dry run's package is there to look at
 
 
 def load_run(root: Path, run_id: str, node_ids: list[str], now: Optional[float] = None) -> Optional[dict]:
@@ -429,10 +430,10 @@ def load_run(root: Path, run_id: str, node_ids: list[str], now: Optional[float] 
         nodes = _legacy_nodes(rec["rows"], node_ids)
     else:
         nodes = node_states(rec["events"], node_ids, rec["status"] in FINISHED, rec["input"].get("kind"))
-    keys = ("run_id", "status", "verdict", "profile", "language", "input", "started_at", "ended_at", "hitl_wait_s", "error", "dismissed")
+    keys = ("run_id", "status", "verdict", "profile", "language", "input", "started_at", "ended_at", "hitl_wait_s", "error", "dismissed", "dry_run")
     pending = pending_for(rd, rec["status"])
     return {**{k: rec[k] for k in keys}, "pending": pending, "failure": failure(rec, pending),
-            "waiting_packages": _waiting_packages(rd), "packages": _packages(rd),
+            "waiting_packages": [] if rec["dry_run"] else _waiting_packages(rd), "packages": _packages(rd),
             "nodes": resolve_outputs(apply_rows(nodes, rec["rows"]), rd),
             "telemetry": telemetry(rec["rows"], rec["total_s"], rec["hitl_wait_s"],
                                    read_jsonl(rd / "usage.jsonl"), rec["status"] in ACTIVE)}
@@ -454,6 +455,8 @@ def list_runs(root: Path, now: Optional[float] = None) -> list[dict]:
         tele = telemetry(rec["rows"], rec["total_s"], rec["hitl_wait_s"], read_jsonl(rd / "usage.jsonl"),
                          rec["status"] in ACTIVE)
         wanted = needs_decision(rec, rd, pending, node)
+        if rec["dry_run"]:
+            wanted = [{**w, "label": f"Dry run: {w['label']}"} for w in wanted]
         out.append({
             "run_id": rec["run_id"], "status": rec["status"], "verdict": rec["verdict"],
             "started_at": rec["started_at"], "ended_at": rec["ended_at"],
@@ -461,7 +464,7 @@ def list_runs(root: Path, now: Optional[float] = None) -> list[dict]:
             "total_s": rec["total_s"], "cost_usd": tele["cost_usd"], "cost_estimated": tele["cost_estimated"],
             "tokens": tokens_total(tele["tokens"]), "failed_node": node,
             "attention": [] if rec["dismissed"] else wanted, "dismissed": rec["dismissed"],
-            "dismissed_attention": wanted if rec["dismissed"] else [],
+            "dismissed_attention": wanted if rec["dismissed"] else [], "dry_run": rec["dry_run"],
         })
     out.sort(key=lambda r: (r["started_at"] or 0.0, r["run_id"]), reverse=True)
     return out

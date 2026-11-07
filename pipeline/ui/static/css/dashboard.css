@@ -127,3 +127,44 @@ body[data-view="graph"] .run-cards { display: grid; grid-template-columns: repea
 @media (max-width: 720px) {
   .page { padding: 12px; }
 }
+
+/* Dry run: amber everywhere it shows, so it cannot be taken for a real run. */
+.dry-chip {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--pause);
+  color: var(--bg);
+  font-size: 11px;
+  font-weight: 700;
+}
+.dry-chip[hidden] { display: none; }
+.dry-banner {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--pause);
+  color: var(--bg);
+  font-size: 13px;
+}
+.dry-banner[hidden] { display: none; }
+.launch-dry {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--pause);
+  background: var(--surface-2);
+  color: var(--pause);
+  font-weight: 600;
+  cursor: pointer;
+}
+.launch-dry .icon { width: 14px; height: 14px; }
+.launch-dry:focus-visible { outline: 2px solid var(--run); outline-offset: 2px; }
+.launch-dry[aria-checked="true"] { background: var(--pause); color: var(--bg); }
+.launch-dry-note { margin: 0; padding: 8px 10px; border-radius: 4px; border: 1px solid var(--pause); color: var(--pause); font-size: 13px; }
+.launch-dry-note[hidden] { display: none; }
+.launch-panel[data-dry="true"] { outline: 2px solid var(--pause); }

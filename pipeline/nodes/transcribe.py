@@ -76,7 +76,8 @@ def node_transcribe(state: State) -> Dict[str, Any]:
             print(proc.stderr, flush=True)
             raise RuntimeError(f"extract_transcription.sh exit {proc.returncode}")
 
-    out_dir = Path(video).parent / "auto-generated"
+    # TRANSCRIPT_DIR: a dry run leaves nothing beside the input (extract_transcription.sh reads it too).
+    out_dir = Path(os.environ.get("TRANSCRIPT_DIR") or Path(video).parent / "auto-generated")
     candidates = sorted(
         out_dir.glob(f"transcript_{date}*.txt"),
         key=lambda p: p.stat().st_mtime,

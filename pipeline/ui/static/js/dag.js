@@ -17,7 +17,7 @@ const LANES = {
   research: 1.5, notion_research: 1.5, bv_research: 1.5,
 };
 const PACKAGE_NODE = { wordpress: 'wordpress_draft', youtube: 'youtube_upload' };
-const PACKAGE_META = { pending: 'needs you', failed: 'publish failed', publishing: 'publishing', published: 'published' };
+const PACKAGE_META = { preview: 'preview only', pending: 'needs you', failed: 'publish failed', publishing: 'publishing', published: 'published' };
 const CUES = { pending: 'dot', running: 'arc', paused: 'pause', done: 'tick', error: 'cross', skipped: 'dash' };
 
 const ZOOM_MIN = 0.2;
@@ -263,7 +263,7 @@ export function mount(el, ctx) {
   });
 
   ctx.bus.on('run:updated', (run) => {
-    const packages = new Map(run.packages.map((p) => [PACKAGE_NODE[p.target], p.status]));
+    const packages = new Map(run.packages.map((p) => [PACKAGE_NODE[p.target], run.dry_run ? 'preview' : p.status]));
     for (const [id, node] of nodes) {
       const n = run.nodes[id];
       const pkg = packages.get(id);

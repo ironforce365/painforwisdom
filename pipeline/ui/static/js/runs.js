@@ -43,7 +43,7 @@ function itemEl(run, ctx) {
     return div;
   };
   item.append(
-    line('rl-top', span('rl-name', 'rl-name', ''), span('rl-open', 'rl-open', 'Open →')),
+    line('rl-top', span('rl-name', 'rl-name', ''), span('dry-chip', 'rl-dry', 'DRY RUN'), span('rl-open', 'rl-open', 'Open →')),
     line('rl-mid', span('rl-state', 'rl-state', ''), span('rl-when', 'rl-when', '')),
     line('rl-bot', span('rl-time', 'rl-time', ''), span('rl-tokens', 'rl-tokens', ''), span('rl-cost', 'rl-cost', ''), span('rl-needs', 'rl-needs', 'Needs you')),
   );
@@ -66,6 +66,7 @@ function fillItem({ item, del }, run) {
   item.dataset.status = run.status;
   item.dataset.verdict = String(run.verdict);
   item.dataset.needs = String(run.attention.length > 0);
+  item.querySelector('[data-testid="rl-dry"]').hidden = !run.dry_run;
   item.setAttribute('aria-label', `${run.run_id} ${run.status}`);
   item.title = `${run.run_id} · ${run.status}`;
   setText(item, 'rl-name', run.input.name ?? run.run_id);

@@ -53,7 +53,7 @@ const send = (method, path, body) => request(path, {
 export const replyRun = (id, pendingId, reply) => send('POST', `/api/runs/${enc(id)}/reply`, { id: pendingId, reply });
 export const stopRun = (id) => send('POST', `/api/runs/${enc(id)}/stop`, {});
 export const retryRun = (id, autoApprove = false) => send('POST', `/api/runs/${enc(id)}/retry`, { auto_approve: autoApprove });
-export const restartRun = (id, autoApprove = false) => send('POST', `/api/runs/${enc(id)}/restart`, { auto_approve: autoApprove });
+export const restartRun = (id, autoApprove = false, dryRun = undefined) => send('POST', `/api/runs/${enc(id)}/restart`, { auto_approve: autoApprove, dry_run: dryRun });
 export const deleteRun = (id) => request(`/api/runs/${enc(id)}`, { method: 'DELETE' });
 export const getKnowledge = (limit) => request(limit ? `/api/knowledge?limit=${limit}` : '/api/knowledge');
 export const getKnowledgeEntry = (slug) => request(`/api/knowledge/${enc(slug)}`);

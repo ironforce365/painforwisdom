@@ -105,7 +105,7 @@ export const blogSection = (env) => editorSection(env, 'blog', 'This run has no 
 export const kbSection = (env) => editorSection(env, 'kb', 'This run has no knowledge base entry.', ({ run }, arts) => {
   const entry = run.nodes.kb_curator.outputs.vault_entry_path;
   // obsidian:// is the one other scheme: built here from the path the run recorded, never taken from content.
-  return entry && arts.length
+  return entry && arts.length && !run.dry_run // a dry run's entry is not in the vault Obsidian opens
     ? [el('a', { href: `obsidian://open?path=${encodeURIComponent(entry)}`, 'data-testid': 'output-vault-link', title: entry }, icon('link'), 'Open in Obsidian')]
     : [];
 }, none);

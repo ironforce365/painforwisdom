@@ -23,6 +23,7 @@ class LaunchBody(BaseModel):
     input: str
     auto_approve: bool = False
     language: Optional[str] = None
+    dry_run: bool = False
     fake: Optional[FakeSpec] = None
 
 
@@ -64,7 +65,7 @@ async def put_input(request: Request, name: str) -> dict:
 def post_run(request: Request, body: LaunchBody):
     fake = body.fake.model_dump() if body.fake is not None else None
     try:
-        run_id = launcher.launch(request.app.state.settings, body.input, body.auto_approve, fake, body.language)
+        run_id = launcher.launch(request.app.state.settings, body.input, body.auto_approve, fake, body.language, body.dry_run)
     except launcher.LaunchError as e:
         if e.status == 409:
             return JSONResponse({"detail": e.detail, "run_id": e.run_id}, status_code=409)
