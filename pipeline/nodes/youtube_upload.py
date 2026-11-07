@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from pipeline import video_preview
 from pipeline.contracts import assert_inputs
 from pipeline.image_extractor import get_duration_seconds
 from pipeline.nodes.youtube_metadata import skip_reason
@@ -33,6 +34,15 @@ def _duration_s(video: Path) -> Optional[float]:
     except Exception as exc:  # noqa: BLE001 - duration only guards the Shorts limit; the upload can still go ahead
         print(f"[youtube-upload] WARN no duration: {type(exc).__name__}: {exc}")
         return None
+
+
+def _start_preview(run_dir: Path, video: Path) -> None:
+    """The console's playable copy, started now so it is ready when the package is opened. The run never waits for it."""
+    try:
+        if video_preview.start_in_background(run_dir, "youtube", "video", video):
+            print("[youtube-upload] converting a preview copy in the background")
+    except Exception as exc:  # noqa: BLE001 - a preview is a convenience: the console converts on demand anyway
+        print(f"[youtube-upload] preview copy not started: {type(exc).__name__}: {exc}")
 
 
 def _read_metadata(state: State) -> Dict[str, Any]:
@@ -90,6 +100,7 @@ def node_youtube_upload(state: State) -> Dict[str, Any]:
             readonly={"duration_s": _duration_s(video), **({"warning": warning} if warning else {})},
             assets=[{"role": "video", "path": str(video)}],
         )))
+        _start_preview(run_dir, video)
 
     if mode != "auto":
         _write_marker(out_dir, "SKIPPED.md", f"YouTube upload skipped: mode={mode}.\n")

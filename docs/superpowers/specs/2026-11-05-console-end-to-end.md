@@ -80,7 +80,9 @@ PUBLISH (target = youtube | wordpress)
 ├─ P9 another publish holds the lock ─▶ error shown
 ├─ P10 auto mode ─▶ shows published or failed, no action unless failed
 ├─ P11 publisher died ─▶ failed, publish again
-└─ P12 video the browser cannot decode ─▶ converted copy swaps in; the upload keeps the original
+├─ P12 video the browser cannot decode ─▶ converted copy swaps in; the upload keeps the original
+├─ P13 copy started by the run ─▶ plays at once, or an animation until it is ready (2026-11-07-preview-at-run-end-design)
+└─ P14 publish time set ─▶ uploaded private, YouTube makes it public then; the card says Scheduled
 NAVIGATION
 ├─ N1 needs-you bar lists every run wanting a decision; one click to it
 ├─ N2 deep links: #/runs/<id>/{graph,output,logs}, reload keeps the view

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -12,7 +13,7 @@ from pipeline import publish as publish_core
 from pipeline import publishing_config, youtube_client
 from pipeline.nodes import youtube_metadata, youtube_upload
 from pipeline.nodes.validators.branch_youtube import node_bv_youtube
-from pipeline.publish import package, video_meta
+from pipeline.publish import package, specs, video_meta
 from pipeline.publish import youtube as adapter
 
 # What run 2026-11-03_055748_ui's prompt produced: load_agent_prompt strips "## OUTPUT", so the agent never saw JSON.
@@ -176,7 +177,7 @@ def test_manual_writes_a_pending_package_and_uploads_nothing(state, monkeypatch)
     assert "youtube_metadata_path" not in out
     assert pkg["status"] == "pending" and pkg["mode"] == "manual"
     assert pkg["fields"] == {"title": "T", "description": "D", "tags": ["a"], "privacy_status": "private", "kind": "short",
-                             "recording_date": "", "location": "", "audio_language": "en", "text_language": "en"}
+                             "recording_date": "", "location": "", "publish_at": "", "audio_language": "en", "text_language": "en"}
     assert pkg["readonly"] == {"duration_s": 42.0}
     assert pkg["assets"] == [{"role": "video", "path": state["video_path"]}]
     specs = pkg["field_specs"]
@@ -481,6 +482,48 @@ def test_a_bad_value_stops_before_anything_is_uploaded(tmp_path, monkeypatch, fi
     assert not uploads
 
 
+def test_DT_P14_a_publish_time_schedules_a_private_video_for_then(tmp_path, monkeypatch):
+    """[DT-P14] The form's local time becomes YouTube's UTC publishAt; YouTube schedules only a private video."""
+    uploads = _uploader(monkeypatch)
+    later = (datetime.now() + timedelta(days=1)).replace(second=0, microsecond=0)
+    value = later.strftime("%Y-%m-%dT%H:%M")
+    result = adapter.publish(tmp_path, _package(tmp_path, publish_at=value, privacy_status="public"))
+    call = uploads[0]
+    assert call["privacy_status"] == "private"
+    assert call["publish_at"] == later.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    assert result["publish_at"] == value
+
+
+def test_DT_P14_no_publish_time_publishes_now_with_the_chosen_privacy(tmp_path, monkeypatch):
+    """[DT-P14]"""
+    uploads = _uploader(monkeypatch)
+    result = adapter.publish(tmp_path, _package(tmp_path, privacy_status="public"))
+    assert uploads[0]["privacy_status"] == "public" and uploads[0]["publish_at"] is None
+    assert "publish_at" not in result
+
+
+@pytest.mark.parametrize("value,problem", [("2020-01-01T09:00", "has passed"), ("tomorrow", "not YYYY-MM-DDTHH:MM")])
+def test_DT_P14_a_past_or_bad_time_stops_before_anything_is_uploaded(tmp_path, monkeypatch, value, problem):
+    """[DT-P14] YouTube refuses a past publishAt: say so here, with nothing uploaded."""
+    uploads = _uploader(monkeypatch)
+    with pytest.raises(ValueError, match=problem):
+        adapter.publish(tmp_path, _package(tmp_path, publish_at=value))
+    assert not uploads
+
+
+@pytest.mark.parametrize("value,ok", [("", True), ("2026-11-08T09:30", True), ("2026-11-08", False), ("09:30", False)])
+def test_DT_P14_the_field_takes_what_the_date_and_time_picker_gives(value, ok):
+    """[DT-P14]"""
+    pkg = {"field_specs": {"publish_at": specs.YOUTUBE["publish_at"]}}
+    assert (package.validate_fields(pkg, {"publish_at": value}) == []) is ok
+
+
+def test_DT_P14_the_client_sends_publish_at(tmp_path, monkeypatch):
+    """[DT-P14]"""
+    sent = _client_upload(monkeypatch, tmp_path, privacy_status="private", publish_at="2026-11-08T17:30:00.000Z")
+    assert sent["body"]["status"] == {"privacyStatus": "private", "selfDeclaredMadeForKids": False, "publishAt": "2026-11-08T17:30:00.000Z"}
+
+
 def _client_upload(monkeypatch, tmp_path, **kwargs) -> dict:
     sent: dict = {}
 
@@ -513,6 +556,7 @@ def test_the_client_asks_youtube_to_store_them(tmp_path, monkeypatch):  # [DT-P4
 def test_the_client_sends_nothing_for_what_is_empty(tmp_path, monkeypatch):  # [DT-P4]
     sent = _client_upload(monkeypatch, tmp_path)
     assert sent["part"] == "snippet,status" and "recordingDetails" not in sent["body"]
+    assert "publishAt" not in sent["body"]["status"]
     assert "defaultLanguage" not in sent["body"]["snippet"] and "defaultAudioLanguage" not in sent["body"]["snippet"]
 
 
