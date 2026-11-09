@@ -17,7 +17,7 @@ import os
 import re
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import yaml
 from langgraph.types import interrupt
@@ -569,7 +569,8 @@ def _call_metric(usage: Dict[str, Any], phase: str) -> Dict[str, Any]:
     return {**usage, "duration_s": round(usage["duration_s"], 2), "phase": phase}
 
 
-def node_kb_curator(state: State) -> Dict[str, Any]:
+def curate(state: State, ask: Callable[[Dict[str, Any]], Optional[str]]) -> Dict[str, Any]:
+    """`ask` takes each approval payload and returns the reply (spec 2026-11-09-session-pipeline-v2 §4)."""
     assert_inputs("kb_curator", state)
     t0 = time.time()
     print("[kb-curator] start")
@@ -585,9 +586,8 @@ def node_kb_curator(state: State) -> Dict[str, Any]:
         payload = _interrupt_payload(plan)
         proposal_msg = payload["proposal"]
         print(f"[kb-curator] suspending for approval:\n{proposal_msg}")
-        # interrupt() suspends the graph; orchestrator handles the human round-trip
-        # and resumes the graph with the reply text.
-        reply: Optional[str] = interrupt(payload)
+        # v1: interrupt() suspends the graph, the orchestrator resumes it with the reply; v2: ask blocks in-process.
+        reply: Optional[str] = ask(payload)
         reply = (reply or "").strip()
         print(f"[kb-curator] resumed with reply: {reply!r}")
         approval_history.append((proposal_msg, reply))
@@ -617,3 +617,7 @@ def node_kb_curator(state: State) -> Dict[str, Any]:
         f"approvals={len(approval_history)} entry={out['vault_entry_slug']}"
     )
     return out
+
+
+def node_kb_curator(state: State) -> Dict[str, Any]:
+    return curate(state, interrupt)
