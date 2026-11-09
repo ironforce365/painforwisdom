@@ -49,22 +49,20 @@ def test_ab_runs_engines_one_after_the_other_and_reports(tmp_path, monkeypatch):
     transcript.write_text("hello")
     calls = []
 
-    def fake_run(cmd, cwd, env, stdout, stderr):
+    def fake_run(cmd, cwd, stdout, stderr):
         engine = "v2" if cmd[2] == "pipeline.v2.run" else "v1"
         run_id = cmd[cmd.index("--run-id") + 1]
-        calls.append((engine, run_id, env.get("ANTHROPIC_AUTH_TOKEN")))
+        calls.append((engine, run_id))
         assert "--dry-run" in cmd and "--auto-approve" in cmd
         _fake_run(tmp_path / "processed" / run_id / "langgraph", engine)
         return subprocess.CompletedProcess(cmd, 0 if engine == "v1" else 2)
 
     monkeypatch.setattr(ab.subprocess, "run", fake_run)
-    monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "tok")
     assert ab.main(["--from-transcript", str(transcript), "--repeat", "2",
                     "--processed-root", str(tmp_path / "processed")]) == 0
 
-    assert [(e, r.rsplit("-", 2)[1:]) for e, r, _ in calls] == [
+    assert [(e, r.rsplit("-", 2)[1:]) for e, r in calls] == [
         ("v1", ["1", "v1"]), ("v2", ["1", "v2"]), ("v1", ["2", "v1"]), ("v2", ["2", "v2"])]
-    assert [t for _, _, t in calls] == ["tok", "", "tok", ""]  # bl-dff0b22f workaround, v2 child only
 
     out = next((tmp_path / "processed" / "ab").iterdir())
     report = json.loads((out / "report.json").read_text())

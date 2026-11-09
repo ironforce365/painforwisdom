@@ -385,7 +385,7 @@ v2 runs the same stages and prompts as the LangGraph pipeline, with LLM calls as
 python -m pipeline.v2.run --from-transcript tests/fixtures/transcript_2026-04-14.txt --profile sandbox --dry-run --auto-approve
 ```
 
-Until bl-dff0b22f lands, prefix a direct v2 run with `ANTHROPIC_AUTH_TOKEN=` or every session gets 401. From a worktree, set `PAINFORWISDOM_STATE_ROOT` to the main checkout so `.env.sandbox` is found.
+From a worktree, set `PAINFORWISDOM_STATE_ROOT` to the main checkout so `.env.sandbox` is found.
 
 A/B: both engines on one transcript, `--dry-run --auto-approve`, one after the other (never in parallel), run ids `ab-<ts>-<n>-v1` and `ab-<ts>-<n>-v2`. Sandbox only.
 

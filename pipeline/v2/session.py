@@ -66,7 +66,8 @@ def _options(system_prompt: str, model: str, allowed_tools: Sequence[str], max_t
         setting_sources=[],
         max_turns=max_turns,
         cwd=cwd,
-        env={"ANTHROPIC_API_KEY": ""},  # SDK merges os.environ; empty = unset for the CLI, bills the subscription
+        # SDK merges os.environ; empty = unset for the CLI, so it uses the Claude Code login (bills the subscription)
+        env={"ANTHROPIC_API_KEY": "", "ANTHROPIC_AUTH_TOKEN": ""},
     )
 
 

@@ -89,7 +89,7 @@ def test_run_session_isolation_usage_and_retry(tmp_path, monkeypatch):
 
     opts = calls[-1]
     assert opts.setting_sources == [] and opts.tools == [] and opts.allowed_tools == []
-    assert opts.env == {"ANTHROPIC_API_KEY": ""} and opts.cwd == str(tmp_path) and opts.system_prompt == "S"
+    assert opts.env == {"ANTHROPIC_API_KEY": "", "ANTHROPIC_AUTH_TOKEN": ""} and opts.cwd == str(tmp_path) and opts.system_prompt == "S"
     assert sleeps == [4.0] and res.attempts == 2
     assert (res.text, res.cli_version, res.notional_cost_usd) == ("answer", "9.9", 0.02)
     assert res.usage() == {"input_tokens": 3, "output_tokens": 4, "cache_read_tokens": 5,
