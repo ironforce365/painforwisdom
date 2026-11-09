@@ -14,6 +14,7 @@ bulk-*
 # LangGraph migration — runtime/sandbox artifacts
 obsidian-vault-sandbox/
 pipeline/checkpoints*.db
+pipeline/v2.db*
 poc/runs.jsonl
 .current_run
 .paperclip.json
