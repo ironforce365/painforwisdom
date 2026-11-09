@@ -19,11 +19,13 @@ Subscription path requires:
 """
 from __future__ import annotations
 
+import contextvars
 import json
 import os
 import time
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, Iterator, List, Optional
 
 import litellm
 
@@ -36,6 +38,19 @@ CLAUDE_CODE_IDENTITY = "You are Claude Code, Anthropic's official CLI for Claude
 # Track which billing mode is active so the system-block builder knows
 # whether to prepend the Claude Code identity (subscription only).
 _BILLING_MODE: Optional[str] = None
+
+# Optional replacement for the LiteLLM path (spec 2026-11-09-session-pipeline-v2 §2.1).
+_BACKEND: contextvars.ContextVar[Optional[Callable[..., Dict[str, Any]]]] = contextvars.ContextVar(
+    "pipeline_llm_backend", default=None)
+
+
+@contextmanager
+def backend(fn: Callable[..., Dict[str, Any]]) -> Iterator[None]:
+    token = _BACKEND.set(fn)
+    try:
+        yield
+    finally:
+        _BACKEND.reset(token)
 
 
 def _refresh_auth() -> str:
@@ -144,6 +159,10 @@ def call_llm(
     ``rate_limit_error: "Extra usage is required for long context requests"``
     even on tiny requests — so we keep it off by default.
     """
+    bound = _BACKEND.get()
+    if bound is not None:
+        return bound(model=model, system_prompt=system_prompt, user_message=user_message,
+                     max_tokens=max_tokens, web_search=web_search, tools=tools)
     effective_tools: List[Dict[str, Any]] = list(tools or [])
     if web_search and not any(t.get("type", "").startswith("web_search") for t in effective_tools):
         effective_tools.append({"type": "web_search_20250305", "name": "web_search"})
