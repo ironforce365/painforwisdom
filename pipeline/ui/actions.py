@@ -22,8 +22,9 @@ from pipeline.ui.settings import Settings
 STOP_GRACE_S = 5.0
 STOP_KILL_WAIT_S = 2.0
 LOG_READ_CAP = 2 * 1024 * 1024
-RUNNERS = {b"pipeline.run", b"pipeline.retry", b"pipeline.ui.fake_runner"}
+RUNNERS = {b"pipeline.run", b"pipeline.retry", b"pipeline.ui.fake_runner", b"pipeline.v2.run"}
 STOPPED = "Stopped from the console."
+V2_RELAUNCH = "v2 (sessions) run: relaunch it with python -m pipeline.v2.run"
 
 
 class ActionError(Exception):
@@ -67,12 +68,16 @@ def _has_checkpoint(settings: Settings, rec: dict) -> bool:
 def _retry_blocker(settings: Settings, rec: dict) -> Optional[str]:
     if rec["status"] == "done":
         return "this run finished: there is nothing to retry"
+    if rec["engine"] == "sessions":  # spec 2026-11-09-session-pipeline-v2 section 6
+        return V2_RELAUNCH
     if not _has_checkpoint(settings, rec):
         return "this run has no checkpoint: restart it from scratch"
     return None
 
 
 def _restart_blocker(rd: Path, rec: dict) -> Optional[str]:
+    if rec["engine"] == "sessions":  # launcher.launch_path relaunches through v1
+        return V2_RELAUNCH
     return None if runs.input_file(rd, rec) else f"the input file is gone: {rec['input'].get('path')}"
 
 

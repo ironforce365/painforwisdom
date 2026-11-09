@@ -350,3 +350,22 @@ def test_saving_a_text_output_replaces_it_whole_and_keeps_its_mode(tmp_path):  #
 def test_a_package_file_is_not_an_editable_output():  # [DT-D4]
     assert artifacts.is_package_file({"name": "package.json"}) and artifacts.is_package_file({"name": "publish.lock"})
     assert not artifacts.is_package_file({"name": "blog_post.md"})
+
+
+def test_a_v2_run_blocks_retry_restart_and_rerun_with_the_relaunch_hint(root):  # [DT-F5] [DT-F6]
+    _set(root, "fx-stopped", engine="sessions")
+    offer = _offer(root, "fx-stopped")
+    assert offer["actions"] == ["dismiss"]
+    assert offer["action_blockers"] == {"retry": actions.V2_RELAUNCH, "restart": actions.V2_RELAUNCH}
+    assert offer["manage"]["rerun"] == actions.V2_RELAUNCH
+    with pytest.raises(actions.ActionError) as retry:
+        actions.retry(_settings(root), "fx-stopped", False)
+    with pytest.raises(actions.ActionError) as restart:
+        actions.restart(_settings(root), "fx-stopped", False)
+    assert (retry.value.status, restart.value.status) == (409, 404)
+    assert "pipeline.v2.run" in retry.value.body["detail"]
+
+
+def test_is_runner_knows_the_v2_runner(monkeypatch):  # [DT-R3]
+    monkeypatch.setattr(actions, "_cmdline", lambda pid: [b"python", b"-m", b"pipeline.v2.run", b"--profile", b"sandbox"])
+    assert actions.is_runner(123) is True

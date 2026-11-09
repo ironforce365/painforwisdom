@@ -290,7 +290,7 @@ def _record(rd: Path, now: Optional[float]) -> dict:
         "ended_at": rec.get("ended_at"), "hitl_wait_s": float(rec.get("hitl_wait_s") or 0.0),
         "error": rec.get("error"), "total_s": None if started is None or end is None else end - started,
         "legacy": legacy, "events": events, "rows": rows, "dismissed": bool(rec.get("dismissed")), "pid": rec.get("pid"),
-        "dry_run": bool(rec.get("dry_run")),
+        "dry_run": bool(rec.get("dry_run")), "engine": rec.get("engine"),
     }
 
 
