@@ -30,7 +30,6 @@ HITL handling:
 from __future__ import annotations
 
 import argparse
-import json
 import shutil
 import sys
 import time
@@ -106,6 +105,16 @@ from pipeline import dry_run, hitl  # noqa: E402
 from pipeline.contracts import InputContractError  # noqa: E402
 from pipeline.graph import _error_text, build_graph  # noqa: E402
 from pipeline.publishing_config import run_language  # noqa: E402
+from pipeline.run_common import (  # noqa: E402,F401  shared with pipeline.v2.run; pipeline.retry imports them from here
+    MAX_AUTO_APPROVALS,
+    _APPROVAL_TITLES,
+    _build_initial_state,
+    _classify_non_recoverable,
+    _format_error_prompt,
+    _format_proposal,
+    _refuse_unattended_curator,
+    _write_run_record,
+)
 from pipeline.runtime import date_from_filename  # noqa: E402
 from pipeline.telegram import send as telegram_send  # noqa: E402
 
@@ -113,56 +122,6 @@ VIDEO_EXTENSIONS = (".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi")
 
 
 # --- HITL prompts -----------------------------------------------------------
-
-
-def _format_proposal(payload: Dict[str, Any]) -> str:
-    return (
-        f"⚠️ Pipeline pause — {payload.get('kind','?')} approval needed\n\n"
-        f"{payload.get('proposal','')}\n\n"
-        "Reply to resume. Pipeline will wait."
-    )
-
-
-def _classify_non_recoverable(exc: Exception) -> Optional[str]:
-    """Return a short human-readable reason if `exc` cannot be fixed by a retry.
-
-    Recovery via `retry` only helps for transient failures (network blip,
-    rate-limit window passing). The cases below will fail identically on a
-    re-run, so we surface that to the user instead of inviting a futile retry.
-    """
-    if isinstance(exc, InputContractError):
-        return "input contract violation — retry would hit the same check"
-    msg = str(exc).lower()
-    if "extra usage is required for long context requests" in msg:
-        return (
-            "Anthropic long-context tier rejected the request — "
-            "subscription lacks the long-context billing add-on, retry will fail identically"
-        )
-    if "invalid authentication credentials" in msg or "unauthorized" in msg:
-        return "auth credentials rejected after in-call refresh — retry would re-fail"
-    return None
-
-
-def _format_error_prompt(
-    stage: str,
-    exc: Exception,
-    non_recoverable_reason: Optional[str] = None,
-) -> str:
-    msg = f"{type(exc).__name__}: {exc}"
-    if len(msg) > 800:
-        msg = msg[:800] + " …(truncated)"
-    if non_recoverable_reason:
-        return (
-            f"🚫 Pipeline error in `{stage}` — NON-RECOVERABLE\n\n"
-            f"Reason: {non_recoverable_reason}\n\n"
-            f"{msg}\n\n"
-            "Reply `abort` to quarantine this video. `retry` will not help."
-        )
-    return (
-        f"⚠️ Pipeline error in `{stage}`\n\n"
-        f"{msg}\n\n"
-        "Reply: `retry` (re-run from checkpoint) | `abort` (quarantine this video)"
-    )
 
 
 def _get_pending_interrupt(graph, config) -> Optional[Dict[str, Any]]:
@@ -200,13 +159,6 @@ def _require_finished(graph, config) -> None:
         raise RuntimeError(f"the graph stopped with work pending in {', '.join(left)}: the run did not finish")
 
 
-_APPROVAL_TITLES = {
-    "theme": "New theme: approval needed",
-    "framework": "New framework: approval needed",
-    "curator": "Curator: decision needed",
-}
-
-
 def _interrupted_node(graph, config) -> str:
     for task in graph.get_state(config).tasks:
         if task.interrupts:
@@ -218,17 +170,6 @@ def _approval_request(graph, config, payload: Dict[str, Any]) -> Dict[str, Any]:
     kind = str(payload.get("kind", "?"))
     return hitl.approval_request(_interrupted_node(graph, config), _APPROVAL_TITLES.get(kind, f"{kind}: approval needed"),
                                  _format_proposal(payload))
-
-
-MAX_AUTO_APPROVALS = 10
-
-
-def _refuse_unattended_curator(payload: Dict[str, Any], rounds: int = 0) -> None:
-    """--auto-approve answers `yes` forever: an action only a human can settle, or a proposer that never stops, would loop on the LLM."""
-    if payload.get("kind") == "curator":
-        raise RuntimeError(f"kb-curator needs a decision, --auto-approve cannot give one: {payload.get('proposal', '')}")
-    if rounds > MAX_AUTO_APPROVALS:
-        raise RuntimeError(f"--auto-approve gave up after {MAX_AUTO_APPROVALS} approvals: the node keeps asking")
 
 
 def _last_failed_node(graph, config) -> str:
@@ -243,22 +184,6 @@ def _last_failed_node(graph, config) -> str:
     except Exception:  # noqa: BLE001
         pass
     return "?"
-
-
-# --- Run record (C2): docs/superpowers/specs/2026-10-31-pipeline-console-ui.md section 2
-
-
-def _write_run_record(run_dir: Path, **fields: Any) -> None:
-    """Merge `fields` into <run_dir>/run.json, replacing the file atomically."""
-    path = run_dir / "run.json"
-    try:
-        record = json.loads(path.read_text())
-    except (FileNotFoundError, ValueError):
-        record = {}
-    record.update(fields)
-    tmp = path.with_name("run.json.tmp")
-    tmp.write_text(json.dumps(record))
-    os.replace(tmp, path)
 
 
 # --- Per-video orchestration ------------------------------------------------
@@ -280,42 +205,6 @@ def _move_into(source: Path, dest_dir: Path) -> Path:
         target = dest_dir / f"{source.stem}_{int(time.time())}{source.suffix}"
     shutil.move(str(source), str(target))
     return target
-
-
-def _build_initial_state(args: argparse.Namespace, video: Optional[Path], run_id: str, run_dir: Path) -> Tuple[Dict[str, Any], str]:
-    """Return (initial_state, start_at)."""
-    if args.from_transcript:
-        transcript_path = Path(args.from_transcript).resolve()
-        if not transcript_path.is_file():
-            raise SystemExit(f"transcript not found: {transcript_path}")
-        text = transcript_path.read_text()
-        word_count = len(text.split())
-        video_date = date_from_filename(str(transcript_path))
-        return (
-            {
-                "video_path": "",
-                "transcript_path": str(transcript_path),
-                "transcript_text": text,
-                "transcript_word_count": word_count,
-                "video_date": video_date,
-                "language": run_language(args.language),
-                "run_id": run_id,
-                "run_dir": str(run_dir),
-                "metrics": [],
-            },
-            "extract",
-        )
-    assert video is not None
-    return (
-        {
-            "video_path": str(video),
-            "language": run_language(args.language),
-            "run_id": run_id,
-            "run_dir": str(run_dir),
-            "metrics": [],
-        },
-        "transcribe",
-    )
 
 
 def _drive_graph(

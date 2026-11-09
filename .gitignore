@@ -15,6 +15,7 @@ bulk-*
 obsidian-vault-sandbox/
 pipeline/checkpoints*.db
 pipeline/v2.db*
+pipeline/v2-sandbox.db*
 poc/runs.jsonl
 .current_run
 .paperclip.json
