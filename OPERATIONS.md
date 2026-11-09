@@ -377,7 +377,42 @@ PYTHON=/home/gonzalo/miniconda3/envs/painforwisdom-poc/bin/python \
 
 ---
 
-## 10. File / directory reference
+## 10. Pipeline v2 (sessions) and A/B harness
+
+v2 runs the same stages and prompts as the LangGraph pipeline, with LLM calls as Claude Agent SDK sessions (spec `docs/superpowers/specs/2026-11-09-session-pipeline-v2.md`). Same flags as `pipeline.run`, without `--dir`. Sessions use the Claude Code login, not `ANTHROPIC_API_KEY`.
+
+```bash
+python -m pipeline.v2.run --from-transcript tests/fixtures/transcript_2026-04-14.txt --profile sandbox --dry-run --auto-approve
+```
+
+Until bl-dff0b22f lands, prefix a direct v2 run with `ANTHROPIC_AUTH_TOKEN=` or every session gets 401. From a worktree, set `PAINFORWISDOM_STATE_ROOT` to the main checkout so `.env.sandbox` is found.
+
+A/B: both engines on one transcript, `--dry-run --auto-approve`, one after the other (never in parallel), run ids `ab-<ts>-<n>-v1` and `ab-<ts>-<n>-v2`. Sandbox only.
+
+```bash
+python -m pipeline.v2.ab --from-transcript tests/fixtures/transcript_2026-04-14.txt --repeat 2 --profile sandbox
+```
+
+Report: `processed/ab/<ts>/report.md` and `report.json`, child logs beside them. Per engine: wall time, node durations, LLM calls, tokens by kind, retries, errors, verdict; outputs side by side; validator findings that differ. It compares, it does not rate quality. A run that `--auto-approve` refuses (kb-curator asking a real decision, e.g. the 2026-04-17 fixture's `HALT_DUPLICATE_SUSPECTED`) shows as `refused by --auto-approve: True`. Compare tokens on `prompt_total`: v1 `input_tokens` already counts cache tokens, v2's does not.
+
+Audit DB (SQLite, one row per run, step, session, approval and artifact):
+
+| Run | DB |
+|-----|----|
+| `--dry-run` | `processed/<run_id>/dry-run/v2.db` |
+| `--profile sandbox` | `pipeline/v2-sandbox.db` |
+| prod | `pipeline/v2.db` |
+
+`PIPELINE_V2_DB` overrides the non-dry-run path.
+
+```bash
+python -m pipeline.v2.audit <run_id> --db processed/<run_id>/dry-run/v2.db     # steps, sessions, approvals, artifacts
+python -m pipeline.v2.audit --db <db> --session <n>                           # session row #n in full: prompt and output
+```
+
+---
+
+## 11. File / directory reference
 
 | Path | Notes |
 |------|-------|
