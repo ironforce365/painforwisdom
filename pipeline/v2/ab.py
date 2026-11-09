@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import subprocess
 import sys
@@ -150,14 +149,6 @@ def findings_diff(a: Dict[str, Dict[str, Any]], b: Dict[str, Dict[str, Any]]) ->
     return rows
 
 
-def _child_env(engine: str) -> Dict[str, str]:
-    env = dict(os.environ)
-    if engine == "v2":
-        # bl-dff0b22f: profile token leaks into the session CLI (401); load_dotenv keeps a set var. Drop once it lands.
-        env["ANTHROPIC_AUTH_TOKEN"] = ""
-    return env
-
-
 def run_engine(engine: str, args: argparse.Namespace, run_id: str, log_path: Path) -> Dict[str, Any]:
     cmd = [sys.executable, "-m", ENGINES[engine], "--from-transcript", str(Path(args.from_transcript).resolve()),
            "--profile", args.profile, "--dry-run", "--auto-approve", "--run-id", run_id,
@@ -165,7 +156,7 @@ def run_engine(engine: str, args: argparse.Namespace, run_id: str, log_path: Pat
     print(f"[ab] {run_id}: {' '.join(cmd[1:])}", flush=True)
     t0 = time.time()
     with open(log_path, "w") as log:
-        rc = subprocess.run(cmd, cwd=PROJECT_ROOT, env=_child_env(engine), stdout=log, stderr=subprocess.STDOUT).returncode
+        rc = subprocess.run(cmd, cwd=PROJECT_ROOT, stdout=log, stderr=subprocess.STDOUT).returncode
     wall = round(time.time() - t0, 1)
     row = collect(engine, Path(args.processed_root) / run_id / "langgraph")
     row.update(run_id=run_id, rc=rc, process_wall_s=wall, log=str(log_path))
