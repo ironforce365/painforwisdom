@@ -565,3 +565,20 @@ def test_the_package_languages_follow_the_run(state, monkeypatch):  # [DT-S6]
     youtube_upload.node_youtube_upload(_with_metadata({**state, "language": "es"}))
     fields = package.read(Path(state["run_dir"]), "youtube")["fields"]
     assert fields["audio_language"] == "es" and fields["text_language"] == "es"
+
+
+def test_revoked_refresh_token_raises_an_actionable_error(monkeypatch):
+    from google.auth.exceptions import RefreshError
+    from google.oauth2.credentials import Credentials
+
+    for var in ("YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET", "YOUTUBE_REFRESH_TOKEN"):
+        monkeypatch.setenv(var, "x")
+
+    def refuse(self, request):
+        raise RefreshError("invalid_grant: Token has been expired or revoked.")
+
+    monkeypatch.setattr(Credentials, "refresh", refuse)
+    with pytest.raises(youtube_client.YouTubeClientError, match="expired or was revoked") as info:
+        youtube_client.build_youtube_service()
+    assert "scripts/youtube_oauth_setup.py" in str(info.value)
+    assert "YOUTUBE_REFRESH_TOKEN" in str(info.value)

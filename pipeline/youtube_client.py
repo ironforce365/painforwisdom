@@ -56,6 +56,7 @@ def _require_credentials() -> Dict[str, str]:
 def build_youtube_service():  # type: ignore[no-untyped-def]
     """Return an authorised ``googleapiclient.discovery.Resource`` for YouTube v3."""
     try:
+        from google.auth.exceptions import RefreshError  # type: ignore
         from google.auth.transport.requests import Request  # type: ignore
         from google.oauth2.credentials import Credentials  # type: ignore
         from googleapiclient.discovery import build  # type: ignore
@@ -74,7 +75,15 @@ def build_youtube_service():  # type: ignore[no-untyped-def]
         client_secret=creds_input["client_secret"],
         scopes=["https://www.googleapis.com/auth/youtube.upload"],
     )
-    creds.refresh(Request())
+    try:
+        creds.refresh(Request())
+    except RefreshError as exc:
+        if "invalid_grant" not in str(exc):
+            raise
+        raise YouTubeClientError(
+            "YOUTUBE_REFRESH_TOKEN expired or was revoked (invalid_grant). "
+            "Rerun scripts/youtube_oauth_setup.py and update YOUTUBE_REFRESH_TOKEN in .env."
+        ) from exc
     return build("youtube", "v3", credentials=creds, cache_discovery=False)
 
 
