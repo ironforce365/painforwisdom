@@ -15,8 +15,11 @@ commute + run window).
 from __future__ import annotations
 
 import argparse
+import json
 import os
+import re
 import sys
+from datetime import date
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -40,6 +43,7 @@ from pipeline.summarize_daily.notion_state import mark_summarized  # noqa: E402
 
 
 DAILY_LOG = STATE_ROOT / "reports" / "daily-summarizer-runs.jsonl"
+ALERT_STATE = STATE_ROOT / "reports" / "daily-brief-alert-state.json"
 
 
 def _daily_chat_id() -> str | None:
@@ -66,6 +70,7 @@ def _run_one_brief(
     mcp_publish: bool,
     index: int = 1,
     total: int = 1,
+    crashes: list[str] | None = None,
 ) -> tuple[int, set[str]]:
     """Build + publish + notify for a single cluster.
 
@@ -95,12 +100,8 @@ def _run_one_brief(
         # mark this cluster's rows as consumed (so the next iteration picks a
         # different theme), and keep going.
         print(f"!! Brief {index}/{total} crashed: {type(exc).__name__}: {exc}")
-        _send_brief_crash_telegram(
-            cluster,
-            index=index,
-            total=total,
-            error=f"{type(exc).__name__}: {exc}",
-        )
+        if crashes is not None:
+            crashes.append(f"{type(exc).__name__}: {exc}")
         return 1, consumed_page_ids
     print(f"Brief written: {cluster_dir}")
     if skipped:
@@ -260,6 +261,7 @@ def main(argv: list[str] | None = None) -> int:
     used_themes: set[str] = set(skip_themes)
     produced = 0
     final_rc = 0
+    crashes: list[str] = []
 
     for i in range(1, max(args.count, 1) + 1):
         cluster = pick_cluster(
@@ -279,6 +281,7 @@ def main(argv: list[str] | None = None) -> int:
             mcp_publish=args.mcp_publish,
             index=i,
             total=args.count,
+            crashes=crashes,
         )
         consumed |= used_ids
         used_themes.add(cluster.theme)
@@ -288,9 +291,11 @@ def main(argv: list[str] | None = None) -> int:
             produced += 1
 
     print(f"\nDone — {produced}/{args.count} brief(s) produced this run.")
+    if crashes:
+        _send_run_verdict_telegram(produced, args.count, crashes)
     # Partial success exits 0 so systemd `Restart=on-failure` does not replay
-    # already-published briefs. Crash details are already on Telegram per brief.
-    # Only a zero-produced run signals the queue is genuinely stuck.
+    # already-published briefs. Only a zero-produced run signals the queue is
+    # genuinely stuck.
     if produced > 0:
         return 0
     return final_rc or 1
@@ -404,34 +409,81 @@ def _send_telegram(
         print(f"!! Telegram send failed: {exc}")
 
 
-def _send_brief_crash_telegram(
-    cluster: Cluster,
-    *,
-    index: int,
-    total: int,
-    error: str,
+def _error_signature(error: str) -> str:
+    """Collapse errors differing only by ids/hashes (e.g. cache file names)."""
+    return re.sub(r"[0-9a-fA-F]{8,}", "<id>", error)[:300]
+
+
+def _distinct_signatures(crashes: list[str]) -> list[str]:
+    return list(dict.fromkeys(_error_signature(c) for c in crashes))
+
+
+def _zero_brief_streak(today: date, log_path: Path) -> tuple[int | None, str]:
+    """(days since last produced brief, its date) from DAILY_LOG; (None, "") if none."""
+    last = ""
+    try:
+        for line in log_path.read_text().splitlines():
+            try:
+                ts = json.loads(line).get("ts", "")[:10]
+            except (ValueError, AttributeError):
+                continue
+            last = max(last, ts)
+    except OSError:
+        pass
+    if not last:
+        return None, ""
+    return (today - date.fromisoformat(last)).days, last
+
+
+def _should_send_verdict(today: date, signatures: list[str], state_path: Path) -> bool:
+    """False on a systemd retry that hit the same signatures already sent today."""
+    try:
+        prev = json.loads(state_path.read_text())
+    except (OSError, ValueError):
+        return True
+    return not (prev.get("date") == today.isoformat() and prev.get("signatures") == sorted(signatures))
+
+
+def _record_verdict(today: date, signatures: list[str], state_path: Path) -> None:
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(json.dumps({"date": today.isoformat(), "signatures": sorted(signatures)}))
+
+
+def _verdict_text(produced: int, total: int, signatures: list[str], streak: int | None, last: str) -> str:
+    lines = [f"⚠️ Daily brief: {produced}/{total} produced", ""]
+    lines += [f"<code>{_esc(s)}</code>" for s in signatures]
+    if produced == 0:
+        lines.append("")
+        if streak is None:
+            lines.append("No brief on record in the run log.")
+        elif streak > 0:
+            lines.append(f"0 briefs for {streak} day(s) (last brief {last}).")
+    return "\n".join(lines)
+
+
+def _send_run_verdict_telegram(
+    produced: int, total: int, crashes: list[str], today: date | None = None
 ) -> None:
-    """Notify when a brief crashes mid-LLM (rate limit, long context, transient
-    upstream error). Distinct from a fetch failure: the cluster's sources were
-    reachable but the synthesis step couldn't finish."""
+    """One end-of-run message replacing per-brief crash pings (io-a3179469)."""
+    today = today or date.today()
+    signatures = _distinct_signatures(crashes)
+    if not _should_send_verdict(today, signatures, ALERT_STATE):
+        print("Run verdict already sent today with same signatures — skipping Telegram.")
+        return
+    streak, last = _zero_brief_streak(today, DAILY_LOG)
     try:
         from pipeline.telegram import send  # noqa: WPS433
     except Exception as exc:  # noqa: BLE001
         print(f"!! Telegram import failed: {exc}")
         return
-    lines = [
-        f"⚠️ Brief {index}/{total} crashed — {_esc(cluster.theme)}",
-        f"Sub-angle: {_esc(cluster.sub_angle)}",
-        "",
-        f"<code>{_esc(error[:500])}</code>",
-        "",
-        f"{total - index} brief(s) still to come this run — continuing.",
-    ]
     try:
-        rc = send("\n".join(lines), chat_id=_daily_chat_id(), parse_mode="HTML")
-        print(f"Telegram send (crash) rc={rc}")
+        rc = send(_verdict_text(produced, total, signatures, streak, last),
+                  chat_id=_daily_chat_id(), parse_mode="HTML")
+        print(f"Telegram send (verdict) rc={rc}")
     except Exception as exc:  # noqa: BLE001
         print(f"!! Telegram send failed: {exc}")
+        return
+    _record_verdict(today, signatures, ALERT_STATE)
 
 
 def _send_fetch_failure_telegram(
