@@ -14,7 +14,7 @@ from datetime import date
 from typing import Any, Dict, List
 
 from pipeline.llm import call_llm
-from pipeline.runtime import DEFAULT_MODEL, PROJECT_ROOT
+from pipeline.runtime import DEFAULT_MODEL, STATE_ROOT
 
 
 THEME = "deliberate-discomfort"
@@ -96,7 +96,7 @@ No preamble. No "I will now". Just the synthesis prose, followed by a final line
 
 
 def _read_cache(slug: str) -> str:
-    return (PROJECT_ROOT / "briefs" / ".cache" / f"{slug}.txt").read_text()
+    return (STATE_ROOT / "briefs" / ".cache" / f"{slug}.txt").read_text()
 
 
 def _per_row_summary(source: Dict[str, Any]) -> str:
@@ -137,7 +137,7 @@ def _vault_links() -> List[str]:
 
 
 def main() -> int:
-    out_dir = PROJECT_ROOT / "briefs"
+    out_dir = STATE_ROOT / "briefs"
     out_dir.mkdir(exist_ok=True)
     today = date.today().isoformat()
     brief_path = out_dir / f"{today}-{THEME}.md"
