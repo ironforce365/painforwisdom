@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from pipeline.llm import call_llm
-from pipeline.runtime import DEEP_MODEL, DEFAULT_MODEL, PROJECT_ROOT, VAULT_PATH
+from pipeline.runtime import DEEP_MODEL, DEFAULT_MODEL, STATE_ROOT, VAULT_PATH
 
 
 # All content-generation LLM calls go to Opus. Sonnet's synthesis wasn't
@@ -200,7 +200,7 @@ def _slug(s: str) -> str:
 
 
 def _read_cache(slug: str) -> str:
-    return (PROJECT_ROOT / "briefs" / ".cache" / f"{slug}.txt").read_text()
+    return (STATE_ROOT / "briefs" / ".cache" / f"{slug}.txt").read_text()
 
 
 def _focal_prompt(source: Dict[str, Any]) -> str:
@@ -350,7 +350,7 @@ def _focal_summary_local(source: Dict[str, Any], raw_text: str) -> str:
 def _read_vault(rel_path: str) -> str:
     """Vault entry path is stored as a slug like '2026-03-27-pre-run-fatigue-is-forecast'.
     Resolves under obsidian-vault/gonzalo-book/entries/."""
-    base = PROJECT_ROOT / "obsidian-vault" / "gonzalo-book" / "entries"
+    base = VAULT_PATH / "gonzalo-book" / "entries"
     for cand in (rel_path, f"{rel_path}.md", rel_path.removesuffix(".md") + ".md"):
         p = base / cand
         if p.exists():
@@ -606,11 +606,11 @@ def render_audio_prompts(cluster: Dict[str, Any], prompts_md: str) -> str:
 def run_cluster(cluster: Dict[str, Any]) -> None:
     today = date.today().isoformat()
     sub_slug = _slug(cluster["sub_angle"])
-    cluster_dir = PROJECT_ROOT / "briefs" / cluster["theme"] / f"{today}--{sub_slug}"
+    cluster_dir = STATE_ROOT / "briefs" / cluster["theme"] / f"{today}--{sub_slug}"
     cluster_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"\n[poc-v2] === {cluster['theme']} / {cluster['sub_angle']} ===", flush=True)
-    print(f"[poc-v2] dir: {cluster_dir.relative_to(PROJECT_ROOT)}", flush=True)
+    print(f"[poc-v2] dir: {cluster_dir.relative_to(STATE_ROOT)}", flush=True)
     print(f"[poc-v2] sources: {len(cluster['sources'])}", flush=True)
 
     # 1. Per-row summaries

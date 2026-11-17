@@ -104,12 +104,12 @@ class ReadVaultGracefulDegradeTests(unittest.TestCase):
         tmp = TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
-        self.entries = self.root / "obsidian-vault" / "gonzalo-book" / "entries"
+        self.entries = self.root / "gonzalo-book" / "entries"
         self.entries.mkdir(parents=True)
         (self.entries / "2026-04-13-passion-as-high-performance.md").write_text(
             "real vault entry body"
         )
-        p = patch.object(poc_brief_v2, "PROJECT_ROOT", self.root)
+        p = patch.object(poc_brief_v2, "VAULT_PATH", self.root)
         p.start()
         self.addCleanup(p.stop)
 
