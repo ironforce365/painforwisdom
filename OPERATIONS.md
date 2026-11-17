@@ -150,6 +150,7 @@ bash extract_transcription.sh path/to/video.mp4 English 2026-04-13
 | `kb-curator: response missing ---kb-plan--- markers` | LLM dropped the structured output. The node retries once automatically; a double-flake means more retries needed in `pipeline/nodes/kb_curator.py:_call_llm_for_plan`. |
 | `Submodule clone failed` | Vault submodule is private to a different account. Ensure your local git auth has access. |
 | `entry already exists, refusing overwrite` | Run on the same date already wrote to the vault. Reset with `bash tests/sandbox_reset.sh` (sandbox) or remove the file in the vault submodule (prod) before re-running. |
+| YouTube publish `RefreshError: invalid_grant` | `YOUTUBE_REFRESH_TOKEN` expired or revoked. Rerun `python scripts/youtube_oauth_setup.py` and update `.env`; check the consent screen is "In production" (script docstring). |
 | Telegram intake message missing | `telegram_io.sh` failed at startup — check `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`. The pipeline keeps running on Telegram failures (non-fatal). |
 
 ### Inspect a previous run

@@ -53,7 +53,7 @@ claude setup-token   # exports ANTHROPIC_AUTH_TOKEN
 | `NOTION_BLOG_DATA_SOURCE_ID` | Optional override; defaults to prod blog DB |
 | `NOTION_RESEARCH_DATA_SOURCE_ID` | Optional override; defaults to prod research DB |
 | `ANTHROPIC_AUTH_TOKEN` *or* `ANTHROPIC_API_KEY` | Anthropic auth |
-| `YOUTUBE_CLIENT_ID`, `YOUTUBE_CLIENT_SECRET`, `YOUTUBE_REFRESH_TOKEN` | YouTube publish; `scripts/youtube_oauth_setup.py` captures them |
+| `YOUTUBE_CLIENT_ID`, `YOUTUBE_CLIENT_SECRET`, `YOUTUBE_REFRESH_TOKEN` | YouTube publish; `scripts/youtube_oauth_setup.py` captures them. After adding the test user, set the OAuth consent screen's Publishing status to "In production", or the refresh token expires in 7 days; the unverified-app warning is expected for a single-user app |
 | `WORDPRESS_USERNAME`, `WORDPRESS_APP_PASSWORD` | WordPress publish |
 
 Sandbox profile (`.env.sandbox`) points at duplicated Notion DBs and a parallel vault worktree — see [`.env.sandbox.template`](.env.sandbox.template).

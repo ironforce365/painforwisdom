@@ -3,6 +3,10 @@
 Prerequisites:
   1. Create a Google Cloud project, enable "YouTube Data API v3".
   2. OAuth consent screen → External → add Gonzalo's gmail as a test user.
+     Then set Publishing status to "In production": Google expires refresh
+     tokens of Testing apps after 7 days (``invalid_grant``). The consent
+     page then warns the app is unverified; expected for a single-user app,
+     continue past it.
   3. Credentials → Create OAuth client ID → "Desktop app" → download the
      JSON. Save it as
      ``~/.config/painforwisdom/youtube_client_secret.json``
