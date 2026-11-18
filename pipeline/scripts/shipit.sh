@@ -86,6 +86,11 @@ elif [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
      (local $(git rev-parse --short HEAD) vs origin/main $(git rev-parse --short origin/main))"
 fi
 
+SHIP_SHA="$(git rev-parse "${BASE_SHA:-HEAD}")"
+# One commit, one release: a second ship of it is a duplicate tag and deploy (io-4e15563a).
+SHIPPED_AS="$(git tag --points-at "$SHIP_SHA" -l 'pipeline-v*' | head -1)"
+[ -z "$SHIPPED_AS" ] || die "commit ${SHIP_SHA:0:9} is already released as $SHIPPED_AS"
+
 bump() {  # bump <X.Y.Z> <major|minor|patch>
   local IFS=.; read -r ma mi pa <<<"$1"
   case "$2" in
@@ -106,7 +111,6 @@ TAG="pipeline-v$VERSION"
 git rev-parse -q --verify "refs/tags/$TAG" >/dev/null && die "tag $TAG already exists"
 git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1 && die "tag $TAG already exists on origin"
 
-SHIP_SHA="$(git rev-parse "${BASE_SHA:-HEAD}")"
 # First pipeline tag: notes start at the last shared v* release.
 NOTES_FROM="${PREV:+pipeline-v$PREV}"
 NOTES_FROM="${NOTES_FROM:-$(git tag -l 'v[0-9]*' --sort=-v:refname | sed -n 1p)}"
