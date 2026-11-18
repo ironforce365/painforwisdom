@@ -10,6 +10,8 @@ python-dotenv>=1.0.0,<2
 httpx>=0.27,<1
 PyYAML>=6.0,<7
 trafilatura>=1.12,<2
+# WordPress export to markdown (pipeline/scripts/migrate_wordpress_posts.py).
+lxml>=5,<7
 
 # Pipeline console UI (pipeline/ui).
 fastapi>=0.115,<1
