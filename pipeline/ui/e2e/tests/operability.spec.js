@@ -1044,6 +1044,26 @@ test.describe('publish', () => {
     await expect(page.getByTestId('publish-error-wordpress')).toBeEmpty();
   });
 
+  test('[DT-P5] after a publish the run banner and DAG follow the package, with no reload (io-f07d19f0)', async ({ page }) => {
+    writePkg('fx-done', 'wordpress-draft', { ...readPkg('fx-done', 'wordpress-draft'), status: 'failed', error: 'boom' });
+    writePkg('fx-done', 'youtube-upload', { ...readPkg('fx-published', 'youtube-upload'), status: 'pending' });
+    await page.goto('/#/runs/fx-done');
+    const title = page.getByTestId('action-title');
+    const node = page.getByTestId('node-wordpress_draft');
+    await expect(title).toHaveText('Waiting for you to publish: WordPress (failed), YouTube.');
+    await expect(node).toHaveAttribute('data-package', 'failed');
+    await page.evaluate(() => { window.sameDocument = true; });
+
+    await page.getByTestId('action-open-wordpress').click();
+    await page.getByTestId('publish-wordpress').click();
+    await expect(page.getByTestId('published-wordpress')).toBeVisible({ timeout: 15_000 });
+    await expect(title).toHaveText('Waiting for you to publish: YouTube.');
+    await page.getByTestId('view-tab-graph').click();
+    await expect(node).toHaveAttribute('data-package', 'published');
+    await expect(node.getByTestId('dag-meta')).toHaveText('published');
+    expect(await page.evaluate(() => window.sameDocument)).toBe(true);
+  });
+
   test('[DT-P6] published: read-only with link; another target stays editable from its own specs', async ({ page }) => {
     await go(page, 'fx-published', 'wordpress');
     await expect(page.getByTestId('published-wordpress')).toHaveAttribute('href', 'https://example.invalid/wordpress/fx-published');
