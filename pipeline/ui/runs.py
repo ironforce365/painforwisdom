@@ -398,7 +398,7 @@ def _waiting_packages(rd: Path) -> list[dict]:
     return [p for p in _packages(rd) if p["status"] in {"pending", "failed"}]
 
 
-_TARGET_NAME = {"wordpress": "WordPress", "youtube": "YouTube"}
+_TARGET_NAME = {"wordpress": "WordPress", "youtube": "YouTube", "blog": "Blog"}
 
 
 def _publish_attention(rd: Path) -> list[dict]:

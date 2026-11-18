@@ -605,7 +605,8 @@ def test_overview_always_has_targets_and_prepare(client, processed):  # [DT-P2] 
     body = client.get("/api/runs/fx-unpackaged/publish").json()
     assert body["targets"] == {}
     assert body["prepare"] == {"youtube": {"can": True, "reason": None, "mode": "manual"},
-                               "wordpress": {"can": True, "reason": None, "mode": "manual"}}
+                               "wordpress": {"can": True, "reason": None, "mode": "manual"},
+                               "blog": {"can": True, "reason": None, "mode": "manual"}}
     failed = client.get("/api/runs/fx-failed/publish").json()
     assert failed["targets"] == {}
     assert failed["prepare"]["wordpress"]["can"] is False and "blog" in failed["prepare"]["wordpress"]["reason"]
@@ -630,6 +631,14 @@ def test_prepare_wordpress_from_the_bundle(client, processed):  # [DT-P2]
     assert set(pkg["field_specs"]) == set(pkg["fields"])
     assert client.get("/api/runs/fx-unpackaged/publish").json()["targets"]["wordpress"]["status"] == "pending"
     assert client.post("/api/runs/fx-unpackaged/publish/wordpress/prepare").status_code == 409
+
+
+def test_prepare_blog_from_the_bundle(client, processed):
+    pkg = client.post("/api/runs/fx-unpackaged/publish/blog/prepare").json()
+    assert pkg["target"] == "blog" and pkg["mode"] == "manual" and pkg["status"] == "pending"
+    assert pkg["fields"]["slug"] == "the-road-stopped-arguing" and pkg["fields"]["date"] == "2026-10-28"
+    assert pkg["fields"]["body"].startswith("I ran until") and pkg["assets"][0]["path"].endswith("featured.png")
+    assert package.validate_fields(pkg, pkg["fields"]) == []
 
 
 def test_prepare_wordpress_falls_back_to_the_writer_output(client, processed):  # [DT-P2]

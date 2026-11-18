@@ -41,6 +41,7 @@ function realCards(run, publish, blog, entry) {
   return [
     packageCard('youtube', 'YouTube', 'video', publish?.targets?.youtube, publish?.prepare?.youtube),
     packageCard('wordpress', 'WordPress', 'globe', publish?.targets?.wordpress, publish?.prepare?.wordpress),
+    packageCard('site', 'Blog site', 'send', publish?.targets?.blog, publish?.prepare?.blog),
     {
       section: 'blog', label: 'Blog draft', glyph: 'pen', state: blog ? 'In Notion' : 'Nothing yet', title: blog?.title ?? '', url: blog?.url, urlText: 'Open in Notion', needs: false, go: 'Read here →',
     },

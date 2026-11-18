@@ -1,11 +1,11 @@
 // Publish panel for any target, rendered only from the C9 package and its field_specs (spec 2026-11-03 §1.2, 2026-11-05 §2 P).
 import { el, icon, RENDER } from '../drawer.js';
 import { fmtDuration } from '../format.js';
-import { base, LABELS, reasonOf } from './model.js';
+import { base, reasonOf, SECTION_OF, targetLabel } from './model.js';
 import { button, linkEl, sync } from './ui.js';
 
 const PREVIEW_POLL_MS = 1000;
-const PUBLISHING_TEXT = { youtube: 'Uploading to YouTube', wordpress: 'Publishing to WordPress' };
+const PUBLISHING_TEXT = { youtube: 'Uploading to YouTube', wordpress: 'Publishing to WordPress', blog: 'Pushing to the blog site' };
 
 function plainInput(tag, props, value) {
   const input = el(tag, props);
@@ -184,7 +184,7 @@ function buildForm(first, env) {
   const link = el('span', { class: 'pub-link' });
   const notice = el('span', { class: 'notice', 'data-testid': `publish-notice-${target}`, role: 'status' });
   const save = button('Save', { 'data-testid': `save-${target}` }, 'tick');
-  const publish = button(`Publish to ${LABELS[target]}`, { class: 'btn primary', 'data-testid': `publish-${target}` }, 'send');
+  const publish = button(`Publish to ${targetLabel(target)}`, { class: 'btn primary', 'data-testid': `publish-${target}` }, 'send');
   const general = el('div', { class: 'error', 'data-testid': `publish-error-${target}`, role: 'alert' });
   const dryNote = el('span', { class: 'dry-chip', 'data-testid': `publish-dry-${target}` }, 'Dry run: nothing is published');
   // While it publishes: a moving bar, what it is doing and for how long, so a long upload never looks stuck.
@@ -261,7 +261,7 @@ function buildForm(first, env) {
 
   return {
     root: el('div', { class: 'pub-form' },
-      el('div', { class: 'pub-head' }, el('h2', {}, LABELS[target]), status, mode, link, notice, el('span', { class: 'pub-actions' }, dryNote, save, publish)),
+      el('div', { class: 'pub-head' }, el('h2', {}, targetLabel(target)), status, mode, link, notice, el('span', { class: 'pub-actions' }, dryNote, save, publish)),
       progress, general, fieldset),
     dirty,
     /** Replace this form? Never over an edit, unless the package is published and the edit can no longer be saved. */
@@ -294,12 +294,12 @@ function buildForm(first, env) {
 }
 
 function prepareEls(env, target, prep) {
-  const title = el('h2', {}, LABELS[target]);
+  const title = el('h2', {}, targetLabel(target));
   const error = el('div', { class: 'error', 'data-testid': `publish-error-${target}`, role: 'alert' });
   if (!prep?.can) {
     return [title, el('p', { class: 'pub-reason', 'data-testid': `prepare-reason-${target}` }, prep?.reason ?? 'Package state is not available yet.'), error];
   }
-  const prepare = button(`Prepare the ${LABELS[target]} package`, { class: 'btn primary', 'data-testid': `prepare-${target}` }, 'pen');
+  const prepare = button(`Prepare the ${targetLabel(target)} package`, { class: 'btn primary', 'data-testid': `prepare-${target}` }, 'pen');
   prepare.addEventListener('click', () => {
     prepare.disabled = true;
     env.api.preparePackage(env.runId, target).then(env.reloadPublish, (e) => {
@@ -311,7 +311,7 @@ function prepareEls(env, target, prep) {
 }
 
 export function publishSection(env, target) {
-  const root = el('div', { class: 'out-section pub', 'data-testid': `output-section-${target}` });
+  const root = el('div', { class: 'out-section pub', 'data-testid': `output-section-${SECTION_OF[target]}` });
   let form = null;
   return {
     root,

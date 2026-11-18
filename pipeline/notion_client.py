@@ -161,14 +161,15 @@ def create_blog_page(
     return page
 
 
-def update_blog_page_wordpress_url(
+def update_blog_page_url(
     page_id_str: str,
-    wordpress_url: str,
+    url: str,
     *,
+    url_property: str = "WordPress URL",
     status: Optional[str] = "Draft Created",
     excerpt: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Patch a blog page after the WordPress draft is created.
+    """Patch a blog page with the url a publish target returned, in ``url_property``.
 
     Silently drops properties the DB does not yet have (so this is safe to
     call before the F6 schema migration has been applied).
@@ -176,15 +177,17 @@ def update_blog_page_wordpress_url(
     client = get_client()
     available = get_blog_db_properties()
     properties: Dict[str, Any] = {}
-    if wordpress_url and "WordPress URL" in available:
-        properties["WordPress URL"] = {"url": wordpress_url}
+    if url and url_property in available:
+        properties[url_property] = {"url": url}
+    elif url:
+        print(f"[notion] WARN blog DB has no '{url_property}' property: url not written back")
     if status and "Status" in available:
         properties["Status"] = {"select": {"name": status}}
     if excerpt and "Excerpt" in available:
         properties["Excerpt"] = {"rich_text": [{"text": {"content": excerpt[:1900]}}]}
     if not properties:
         print(
-            "[notion] WARN update_blog_page_wordpress_url: no matching properties "
+            "[notion] WARN update_blog_page_url: no matching properties "
             "available on blog DB — run the schema migration. Skipping update."
         )
         return {}
