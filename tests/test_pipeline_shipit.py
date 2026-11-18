@@ -79,9 +79,27 @@ def test_first_ship_tags_main_commit_with_no_branch_or_bump(tmp_path):
 def test_next_ship_bumps_from_pipeline_tags_not_coach_tags(tmp_path):
     repo = _make_repo(tmp_path)
     assert _ship(repo).returncode == 0
+    (repo / "more.txt").write_text("x\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "More (#91)")
+    _git(repo, "push", "-q", "origin", "main")
     r = _ship(repo, "minor")
     assert r.returncode == 0, r.stdout + r.stderr
     assert (tmp_path / "deploy.log").read_text().split() == ["pipeline-v0.1.0", "pipeline-v0.2.0"]
+
+
+@pytest.mark.parametrize("args", [[], ["--dry-run"], ["0.5.0"], ["--base"]])
+def test_refuses_commit_already_released(tmp_path, args):
+    repo = _make_repo(tmp_path)
+    assert _ship(repo).returncode == 0
+    if args == ["--base"]:
+        args = ["patch", "--base", _git(repo, "rev-parse", "HEAD")]
+    r = _ship(repo, *args)
+    assert r.returncode != 0
+    assert f"commit {_git(repo, 'rev-parse', 'HEAD')[:9]} is already released as pipeline-v0.1.0" in r.stderr
+    assert _git(repo, "tag", "-l", "pipeline-v*") == "pipeline-v0.1.0"
+    assert _git(tmp_path / "origin.git", "tag", "-l", "pipeline-v*") == "pipeline-v0.1.0"
+    assert (tmp_path / "deploy.log").read_text().split() == ["pipeline-v0.1.0"]
 
 
 def test_refuses_when_head_is_not_origin_main(tmp_path):
