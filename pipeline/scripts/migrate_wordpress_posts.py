@@ -1,19 +1,20 @@
-"""Export every public painforwisdom.wordpress.com post to markdown with front-matter.
+"""Export every public painforwisdom.wordpress.com post into the blog site repo.
 
-Generator-agnostic half of wo-87d23f57: pulls posts through the public WP.com
-REST API (no auth), converts the post HTML to markdown, downloads featured and
-inline images, and rewrites links between posts to sibling ``<slug>.md`` files.
-Site layout and URL scheme are decided by the blog design spec (wo-bfc7fb60).
+Pulls posts through the public WP.com REST API (no auth), converts the post HTML
+to markdown, downloads featured and inline images, and rewrites links between
+posts to the site's ``/YYYY/MM/DD/slug/`` paths
+(docs/superpowers/specs/2026-11-18-own-blog-design.md section 6). Same layout and
+front-matter as pipeline/publish/blog.py, plus ``wordpress_url``.
 
-Output under --out:
-  <slug>.md          front-matter (title, date, slug, tags, youtube_url, featured_image) + body
-  images/<file>      featured image ``<slug>.<ext>``, inline images ``<slug>-<n>.<ext>``
+Output under --out (the site repo root):
+  src/content/posts/<slug>.md   front-matter + body
+  public/images/<file>          featured image ``<slug>.<ext>``, inline images ``<slug>-<n>.<ext>``
 
 Fails loudly on an HTML tag it does not know or a link to a post that is not in
 the export, so nothing is dropped silently.
 
 Usage:
-  python -m pipeline.scripts.migrate_wordpress_posts --out /path/to/content
+  python -m pipeline.scripts.migrate_wordpress_posts --out /path/to/painforwisdom-site
 """
 from __future__ import annotations
 
@@ -31,6 +32,7 @@ from lxml import html as lhtml
 SITE = "painforwisdom.wordpress.com"
 API = f"https://public-api.wordpress.com/rest/v1.1/sites/{SITE}/posts"
 PAGE_SIZE = 100
+IMAGE_WIDTH = 2048  # WP.com resizes on ?w=; some originals are 23 MB
 
 # Editor links ("wordpress.com/post/<site>/<id>") also appear in post bodies.
 _POST_PATH = re.compile(r"^/(\d{4})/(\d{2})/(\d{2})/([^/]+)/?$")
@@ -54,26 +56,30 @@ def fetch_posts(client: httpx.Client) -> list[dict]:
     return posts
 
 
+def site_path(post: dict) -> str:
+    """The post's path on the new site: the WordPress path, which the site keeps."""
+    path = urlsplit(post["URL"]).path
+    m = _POST_PATH.match(path)
+    if not m or m.group(4) != post["slug"]:
+        raise ValueError(f"post URL {post['URL']} is not /YYYY/MM/DD/{post['slug']}/")
+    return "/{}/{}/{}/{}/".format(*m.groups())
+
+
 class LinkResolver:
-    """Maps a WordPress URL to the slug of the post it points at."""
+    """Maps a WordPress URL to the site path of the post it points at."""
 
     def __init__(self, posts: list[dict]):
-        self.by_id = {p["ID"]: p["slug"] for p in posts}
-        self.by_path = {}
-        for p in posts:
-            m = _POST_PATH.match(urlsplit(p["URL"]).path)
-            if not m:
-                raise ValueError(f"unexpected post URL {p['URL']}")
-            self.by_path[m.groups()] = p["slug"]
+        self.by_id = {p["ID"]: site_path(p) for p in posts}
+        self.paths = set(self.by_id.values())
 
-    def slug_for(self, href: str) -> str | None:
-        """Slug of the linked post; None for an external link. Raises on an internal link to an unknown post."""
+    def path_for(self, href: str) -> str | None:
+        """Site path of the linked post; None for an external link. Raises on an internal link to an unknown post."""
         u = urlsplit(href)
         host = u.netloc.lower()
         if host == SITE:
             m = _POST_PATH.match(u.path)
-            if m and m.groups() in self.by_path:
-                return self.by_path[m.groups()]
+            if m and "/{}/{}/{}/{}/".format(*m.groups()) in self.paths:
+                return "/{}/{}/{}/{}/".format(*m.groups())
         elif host == "wordpress.com":
             m = _EDITOR_PATH.match(u.path)
             if m and int(m.group(1)) in self.by_id:
@@ -158,7 +164,7 @@ class Converter:
         src = _strip_query(img.get("src"))
         name = f"{self.slug}-{len(self.images) + 1}{PurePosixPath(urlsplit(src).path).suffix}"
         self.images.append((src, name))
-        return f"![{_escape(img.get('alt') or '')}](images/{name})"
+        return f"![{_escape(img.get('alt') or '')}](/images/{name})"
 
     def inline(self, el, skip=()) -> str:
         out = [_escape(el.text or "")]
@@ -188,9 +194,7 @@ class Converter:
             text = self.inline(el)
             if _is_youtube(href) and self.youtube_url is None:
                 self.youtube_url = clean_youtube(href)
-            slug = self.resolver.slug_for(href)
-            target = f"{slug}.md" if slug else href
-            return f"[{text}]({target})"
+            return f"[{text}]({self.resolver.path_for(href) or href})"
         inner = self.inline(el)
         if tag in ("strong", "b"):
             return _wrap(inner, "**")
@@ -216,18 +220,21 @@ def render_post(post: dict, resolver: LinkResolver) -> tuple[str, list[tuple[str
     conv = Converter(post["slug"], resolver)
     body = conv.convert(post["content"])
     images = list(conv.images)
-    featured = None
+    featured = ""
     if post.get("featured_image"):
         src = _strip_query(post["featured_image"])
-        featured = f"{post['slug']}{PurePosixPath(urlsplit(src).path).suffix}"
+        featured = f"{post['slug']}{PurePosixPath(urlsplit(src).path).suffix.lower()}"
         images.append((src, featured))
-    front = {
+    excerpt = " ".join(lhtml.fragment_fromstring(post.get("excerpt") or "<p></p>", create_parent="div").text_content().split())
+    front = {  # keys of pipeline/publish/blog.py:_front_matter, plus wordpress_url
         "title": html.unescape(post["title"]),
-        "date": post["date"],
+        "date": "-".join(site_path(post).split("/")[1:4]),
         "slug": post["slug"],
+        "excerpt": excerpt,
         "tags": list(post.get("tags") or {}),
-        "youtube_url": conv.youtube_url,
-        "featured_image": f"images/{featured}" if featured else None,
+        "youtube_url": conv.youtube_url or "",
+        "image": featured,
+        "wordpress_url": post["URL"],
     }
     head = yaml.safe_dump(front, sort_keys=False, allow_unicode=True, width=1000)
     return f"---\n{head}---\n\n{body}", images
@@ -237,21 +244,23 @@ def migrate(out: Path, client: httpx.Client) -> int:
     posts = fetch_posts(client)
     resolver = LinkResolver(posts)
     rendered = [(p, *render_post(p, resolver)) for p in posts]  # convert all before writing anything
-    (out / "images").mkdir(parents=True, exist_ok=True)
+    posts_dir, images_dir = out / "src" / "content" / "posts", out / "public" / "images"
+    posts_dir.mkdir(parents=True, exist_ok=True)
+    images_dir.mkdir(parents=True, exist_ok=True)
     for post, text, images in rendered:
         for url, name in images:
-            dest = out / "images" / name
+            dest = images_dir / name
             if not dest.exists():
-                r = client.get(url)
+                r = client.get(url, params={"w": IMAGE_WIDTH})
                 r.raise_for_status()
                 dest.write_bytes(r.content)
-        (out / f"{post['slug']}.md").write_text(text, encoding="utf-8")
+        (posts_dir / f"{post['slug']}.md").write_text(text, encoding="utf-8")
     return len(rendered)
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="Export WordPress posts to markdown.")
-    ap.add_argument("--out", type=Path, required=True, help="directory to write <slug>.md and images/ into")
+    ap = argparse.ArgumentParser(description="Export WordPress posts into the blog site repo.")
+    ap.add_argument("--out", type=Path, required=True, help="site repo root")
     args = ap.parse_args(argv)
     with httpx.Client(timeout=60, follow_redirects=True) as client:
         n = migrate(args.out, client)

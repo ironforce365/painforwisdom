@@ -14,7 +14,8 @@ OLDER = {
 NEWER = {
     "ID": 300, "slug": "here-i-go", "title": "here I go again&#8230;", "date": "2024-08-01T10:00:00-07:00",
     "URL": f"{SITE}/2024/08/01/here-i-go/", "tags": {"running": {}, "pain": {}},
-    "featured_image": f"{SITE}/wp-content/uploads/2024/08/photo.jpeg?w=1024",
+    "featured_image": f"{SITE}/wp-content/uploads/2024/08/photo.JPEG?w=1024",
+    "excerpt": "<p>08/01/24. I&#8217;m back\n[&hellip;]</p>\n",
     "content": (
         '<p class="wp-block-paragraph">08/01/24. Youtube: <a href="https://youtube.com/shorts/abc?si=track">link</a>.</p>'
         f'<p>See <a href="{SITE}/2024/07/06/half-way/">this</a> and '
@@ -39,26 +40,35 @@ def _client():
 
 def test_migrate_writes_front_matter_body_and_images(tmp_path):
     assert m.migrate(tmp_path, _client()) == 2
-    text = (tmp_path / "here-i-go.md").read_text()
+    text = (tmp_path / "src/content/posts/here-i-go.md").read_text()
     _, head, body = text.split("---\n", 2)
     assert yaml.safe_load(head) == {
-        "title": "here I go again…", "date": "2024-08-01T10:00:00-07:00", "slug": "here-i-go",
-        "tags": ["running", "pain"], "youtube_url": "https://youtube.com/shorts/abc",
-        "featured_image": "images/here-i-go.jpeg",
+        "title": "here I go again…", "date": "2024-08-01", "slug": "here-i-go",
+        "excerpt": "08/01/24. I’m back […]", "tags": ["running", "pain"],
+        "youtube_url": "https://youtube.com/shorts/abc", "image": "here-i-go.jpeg",
+        "wordpress_url": f"{SITE}/2024/08/01/here-i-go/",
     }
-    assert "See [this](half-way.md) and [that](half-way.md)." in body
+    assert "See [this](/2024/07/06/half-way/) and [that](/2024/07/06/half-way/)." in body
     assert "**Bold** text 220 &lt;age> a\\_b  \nnext[^1]" in body
     assert "- one\n- two" in body
-    assert "![](images/here-i-go-1.png)" in body
+    assert "![](/images/here-i-go-1.png)" in body
     assert body.rstrip().endswith("[^1]: A note")
-    assert (tmp_path / "images" / "here-i-go.jpeg").read_bytes() == b"img-/wp-content/uploads/2024/08/photo.jpeg"
-    assert (tmp_path / "images" / "here-i-go-1.png").exists()
+    images = tmp_path / "public/images"
+    assert (images / "here-i-go.jpeg").read_bytes() == b"img-/wp-content/uploads/2024/08/photo.JPEG"
+    assert (images / "here-i-go-1.png").exists()
+    old = yaml.safe_load((tmp_path / "src/content/posts/half-way.md").read_text().split("---\n", 2)[1])
+    assert (old["image"], old["youtube_url"], old["excerpt"]) == ("", "", "")
 
 
 @pytest.mark.parametrize("href", [f"{SITE}/2023/01/01/gone/", "https://wordpress.com/post/painforwisdom.wordpress.com/9"])
 def test_unresolved_internal_link_fails(href):
     with pytest.raises(ValueError, match="does not resolve"):
-        m.LinkResolver([OLDER]).slug_for(href)
+        m.LinkResolver([OLDER]).path_for(href)
+
+
+def test_post_url_must_match_slug():
+    with pytest.raises(ValueError, match="is not /YYYY/MM/DD/other/"):
+        m.site_path({**OLDER, "slug": "other"})
 
 
 def test_unknown_tag_fails():
