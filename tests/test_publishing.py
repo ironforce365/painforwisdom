@@ -485,7 +485,7 @@ def test_long_excerpt_is_cut_so_the_package_stays_valid(wp_run):
 def test_mode_auto_publishes_once_and_writes_back_to_notion(wp_run, monkeypatch):
     requests = _mock_wp(monkeypatch)
     notion: list = []
-    monkeypatch.setattr("pipeline.publish.wordpress.update_blog_page_wordpress_url",
+    monkeypatch.setattr("pipeline.publish.wordpress.update_blog_page_url",
                         lambda page, url, **kw: notion.append((page, url, kw)))
     state = wp_run("auto")
     out = node_wordpress_draft(state)
@@ -509,7 +509,7 @@ def test_mode_auto_publishes_once_and_writes_back_to_notion(wp_run, monkeypatch)
 def test_mode_auto_failure_is_recorded_and_does_not_raise(wp_run, monkeypatch):
     _mock_wp(monkeypatch, status=403)
     notion: list = []
-    monkeypatch.setattr("pipeline.publish.wordpress.update_blog_page_wordpress_url",
+    monkeypatch.setattr("pipeline.publish.wordpress.update_blog_page_url",
                         lambda *a, **kw: notion.append(a))
     state = wp_run("auto")
     out = node_wordpress_draft(state)
@@ -525,7 +525,7 @@ def test_notion_failure_does_not_fail_a_created_post(wp_run, monkeypatch):
     def boom(*a, **kw):
         raise RuntimeError("notion down")
 
-    monkeypatch.setattr("pipeline.publish.wordpress.update_blog_page_wordpress_url", boom)
+    monkeypatch.setattr("pipeline.publish.wordpress.update_blog_page_url", boom)
     state = wp_run("auto")
     assert node_wordpress_draft(state)["wordpress_url"] == "https://wp/post"
     assert "notion down" in (Path(state["run_dir"]) / "wordpress-draft" / "NOTION_UPDATE_FAILED.md").read_text()
@@ -533,7 +533,7 @@ def test_notion_failure_does_not_fail_a_created_post(wp_run, monkeypatch):
 
 def test_edited_fields_reach_the_post(wp_run, monkeypatch):
     requests = _mock_wp(monkeypatch)
-    monkeypatch.setattr("pipeline.publish.wordpress.update_blog_page_wordpress_url", lambda *a, **kw: None)
+    monkeypatch.setattr("pipeline.publish.wordpress.update_blog_page_url", lambda *a, **kw: None)
     state = wp_run("manual")
     node_wordpress_draft(state)
     rd = Path(state["run_dir"])

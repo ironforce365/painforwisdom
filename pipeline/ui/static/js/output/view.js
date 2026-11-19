@@ -59,6 +59,7 @@ export function createView(ctx, runId, shared) {
     blog: blogSection(env),
     youtube: publishSection(env, 'youtube'),
     wordpress: publishSection(env, 'wordpress'),
+    site: publishSection(env, 'blog'),
     kb: kbSection(env),
     research: researchSection(env),
     audit: auditSection(env),

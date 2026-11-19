@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pipeline.notion_client import update_blog_page_wordpress_url
+from pipeline.notion_client import update_blog_page_url
 from pipeline.publish.package import package_path
 from pipeline.publishing_config import current_profile, load
 from pipeline.wordpress_client import WordPressClient, render_wp_html
@@ -25,7 +25,7 @@ def publish(run_dir: Path, package: dict) -> dict:
     notion_page_id = readonly.get("notion_blog_page_id")
     if notion_page_id:
         try:
-            update_blog_page_wordpress_url(notion_page_id, post.url,
+            update_blog_page_url(notion_page_id, post.url,
                                            status="Published" if fields.get("status") == "publish" else "Draft Created",
                                            excerpt=fields.get("excerpt", ""))
         except Exception as exc:  # noqa: BLE001 - the post exists; a failed write-back must not read as a failed publish

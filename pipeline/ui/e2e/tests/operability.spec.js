@@ -214,11 +214,12 @@ test.describe('summary', () => {
     await expect(page.getByTestId('summary-publish-wordpress')).toContainText('pending');
     await expect(page.getByTestId('summary-publish-youtube')).toContainText('no package');
     const next = page.getByTestId('summary-next-item');
-    await expect(next).toHaveCount(2);
+    await expect(next).toHaveCount(3);
     await expect(next.first()).toContainText('YouTube');
     await expect(next.first()).toContainText('this run has no video');
-    await expect(next.last()).toContainText('Review and publish');
-    await next.last().getByRole('button').click();
+    await expect(next.nth(1)).toContainText('Review and publish');
+    await expect(next.last()).toContainText('Prepare the Blog site package.');
+    await next.nth(1).getByRole('button').click();
     await expect(section(page, 'wordpress')).toBeVisible();
     await nav(page, 'summary').click();
     await page.getByTestId('summary-go-research').click();
@@ -775,6 +776,23 @@ test.describe('publish', () => {
     const image = page.getByTestId('wordpress-featured_image');
     await expect(image).toHaveJSProperty('complete', true);
     expect(await image.evaluate((n) => n.naturalWidth)).toBeGreaterThan(0);
+  });
+
+  test('blog target lives in the Blog site section: prepare, publish, link back', async ({ page }) => {
+    await go(page, 'fx-unpackaged', 'site');
+    await expect(section(page, 'blog')).toHaveCount(0); // the Notion draft section is not the target's
+    await page.getByTestId('prepare-blog').click();
+    await expect(page.getByTestId('field-blog-slug')).toHaveValue('the-road-stopped-arguing');
+    await expect(page.getByTestId('field-blog-date')).toHaveValue('2026-10-28');
+    await expect(chip(page, 'site')).toHaveText('pending');
+    await expect(page.getByTestId('blog-featured_image')).toBeVisible();
+    await page.getByTestId('publish-blog').click();
+    await expect(page.getByTestId('published-blog')).toHaveText('https://example.invalid/blog/fx-unpackaged');
+    await expect(chip(page, 'site')).toHaveText('published');
+    await nav(page, 'summary').click();
+    await expect(page.getByTestId('summary-publish-blog')).toContainText('Blog site');
+    await page.getByTestId('summary-go-site').click();
+    await expect(section(page, 'site')).toBeVisible();
   });
 
   test('[DT-P7] cannot prepare: the reason; a prepare the server refuses shows why', async ({ page, errors }) => {

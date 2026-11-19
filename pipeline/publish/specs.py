@@ -36,4 +36,14 @@ YOUTUBE = {
     "text_language": field_spec("string", "Title and description language (code, e.g. en)", 35),
 }
 
-FIELD_SPECS = {"wordpress": WORDPRESS, "youtube": YOUTUBE}
+BLOG = {
+    "title": field_spec("string", "Title", 200, required=True),
+    "slug": field_spec("string", "Slug (lowercase words joined by -)", 100, required=True),
+    "date": field_spec("date", "Post date (YYYY-MM-DD)", 10, required=True),
+    "body": field_spec("markdown", "Body", required=True),
+    "excerpt": field_spec("text", "Excerpt", 300),
+    "tags": field_spec("tags", "Tags"),
+    "youtube_url": field_spec("url", "YouTube URL"),
+}
+
+FIELD_SPECS = {"wordpress": WORDPRESS, "youtube": YOUTUBE, "blog": BLOG}

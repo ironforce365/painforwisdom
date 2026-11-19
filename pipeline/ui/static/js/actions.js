@@ -3,7 +3,7 @@ import { el } from './drawer.js';
 import { renderMarkdown } from './markdown.js';
 import { ACTIVE } from './runs.js';
 import { STATUS_LABELS } from './format.js';
-import { LABELS } from './output/model.js';
+import { SECTION_OF, targetLabel } from './output/model.js';
 
 const VERBS = {
   retry: { label: 'Retry from checkpoint' },
@@ -123,10 +123,10 @@ export function mount(root, ctx) {
   };
 
   const attentionEls = () => {
-    const names = run.waiting_packages.map((p) => (p.status === 'failed' ? `${LABELS[p.target]} (failed)` : LABELS[p.target]));
+    const names = run.waiting_packages.map((p) => (p.status === 'failed' ? `${targetLabel(p.target)} (failed)` : targetLabel(p.target)));
     const title = `Waiting for you to publish: ${names.join(', ')}.`;
     return [el('div', { class: 'banner-title', 'data-testid': 'action-title' }, title),
-      ...run.waiting_packages.map(({ target }) => button(`action-open-${target}`, `Open ${LABELS[target]}`, () => ctx.bus.emit('output:open', target)))];
+      ...run.waiting_packages.map(({ target }) => button(`action-open-${target}`, `Open ${targetLabel(target)}`, () => ctx.bus.emit('output:open', SECTION_OF[target])))];
   };
 
   const BODY = { pending: () => pendingEls(run.pending), failure: () => failureEls(run.failure), running: runningEls, attention: attentionEls };

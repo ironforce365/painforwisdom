@@ -22,12 +22,23 @@
     "categories": [],
     "default_tags": []
   },
+  "blog": {
+    "mode": "off",
+    "repo_url": "",
+    "branch": "main",
+    "content_dir": "src/content/posts",
+    "image_dir": "public/images",
+    "url_template": ""
+  },
   "profiles": {
     "sandbox": {
       "youtube": {
         "mode": "manual"
       },
       "wordpress": {
+        "mode": "manual"
+      },
+      "blog": {
         "mode": "manual"
       }
     }

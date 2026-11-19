@@ -1,10 +1,13 @@
 // What the Output workspace derives from a run's data; no DOM (spec 2026-11-05-console-end-to-end §4).
 export const SECTIONS = [
   ['summary', 'Summary', 'output'], ['blog', 'Blog', 'pen'], ['youtube', 'YouTube', 'video'], ['wordpress', 'WordPress', 'globe'],
-  ['kb', 'Knowledge base', 'book'], ['research', 'Research', 'search'], ['audit', 'Audit', 'check'], ['files', 'Files', 'file'],
+  ['site', 'Blog site', 'send'], ['kb', 'Knowledge base', 'book'], ['research', 'Research', 'search'], ['audit', 'Audit', 'check'], ['files', 'Files', 'file'],
 ];
-export const TARGETS = ['youtube', 'wordpress'];
+export const TARGETS = ['youtube', 'wordpress', 'blog'];
+// Section 'blog' is the writer's Notion draft, so the blog target lives in section 'site'.
+export const SECTION_OF = { youtube: 'youtube', wordpress: 'wordpress', blog: 'site' };
 export const LABELS = Object.fromEntries(SECTIONS.map(([name, label]) => [name, label]));
+export const targetLabel = (target) => LABELS[SECTION_OF[target]];
 
 const ACTIVE = new Set(['running', 'waiting_hitl', 'waiting_reply']);
 const TEXT_KINDS = new Set(['markdown', 'csv', 'json', 'text']);
@@ -55,6 +58,7 @@ export function chips(data) {
     blog: count('blog') ? 'ready' : 'none',
     youtube: publishChip(targets.youtube, prepare?.youtube),
     wordpress: publishChip(targets.wordpress, prepare?.wordpress),
+    site: publishChip(targets.blog, prepare?.blog),
     kb: String(count('kb')),
     research: String(research.length),
     audit: count('audit') ? auditChip : 'none',
@@ -63,14 +67,15 @@ export function chips(data) {
 }
 
 function publishStep(target, pkg, prep) {
-  const name = LABELS[target];
+  const name = targetLabel(target);
+  const section = SECTION_OF[target];
   if (!pkg) {
-    if (prep?.can) return [{ section: target, text: `Prepare the ${name} package.` }];
-    return prep?.reason && prep.mode !== 'off' ? [{ section: target, text: `${name}: ${prep.reason}.` }] : [];
+    if (prep?.can) return [{ section, text: `Prepare the ${name} package.` }];
+    return prep?.reason && prep.mode !== 'off' ? [{ section, text: `${name}: ${prep.reason}.` }] : [];
   }
-  if (pkg.status === 'failed') return [{ section: target, text: `${name} failed: ${pkg.error}. Fix it and publish again.` }];
-  if (pkg.status === 'publishing') return [{ section: target, text: `${name} is still publishing.` }];
-  return pkg.status === 'pending' && pkg.mode !== 'auto' ? [{ section: target, text: `Review and publish to ${name}.` }] : [];
+  if (pkg.status === 'failed') return [{ section, text: `${name} failed: ${pkg.error}. Fix it and publish again.` }];
+  if (pkg.status === 'publishing') return [{ section, text: `${name} is still publishing.` }];
+  return pkg.status === 'pending' && pkg.mode !== 'auto' ? [{ section, text: `Review and publish to ${name}.` }] : [];
 }
 
 /** What the user can do next, most urgent first. */

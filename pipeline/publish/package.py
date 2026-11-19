@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 
 from pipeline.publish.specs import field_spec  # noqa: F401 - historical home
 
-NODE_DIRS = {"wordpress": "wordpress-draft", "youtube": "youtube-upload"}
+NODE_DIRS = {"wordpress": "wordpress-draft", "youtube": "youtube-upload", "blog": "blog-publish"}
 
 
 def package_path(run_dir: Path, target: str) -> Path:
