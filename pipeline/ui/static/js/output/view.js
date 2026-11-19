@@ -47,6 +47,7 @@ export function createView(ctx, runId, shared) {
     goTo: (name) => select(name),
     chip: (name) => chips(data)[name],
     reloadPublish: () => refreshPublish(),
+    runChanged: () => ctx.bus.emit('run:refresh'), // the banner and DAG read package status from the run record
     setPackage: (pkg) => {
       data.targets = { ...data.targets, [pkg.target]: pkg };
       return refreshPublish();

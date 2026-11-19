@@ -234,6 +234,7 @@ function buildForm(first, env) {
       baseline = read();
       sig = formSig(pkg);
       done();
+      env.runChanged();
       return env.setPackage(pkg);
     }, (e) => show(reasonOf(e))).finally(() => {
       busy = false;
@@ -302,7 +303,10 @@ function prepareEls(env, target, prep) {
   const prepare = button(`Prepare the ${targetLabel(target)} package`, { class: 'btn primary', 'data-testid': `prepare-${target}` }, 'pen');
   prepare.addEventListener('click', () => {
     prepare.disabled = true;
-    env.api.preparePackage(env.runId, target).then(env.reloadPublish, (e) => {
+    env.api.preparePackage(env.runId, target).then(() => {
+      env.runChanged();
+      return env.reloadPublish();
+    }, (e) => {
       error.textContent = reasonOf(e).join('; ');
       prepare.disabled = false;
     });

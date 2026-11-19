@@ -4,6 +4,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -162,6 +163,18 @@ def test_post_writes_fields_locks_and_spawns_the_cli(processed, tmp_path, spawne
     second = client.post("/api/runs/fx-done/publish/wordpress", json={"fields": GOOD})
     assert (second.status_code, second.json()) == (409, {"detail": "publishing"})
     assert len(spawned) == 1
+
+
+def test_each_confirm_marks_its_attempt_in_publish_log(processed, tmp_path, spawned):
+    client = client_for(processed, tmp_path)
+    rd = rd_of(processed, "fx-done")
+    for _ in range(2):
+        assert client.post("/api/runs/fx-done/publish/wordpress", json={"fields": GOOD}).status_code == 202
+        package.write(rd, {**package.read(rd, "wordpress"), "status": "failed"})
+        package.release_lock(rd, "wordpress")
+    lines = (rd / "wordpress-draft" / "publish.log").read_text().splitlines()
+    assert len(lines) == 2 and all(re.fullmatch(r"=== attempt \S+ target=wordpress ===", ln) for ln in lines)
+    assert lines[0] <= lines[1]
 
 
 def test_post_errors(processed, tmp_path, spawned):

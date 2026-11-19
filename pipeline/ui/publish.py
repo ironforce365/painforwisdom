@@ -5,6 +5,7 @@ import json
 import os
 import re
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
@@ -287,6 +288,8 @@ def confirm(settings: Settings, run_id: str, target: str, fields: dict) -> dict:
             raise _already_published(pkg)
         pkg = package.write(rd, {**pkg, "fields": {**pkg["fields"], **fields}, "status": "publishing", "error": None})
         log = package.package_path(rd, target).with_name("publish.log")
+        with open(log, "a") as fh:  # publish.log is appended across attempts; mark where each begins
+            fh.write(f"=== attempt {datetime.now().astimezone().isoformat(timespec='seconds')} target={target} ===\n")
         pid = launcher.spawn(build_argv(settings, rd.resolve(), target, run["profile"]), log)
     except PublishError:
         package.release_lock(rd, target)
