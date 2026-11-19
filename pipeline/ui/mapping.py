@@ -55,7 +55,7 @@ NODE_TO_DIR: dict[str, tuple[str, ...]] = {
     "extract_image": ("wordpress-draft",),
     "youtube_metadata": ("youtube-upload",),
     "youtube_upload": ("youtube-upload",),
-    "wordpress_draft": ("wordpress-draft",),
+    "wordpress_draft": ("wordpress-draft", "blog-publish"),
     "summarizer": ("validator", "pipeline-summary"),
     "pre_validator": (),
     "bv_research": (),

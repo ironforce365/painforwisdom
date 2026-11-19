@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from pipeline import publishing_config, runtime
-from pipeline.publish import package, specs, video_meta
+from pipeline.publish import blog, package, specs, video_meta
 from pipeline.ui import launcher, runs
 from pipeline.ui.settings import Settings
 
@@ -123,6 +123,20 @@ def _wordpress_package(rd: Path, rec: dict, config: dict, source: tuple[str, str
     return package.new_package("wordpress", "manual", fields, specs.WORDPRESS, readonly=readonly, assets=assets)
 
 
+def _blog_package(rd: Path, rec: dict, source: tuple[str, str]) -> dict:
+    title, body = source
+    meta = _read_json(rd / "wordpress-draft" / "meta.json")
+    featured = next(iter(sorted((rd / "wordpress-draft").glob("featured.*"))), None)
+    url, path = meta.get("youtube_url"), rec["input"].get("path")
+    date = meta.get("video_date") or (runtime.date_from_filename(path) if path and _DATED.search(Path(path).name) else "")
+    return blog.new_package(
+        "manual", title=meta.get("title") or title, body=body, excerpt=_blog_summary(rd, body),
+        tags=_strs(meta.get("tags")) or ["painforwisdom"], date=date[:10] if isinstance(date, str) else "",
+        youtube_url=url if isinstance(url, str) and not package.validate_fields(
+            {"field_specs": {"youtube_url": specs.BLOG["youtube_url"]}}, {"youtube_url": url}) else "",
+        notion_blog_page_id=meta.get("notion_blog_page_id", ""), image=featured.resolve() if featured else None)
+
+
 def _blog_summary(rd: Path, body: str) -> str:
     """The bundle's excerpt, else the post's opening words without its rule and its dated, italic header lines."""
     excerpt = _read_json(rd / "wordpress-draft" / "meta.json").get("excerpt")
@@ -163,7 +177,7 @@ def _prepare_state(settings: Settings, rd: Path, rec: dict, target: str, exists:
         reason = "the run is still active"
     elif mode == "off":
         reason = f"{target} publishing is off for profile {profile}"
-    elif target == "wordpress":
+    elif target in {"wordpress", "blog"}:
         reason = None if _blog_source(rd) else "this run has no blog post"
     else:
         reason = None if _input_video(rd, rec) else "this run has no video"
@@ -190,6 +204,8 @@ def prepare(settings: Settings, run_id: str, target: str) -> dict:
             raise PublishError(409, {"detail": "a package already exists"})
         if target == "wordpress":
             return package.write(rd, _wordpress_package(rd, rec, config, _blog_source(rd)))
+        if target == "blog":
+            return package.write(rd, _blog_package(rd, rec, _blog_source(rd)))
         return package.write(rd, _youtube_package(rd, config, _input_video(rd, rec), rec["language"] or catalog["language"]))
     finally:
         package.release_lock(rd, target)

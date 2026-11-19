@@ -80,7 +80,7 @@ from pipeline.notion_client import (  # noqa: E402
     get_blog_page_markdown,
     page_id,
     query_blog_pages,
-    update_blog_page_wordpress_url,
+    update_blog_page_url,
 )
 from pipeline.wordpress_client import (  # noqa: E402
     WordPressClient,
@@ -215,7 +215,7 @@ def _process_one(
             featured_media_id=featured_media_id,
         )
 
-    update_blog_page_wordpress_url(
+    update_blog_page_url(
         pid,
         post.url,
         status=("Published" if _is_published(page) else "Draft Created"),

@@ -1,6 +1,6 @@
 // Summary, and the sections made of artifact editors (blog, KB, audit, files).
 import { el, icon } from '../drawer.js';
-import { base, editable, failingChecks, findings, LABELS, nextSteps, nodeCost, PICKS, runCost, SECTIONS, TARGETS, thumbnail } from './model.js';
+import { base, editable, failingChecks, findings, LABELS, nextSteps, nodeCost, PICKS, runCost, SECTION_OF, SECTIONS, TARGETS, targetLabel, thumbnail } from './model.js';
 import { attach, button, linkEl, sync } from './ui.js';
 
 const empty = (name, text) => el('p', { class: 'section-empty', 'data-testid': `section-empty-${name}` }, text);
@@ -25,7 +25,7 @@ function publishRow(env, target, data) {
     ? [linkEl(pkg.result.url, { 'data-testid': `summary-published-${target}` }, icon('link'), pkg.result.url)]
     : [];
   return el('div', { class: 'sum-row', 'data-testid': `summary-publish-${target}` },
-    goButton(env, target, LABELS[target], { 'data-testid': `summary-go-${target}` }), el('span', { class: 'chip-state' }, env.chip(target)), ...published);
+    goButton(env, SECTION_OF[target], targetLabel(target), { 'data-testid': `summary-go-${SECTION_OF[target]}` }), el('span', { class: 'chip-state' }, env.chip(SECTION_OF[target])), ...published);
 }
 
 function summaryEls(env, data) {
@@ -38,7 +38,7 @@ function summaryEls(env, data) {
     el('strong', {}, run.verdict ?? 'No verdict'), el('span', { class: 'muted' }, run.status));
   const input = el('div', { class: 'muted', 'data-testid': 'summary-input' }, base(run.input.path || 'unknown input'));
   const stepEls = steps.map((s) => el('li', { class: 'sum-row', 'data-testid': 'summary-next-item' }, el('span', {}, s.text), goButton(env, s.section, `Go to ${LABELS[s.section]}`, {})));
-  const others = SECTIONS.map(([name]) => name).filter((name) => !TARGETS.includes(name) && name !== 'summary');
+  const others = SECTIONS.map(([name]) => name).filter((name) => !Object.values(SECTION_OF).includes(name) && name !== 'summary');
   const links = others.map((name) => goButton(env, name, LABELS[name], { 'data-testid': `summary-go-${name}` }));
   const notion = result?.blog
     ? [linkEl(result.blog.url, { 'data-testid': 'summary-link-notion' }, icon('link'), 'Notion page')]

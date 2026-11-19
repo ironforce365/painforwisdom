@@ -24,7 +24,7 @@ from typing import Any, Dict, Optional
 
 from pipeline.contracts import assert_inputs
 from pipeline.publish import package as publish_package
-from pipeline.publish import run_target, specs
+from pipeline.publish import blog, run_target, specs
 from pipeline.publishing_config import current_profile, load
 from pipeline.runtime import append_metric, run_telemetry_path
 from pipeline.state import State
@@ -62,6 +62,34 @@ def _strip_title_line(body: str) -> str:
     return "\n".join(out).strip()
 
 
+def _tags(state: State, default_tags: list[str]) -> list[str]:
+    """Lowercase slugs from themes + frameworks, always with "painforwisdom" so the blog stays browseable by tag."""
+    tags: list[str] = ["painforwisdom", *default_tags]
+    for slug in (state.get("themes_attached") or []) + (state.get("frameworks_attached") or []):
+        if isinstance(slug, str) and slug:
+            tags.append(slug.replace("-", " "))
+    seen: set[str] = set()
+    return [t for t in tags if not (t.lower() in seen or seen.add(t.lower()))]
+
+
+def _blog_package(state: State, run_dir: Path, title: str, body_md: str) -> None:
+    """The blog target's package, beside WordPress's: same post, own mode (OPERATIONS.md §9)."""
+    mode = load(current_profile())["blog"]["mode"]
+    existing = publish_package.read(run_dir, "blog")
+    if mode == "off" or (existing and existing["status"] in {"published", "publishing"}):
+        return
+    fip = state.get("featured_image_path", "")
+    fresh = blog.new_package(publish_package.replay_mode(existing, mode), title=title, body=body_md,
+                             excerpt=state.get("blog_post_excerpt", "") or first_50_words(body_md),
+                             tags=_tags(state, []), youtube_url=state.get("youtube_url", ""),
+                             date=state.get("video_date", "")[:10], notion_blog_page_id=state.get("notion_blog_page_id", ""),
+                             image=Path(fip) if fip and Path(fip).is_file() else None)
+    written = publish_package.write(run_dir, publish_package.kept_on_replay(existing, fresh))
+    if written["mode"] == "auto":
+        done = run_target(run_dir, "blog")
+        print(f"[wordpress-draft] blog {done['status']} {(done['result'] or {}).get('url') or done['error']}")
+
+
 def node_wordpress_draft(state: State) -> Dict[str, Any]:
     assert_inputs("wordpress_draft", state)
     t0 = time.time()
@@ -87,6 +115,8 @@ def node_wordpress_draft(state: State) -> Dict[str, Any]:
         )
         print("[wordpress-draft] skipped (no blog post)")
         return {"wordpress_skipped": True, "wordpress_skip_reason": "no blog post"}
+
+    _blog_package(state, run_dir, title, _strip_title_line(body_md_full))
 
     # wordpress_draft fires once per inbound edge, and a retry replays it: never publish twice.
     existing = publish_package.read(run_dir, "wordpress")
@@ -114,15 +144,7 @@ def node_wordpress_draft(state: State) -> Dict[str, Any]:
     if fip and Path(fip).is_file():
         featured_image_path = Path(fip)
 
-    # Tags: lowercase singular slugs derived from themes + frameworks +
-    # always include "painforwisdom" so the blog stays browseable by tag.
-    tags: list[str] = ["painforwisdom", *config["default_tags"]]
-    for slug in (state.get("themes_attached") or []) + (state.get("frameworks_attached") or []):
-        if isinstance(slug, str) and slug:
-            tags.append(slug.replace("-", " "))
-    # Dedupe preserving order.
-    seen: set[str] = set()
-    tags = [t for t in tags if not (t.lower() in seen or seen.add(t.lower()))]
+    tags = _tags(state, config["default_tags"])
 
     html = render_wp_html(
         body_md=body_md,
