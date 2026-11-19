@@ -135,7 +135,8 @@ One Worker, one D1 database, in the site repo under `worker/`.
 | GET | `/api/posts/:slug` | reaction count + approved comments |
 | POST | `/api/posts/:slug/react` | +1 heart; Turnstile token required |
 | POST | `/api/posts/:slug/comments` | new comment, status `pending`; Turnstile token required |
-| GET | `/api/moderate/:id?action=approve\|reject&exp=&sig=` | moderation link from Telegram |
+| GET | `/moderate/:id?exp=&sig=` | confirm page: shows the comment and two forms, Approve and Reject; changes nothing |
+| POST | `/api/moderate/:id` | form body `action`, `exp`, `sig`; applies the decision once |
 | POST | `/api/hooks/pages` | Pages build-failure webhook, relayed to Telegram; shared-secret header required |
 
 ```sql
@@ -144,17 +145,22 @@ CREATE TABLE reactions (slug TEXT NOT NULL, visitor TEXT NOT NULL, created_at TE
 CREATE TABLE comments (id TEXT PRIMARY KEY, slug TEXT NOT NULL, name TEXT NOT NULL,
                        body TEXT NOT NULL,
                        status TEXT NOT NULL CHECK (status IN ('pending','approved','rejected')),
-                       ip_hash TEXT NOT NULL, created_at TEXT NOT NULL);
+                       ip_hash TEXT NOT NULL, created_at TEXT NOT NULL,
+                       decided_at TEXT);
 ```
 
 - **No login, ever.** Name is free text (default "Anonymous"); no email field, so no email PII.
 - **Turnstile** (free, no reader account) on react and comment; Worker verifies the token server-side with `siteverify` before any write.
-- **One heart per visitor per post**: `visitor = sha256(ip + user-agent + daily salt)`; salt rotates daily, so no tracking across days. Count is a signal, not an audit.
+- **One heart per visitor per post per day**: `visitor = sha256(ip + user-agent + daily salt)`; salt rotates daily, so no tracking across days, and a returning reader can heart again the next day. The button also stores a `localStorage` flag per post, so the same browser shows it already hearted. Count is a signal, not an audit.
 - **Rate limit**: Cloudflare rate-limiting rule on `/api/*` POSTs, 5/min per IP; Worker also rejects a second comment from the same `ip_hash` within 60 s.
 - **Validation**: slug must exist in the build's post list (Worker reads a `slugs.json` the build emits); body 1–2000 chars, name ≤ 40, plain text; rendered escaped, links not auto-linked.
 - **Moderation by default**: every comment starts `pending`, invisible until approved.
-- **Telegram alert** per new comment: post title, name, body, and approve and reject links. Links carry `exp` (7 days) and `sig = HMAC-SHA256(id + action + exp, MODERATION_SECRET)`. Worker calls the Bot API directly with Worker secrets `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`, same chat the pipeline uses (`pipeline/telegram.py`).
+- **Telegram alert** per new comment: post title, name, body, and one "Review" link to the confirm page. The link carries `exp` (7 days) and `sig = HMAC-SHA256(id + exp, MODERATION_SECRET)`. Worker calls the Bot API directly (`sendMessage`, `disable_web_page_preview: true`) with Worker secrets `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`, same chat the pipeline uses (`pipeline/telegram.py`).
+- **No GET changes state.** Link-preview fetchers (Telegram and others) issue GETs to URLs in messages; the GET only renders the confirm page. The decision is the form POST, which re-checks `sig` and `exp` and requires `Origin` to be the site host.
+- Inline-keyboard buttons with `callback_data` rejected: callbacks arrive through the bot's update stream, and a bot that has a webhook set cannot also be polled. The coach bot polls (`services/coach/telegram_bot/bot.py:476`), so a webhook on a shared token would break it, and a second bot just for moderation adds a token and a chat to manage.
+- **Single-use**: the POST runs `UPDATE comments SET status=?, decided_at=? WHERE id=? AND status='pending'`; zero rows changed means already decided, and the page says so without changing anything. A second Review link click shows the recorded decision.
 - Approved comments show on next page load (client fetch); no rebuild.
+- **Daily Worker cron**: deletes `rejected` comments whose `decided_at` is older than 30 days, and `pending` ones older than 30 days (link expired, never decided). Backs the privacy promise in section 11.
 - Backup: weekly Worker cron exports D1 to R2. Posts are in git already.
 
 ## 10. Analytics: Cloudflare Web Analytics
@@ -169,8 +175,8 @@ CREATE TABLE comments (id TEXT PRIMARY KEY, slug TEXT NOT NULL, name TEXT NOT NU
 States, in plain words:
 
 - Analytics: Cloudflare Web Analytics, no cookies, no personal profile.
-- Reactions: daily-rotating hash of IP and browser, used only to count one heart per visitor.
-- Comments: the name and text you submit, plus a hash of your IP for spam control; stored in Cloudflare D1; deleted on request (contact link); rejected comments purged after 30 days.
+- Reactions: daily-rotating hash of IP and browser, used only to count one heart per visitor per day.
+- Comments: the name and text you submit, plus a hash of your IP for spam control; stored in Cloudflare D1; deleted on request (contact link); rejected and never-reviewed comments purged after 30 days (daily job, section 9).
 - Turnstile: Cloudflare checks the browser is not a bot; link to its privacy terms.
 - YouTube embeds load only on click.
 - No ads, no selling, no email collected.
