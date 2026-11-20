@@ -69,8 +69,8 @@ export const assetPreview = (id, target, role) => request(`${packageAssetUrl(id,
 export const startAssetPreview = (id, target, role) => send('POST', `${packageAssetUrl(id, target, role)}/preview`, {});
 export const assetPreviewUrl = (id, target, role) => `${packageAssetUrl(id, target, role)}/preview/file`;
 export const publishPackages = (id) => request(`/api/runs/${enc(id)}/publish`);
-export const publish = (id, target, fields) => request(`/api/runs/${enc(id)}/publish/${enc(target)}`, {
+export const publish = (id, target, fields, acknowledgeWarnings) => request(`/api/runs/${enc(id)}/publish/${enc(target)}`, {
   method: 'POST',
   headers: { 'content-type': 'application/json' },
-  body: JSON.stringify({ fields }),
+  body: JSON.stringify({ fields, acknowledge_warnings: acknowledgeWarnings }),
 });
