@@ -38,3 +38,19 @@ test('api.js has one working function per C3 endpoint', async ({ page, errors })
   });
   expect(out.arts).toBeGreaterThan(0);
 });
+
+for (const [pipeline_tag, unreleased, text, behind] of [
+  ['pipeline-v1.2.3', 4, 'pipeline-v1.2.3 · 4 unreleased', true],
+  ['pipeline-v1.2.3', 0, 'pipeline-v1.2.3 · 0 unreleased', false],
+  ['pipeline-v1.2.3', null, 'pipeline-v1.2.3 · ? unreleased', true],
+  [null, null, '', true],
+]) {
+  test(`header release gap: ${text || 'no pipeline tag'}`, async ({ page }) => {
+    await page.route('**/api/version', (route) => route.fulfill({ json: { version: 'v9', pipeline_tag, unreleased } }));
+    await page.goto('/#/');
+    const gap = page.getByTestId('release-gap');
+    await expect(page.getByTestId('version')).toHaveText('v9');
+    await expect(gap).toHaveText(text);
+    await expect(gap).toHaveClass(behind ? /behind/ : /^release-gap$/);
+  });
+}

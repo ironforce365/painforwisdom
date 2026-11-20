@@ -86,6 +86,8 @@ def test_next_ship_bumps_from_pipeline_tags_not_coach_tags(tmp_path):
     r = _ship(repo, "minor")
     assert r.returncode == 0, r.stdout + r.stderr
     assert (tmp_path / "deploy.log").read_text().split() == ["pipeline-v0.1.0", "pipeline-v0.2.0"]
+    released = r.stdout.split("PRs in pipeline-v0.2.0:", 1)[1]
+    assert "More (#91)" in released and "Add feature (#90)" not in released
 
 
 @pytest.mark.parametrize("args", [[], ["--dry-run"], ["0.5.0"], ["--base"]])

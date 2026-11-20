@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from pipeline.ui import artifacts
-from pipeline.ui.app import create_app, read_version
+from pipeline.ui.app import ReleaseGap, create_app, read_version
 from pipeline.ui.settings import Settings
 
 pytestmark = pytest.mark.integration
@@ -40,7 +40,8 @@ def test_health_index_and_static(client):
 
 
 def test_version_is_nearest_tag_and_unknown_outside_git(client, tmp_path):
-    assert client.get("/api/version").json() == {"version": read_version()}
+    body = client.get("/api/version").json()
+    assert body["version"] == read_version() and set(body) == {"version", "pipeline_tag", "unreleased"}
     plain = tmp_path / "plain"
     plain.mkdir()
     assert read_version(plain) == "unknown"
@@ -51,6 +52,40 @@ def test_version_is_nearest_tag_and_unknown_outside_git(client, tmp_path):
     subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", "x"], cwd=repo, check=True)
     subprocess.run([*git, "tag", "pipeline-v9.9.9"], cwd=repo, check=True)
     assert read_version(repo) == "pipeline-v9.9.9"
+
+
+def test_release_gap_counts_unreleased_pipeline_commits_after_fetch(tmp_path):
+    git = ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false"]
+    origin, live, dev = tmp_path / "origin.git", tmp_path / "live", tmp_path / "dev"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(origin)], check=True)
+    subprocess.run(["git", "clone", "-q", str(origin), str(dev)], check=True)
+    subprocess.run(["git", "checkout", "-q", "-b", "main"], cwd=dev, check=True)
+
+    def commit(path: str) -> None:
+        (dev / path).parent.mkdir(parents=True, exist_ok=True)
+        (dev / path).write_text(path)
+        subprocess.run([*git, "add", "-A"], cwd=dev, check=True)
+        subprocess.run([*git, "commit", "-q", "-m", path], cwd=dev, check=True)
+
+    commit("pipeline/a.py")
+    subprocess.run([*git, "tag", "pipeline-v1.0.0"], cwd=dev, check=True)
+    subprocess.run(["git", "push", "-q", "origin", "main", "--tags"], cwd=dev, check=True)
+    subprocess.run(["git", "clone", "-q", str(origin), str(live)], check=True)
+    subprocess.run(["git", "checkout", "-q", "pipeline-v1.0.0"], cwd=live, check=True)
+    gap = ReleaseGap(live / "pipeline")  # the console runs from a subdirectory
+    assert gap() == {"pipeline_tag": "pipeline-v1.0.0", "unreleased": 0}
+
+    for path in ("pipeline/b.py", "services/coach/c.py", "docs/d.md", "config/e.json"):
+        commit(path)
+    subprocess.run(["git", "push", "-q", "origin", "main"], cwd=dev, check=True)
+    assert gap()["unreleased"] == 0  # fetch throttled
+    gap.fetched_at = None
+    assert gap() == {"pipeline_tag": "pipeline-v1.0.0", "unreleased": 2}
+
+    shutil.rmtree(origin)
+    gap.fetched_at = None
+    assert gap() == {"pipeline_tag": "pipeline-v1.0.0", "unreleased": None}
+    assert ReleaseGap(tmp_path)() == {"pipeline_tag": None, "unreleased": None}
 
 
 def test_graph(client):
