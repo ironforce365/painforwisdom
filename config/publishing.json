@@ -30,12 +30,12 @@
     "default_tags": []
   },
   "blog": {
-    "mode": "off",
-    "repo_url": "",
+    "mode": "manual",
+    "repo_url": "git@github.com:ironforce365/painforwisdom-site.git",
     "branch": "main",
     "content_dir": "src/content/posts",
     "image_dir": "public/images",
-    "url_template": ""
+    "url_template": "https://painforwisdom-site.pages.dev/{yyyy}/{mm}/{dd}/{slug}/"
   },
   "profiles": {
     "sandbox": {
