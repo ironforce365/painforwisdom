@@ -235,7 +235,7 @@ def test_run_json_done_with_hitl(tmp_path, monkeypatch, harness):
     assert run._process_one_video(_args(tmp_path), "rid") == 0
     assert seen == ["waiting_hitl", "running"]
     rec = _record(tmp_path)
-    assert set(rec) == {"run_id", "status", "verdict", "pid", "profile", "language", "input", "started_at", "ended_at", "hitl_wait_s", "error"}
+    assert set(rec) == {"run_id", "status", "verdict", "pid", "profile", "language", "input", "started_at", "ended_at", "hitl_wait_s", "error", "billing_mode"}
     assert rec["run_id"] == "rid"
     assert rec["status"] == "done" and rec["verdict"] == "PASS" and rec["error"] is None
     assert rec["pid"] == os.getpid() and rec["profile"] == "sandbox"
@@ -271,6 +271,27 @@ def test_run_json_failed_on_error(tmp_path, harness):
     assert rec["status"] == "failed"
     assert rec["error"].startswith("ValueError: bad y") and len(rec["error"]) == 500
     assert rec["ended_at"] is not None
+
+
+@pytest.mark.parametrize("oauth,env,mode,warned", [
+    ("tok", {}, "subscription", False),
+    (None, {"ANTHROPIC_AUTH_TOKEN": "t"}, "subscription", False),
+    (None, {"ANTHROPIC_API_KEY": "k"}, "api-credits", True),
+    (None, {}, None, False),
+])
+def test_run_json_records_billing_mode(tmp_path, monkeypatch, harness, oauth, env, mode, warned):
+    from pipeline import llm
+    monkeypatch.setattr(llm, "read_oauth_token", lambda: oauth)
+    for k in ("ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"):
+        monkeypatch.delenv(k, raising=False)
+    for k, v in env.items():
+        monkeypatch.setenv(k, v)
+    sent: List[str] = []
+    monkeypatch.setattr(run, "telegram_send", lambda msg: sent.append(msg) or 0)
+    harness(lambda state: {"validator_verdict": "PASS"})
+    run._process_one_video(_args(tmp_path), "rid")
+    assert _record(tmp_path)["billing_mode"] == mode
+    assert any("bills API credits" in m for m in sent) is warned
 
 
 def test_run_json_waiting_reply_then_running_on_retry(tmp_path, monkeypatch, harness):

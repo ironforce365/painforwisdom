@@ -8,8 +8,9 @@ import argparse
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
+from pipeline import llm
 from pipeline.contracts import InputContractError
 from pipeline.publishing_config import run_language
 from pipeline.runtime import date_from_filename
@@ -97,6 +98,16 @@ def _write_run_record(run_dir: Path, **fields: Any) -> None:
     tmp = path.with_name("run.json.tmp")
     tmp.write_text(json.dumps(record))
     os.replace(tmp, path)
+
+
+def _billing_mode(run_id: str, send: Callable[[str], int]) -> Optional[str]:
+    """Billing mode a v1 run starts on; warns (log + Telegram) when it falls back to API credits."""
+    mode = llm.billing_mode()
+    if mode == "api-credits":
+        msg = f"⚠️ Run `{run_id}` bills API credits: no subscription OAuth token (~/.claude/.credentials.json)"
+        print(f"[run] WARNING {msg}")
+        send(msg)
+    return mode
 
 
 def _build_initial_state(args: argparse.Namespace, video: Optional[Path], run_id: str, run_dir: Path) -> Tuple[Dict[str, Any], str]:

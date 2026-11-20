@@ -92,7 +92,7 @@ class FakeRun:
         kind = input_kind(input_path.name) or "transcript"
         self.record = {"run_id": run_id, "status": "running", "verdict": None, "pid": os.getpid(),
                        "profile": "sandbox", "language": language, "input": {"kind": kind, "path": str(input_path)},
-                       "started_at": time.time(), "ended_at": None, "hitl_wait_s": 0.0, "error": None,
+                       "started_at": time.time(), "ended_at": None, "hitl_wait_s": 0.0, "error": None, "billing_mode": "subscription",
                        **({"dry_run": True} if dry_run else {})}
 
     def _append(self, name: str, row: dict) -> None:

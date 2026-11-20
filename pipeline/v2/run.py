@@ -87,6 +87,7 @@ def process(args: argparse.Namespace, run_id: str) -> int:
     from pipeline.runtime import date_from_filename
     from pipeline.telegram import send as telegram_send
     from pipeline.v2.orchestrator import Orchestrator
+    from pipeline.v2.session import BILLING_MODE
     from pipeline.v2.store import Store, _file_hash
 
     run_dir = Path(args.processed_root) / run_id / RUN_SUFFIX
@@ -103,7 +104,7 @@ def process(args: argparse.Namespace, run_id: str) -> int:
     _write_run_record(
         run_dir, run_id=run_id, status="running", verdict=None, pid=os.getpid(), profile=args.profile,
         input={"kind": source, "path": str(input_path)}, language=language, started_at=t_start, ended_at=None,
-        hitl_wait_s=0.0, error=None, engine="sessions", **({"dry_run": True} if dry_run.active() else {}),
+        hitl_wait_s=0.0, error=None, engine="sessions", billing_mode=BILLING_MODE, **({"dry_run": True} if dry_run.active() else {}),
     )
     store = Store()
     store.start_run(run_id, profile=args.profile, dry_run=dry_run.active(), input_kind=source,

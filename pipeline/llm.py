@@ -53,6 +53,13 @@ def backend(fn: Callable[..., Dict[str, Any]]) -> Iterator[None]:
         _BACKEND.reset(token)
 
 
+def billing_mode() -> Optional[str]:
+    """The mode `_refresh_auth` would pick, without touching the env; None when no auth is set."""
+    if read_oauth_token() or os.getenv("ANTHROPIC_AUTH_TOKEN"):
+        return "subscription"
+    return "api-credits" if os.getenv("ANTHROPIC_API_KEY") else None
+
+
 def _refresh_auth() -> str:
     """Sync env with the freshest available token; return billing mode.
 

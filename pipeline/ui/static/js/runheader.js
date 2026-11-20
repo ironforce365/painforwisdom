@@ -17,8 +17,10 @@ export function mount(root, ctx) {
   const id = field('id', 'rh-id');
   const when = field('when');
   const total = field('total');
+  const billing = field('billing', 'rh-billing');
+  billing.title = 'billing mode';
   const reason = field('reason', 'rh-reason');
-  const parts = [status, verdict, input, id, when, total, reason];
+  const parts = [status, verdict, input, id, when, total, billing, reason];
   const profile = document.querySelector('[data-testid="header-profile"]');
   root.append(empty, ...parts);
 
@@ -31,7 +33,7 @@ export function mount(root, ctx) {
   ctx.bus.on('run:selected', (runId) => {
     showParts(true);
     set(id, runId);
-    [status, verdict, input, when, total, reason].forEach((p) => set(p, ''));
+    [status, verdict, input, when, total, billing, reason].forEach((p) => set(p, ''));
   });
 
   ctx.bus.on('run:updated', (run) => {
@@ -43,6 +45,8 @@ export function mount(root, ctx) {
     input.title = String(run.input.path);
     set(when, fmtWhen(run.started_at));
     set(total, fmtDuration(run.telemetry.total_s));
+    billing.dataset.mode = String(run.billing_mode);
+    set(billing, run.billing_mode ?? '');
     const why = run.pending?.title ?? run.failure?.error ?? '';
     set(reason, why);
     reason.title = why;

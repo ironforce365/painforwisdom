@@ -98,6 +98,7 @@ from pipeline.run import (  # noqa: E402
     VIDEO_EXTENSIONS,
     _answer_interrupt,
     _approval_request,
+    _billing_mode,
     _classify_non_recoverable,
     _format_error_prompt,
     _get_pending_interrupt,
@@ -343,7 +344,8 @@ def _retry_one(
         return 0
 
     t_start = time.time()
-    _update_record(run_dir, status="running", verdict=None, pid=os.getpid(), ended_at=None, error=None)
+    _update_record(run_dir, status="running", verdict=None, pid=os.getpid(), ended_at=None, error=None,
+                   billing_mode=_billing_mode(run_id, telegram_send))
     try:
         result, hitl_wait = _resume_graph(graph, config, args, run_dir)
     except Exception as exc:  # noqa: BLE001

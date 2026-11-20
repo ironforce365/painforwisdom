@@ -111,7 +111,9 @@ body[data-view="output"] #operability { display: block; overflow: hidden auto; }
   color: var(--bg);
   background: var(--muted);
 }
-.rh-status:empty, .rh-verdict:empty, .rh-field:empty, .rh-input:empty, .rh-reason:empty { display: none; }
+.rh-billing { flex: none; padding: 1px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 12px; }
+.rh-billing[data-mode="api-credits"] { border-color: var(--error); color: var(--error); font-weight: 600; }
+.rh-status:empty, .rh-verdict:empty, .rh-billing:empty, .rh-field:empty, .rh-input:empty, .rh-reason:empty { display: none; }
 .rh-status[data-status="running"] { background: var(--run); }
 .rh-status[data-status^="waiting_"] { background: var(--pause); }
 .rh-status[data-status="done"] { background: var(--done); }

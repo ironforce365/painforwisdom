@@ -11,5 +11,6 @@
   "started_at": 1793350800.0,
   "ended_at": 1793350951.0,
   "hitl_wait_s": 0.0,
+  "billing_mode": "api-credits",
   "error": "RuntimeError: research agent returned no rows"
 }

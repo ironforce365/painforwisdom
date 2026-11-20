@@ -11,5 +11,6 @@
   "started_at": 1793343600.0,
   "ended_at": 1793343898.0,
   "hitl_wait_s": 120.0,
+  "billing_mode": "subscription",
   "error": null
 }
