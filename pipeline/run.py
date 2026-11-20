@@ -113,6 +113,7 @@ from pipeline.run_common import (  # noqa: E402,F401  shared with pipeline.v2.ru
     _format_error_prompt,
     _format_proposal,
     _refuse_unattended_curator,
+    _billing_mode,
     _write_run_record,
 )
 from pipeline.runtime import date_from_filename  # noqa: E402
@@ -321,7 +322,8 @@ def _process_one_video(
     _write_run_record(
         run_dir, run_id=run_id, status="running", verdict=None, pid=os.getpid(),
         profile=args.profile, input={"kind": source, "path": str(input_path)}, language=run_language(args.language),
-        started_at=t_start, ended_at=None, hitl_wait_s=0.0, error=None, **({"dry_run": True} if dry_run.active() else {}),
+        started_at=t_start, ended_at=None, hitl_wait_s=0.0, error=None, billing_mode=_billing_mode(run_id, telegram_send),
+        **({"dry_run": True} if dry_run.active() else {}),
     )
     try:
         return _run_one(args, run_id, run_dir, video, source, label, t_start)

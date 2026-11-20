@@ -76,7 +76,7 @@ def test_run_detail(client):
     r = client.get("/api/runs/fx-done").json()
     assert set(r) == {"run_id", "status", "verdict", "profile", "language", "input", "started_at", "ended_at",
                       "hitl_wait_s", "error", "nodes", "telemetry", "pending", "failure", "dry_run", "waiting_packages", "packages", "actions", "action_blockers", "manage",
-                      "dismissed"}
+                      "dismissed", "billing_mode"}
     assert r["status"] == "done" and r["profile"] == "sandbox"
     assert len(r["nodes"]) == 16
     assert set(r["telemetry"]) == {"total_s", "work_s", "tokens", "cost_usd", "cost_estimated", "calls", "in_flight",

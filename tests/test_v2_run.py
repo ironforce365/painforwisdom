@@ -53,7 +53,7 @@ def test_from_transcript_run_json_events_and_store_agree(tmp_path, monkeypatch):
 
     run_dir = tmp_path / "processed" / "rid" / "langgraph"
     rec = json.loads((run_dir / "run.json").read_text())
-    assert (rec["status"], rec["verdict"], rec["engine"], rec["error"]) == ("done", "PASS", "sessions", None)
+    assert (rec["status"], rec["verdict"], rec["engine"], rec["error"], rec["billing_mode"]) == ("done", "PASS", "sessions", None, "subscription-session")
     assert sorted(p.stem for p in (vault / "entries").glob("*.md")) == ["entry-a"]
     assert len(asked) == 1 and asked[0]["node"] == "kb_curator"
     assert all(c["cwd"] == str(run_dir) for c in fake.calls)

@@ -81,9 +81,12 @@ test('[DT-R1] the run header names status, input, id, time and reason', async ({
   await expect(page.getByTestId('run-header-when')).toHaveText(/\d\d:\d\d/);
   await expect(page.getByTestId('run-header-reason')).toContainText('research agent returned no rows');
   await expect(page.getByTestId('header-profile')).toHaveText('sandbox');
+  await expect(page.getByTestId('run-header-billing')).toHaveText('api-credits');
+  await expect(page.getByTestId('run-header-billing')).toHaveAttribute('data-mode', 'api-credits');
   await page.evaluate(() => { location.hash = '#/runs/fx-legacy'; });
   await expect(page.getByTestId('run-header-status')).toHaveText('Done');
   await expect(page.getByTestId('run-header-verdict')).toHaveText('PASS');
+  await expect(page.getByTestId('run-header-billing')).toHaveText('');
   await expect(page.getByTestId('run-header-reason')).toHaveText('');
   await expect(page.getByTestId('header-profile')).toHaveText('');
 });

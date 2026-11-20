@@ -93,6 +93,7 @@ def test_success_updates_run_json(tmp_path):  # [DT-F1]
     live = seen[0]
     assert live["status"] == "running" and live["pid"] == os.getpid()
     assert live["ended_at"] is None and live["error"] is None and live["verdict"] is None
+    assert "billing_mode" in live
     rec = _rec(tmp_path)
     assert rec["status"] == "done" and rec["verdict"] == "PASS" and rec["ended_at"] > 9.0 and rec["error"] is None
     assert rec["started_at"] == 5.0 and rec["input"]["path"] == "/x/t.txt"
