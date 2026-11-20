@@ -38,6 +38,9 @@ def _strip_title_line(body: str) -> str:
 
 
 def node_notion_blog(state: State) -> Dict[str, Any]:
+    if state.get("writer_declined"):
+        print("[notion-blog] skipped (writer declined)")
+        return {}
     assert_inputs("notion_blog", state)
     t0 = time.time()
     print("[notion-blog] start")

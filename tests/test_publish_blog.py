@@ -43,9 +43,20 @@ def config(tmp_path, monkeypatch, remote):
         path.write_text(json.dumps(cfg))
         monkeypatch.setattr(publishing_config, "CONFIG_PATH", path)
         monkeypatch.setenv("PIPELINE_PROFILE", "prod")
-        monkeypatch.delenv("BLOG_DEPLOY_KEY", raising=False)
+        key = tmp_path / "deploy_key"
+        key.write_text("k")
+        monkeypatch.setenv("BLOG_DEPLOY_KEY", str(key))  # a file-path remote never runs ssh
         return cfg
     return setup
+
+
+@pytest.fixture(autouse=True)
+def probe(monkeypatch) -> list:
+    """HTTP statuses the site answers, in order; the last one repeats."""
+    statuses = [200]
+    monkeypatch.setattr(blog, "_probe", lambda url: statuses.pop(0) if len(statuses) > 1 else statuses[0])
+    monkeypatch.setattr(blog, "LIVE_INTERVAL_S", 0)
+    return statuses
 
 
 @pytest.fixture
@@ -101,6 +112,33 @@ def test_refused_before_anything_is_pushed(tmp_path, config, remote, notion, ove
     rd = _run(tmp_path, **fields)
     done = publish_core.run_target(rd, "blog")
     assert done["status"] == "failed" and error in done["error"]
+    assert _git(remote, "rev-list", "--count", "main") == "1" and notion == []
+
+
+def test_publish_waits_until_page_answers_200(tmp_path, config, notion, probe):
+    config()
+    probe[:] = [0, 404, 200]
+    assert publish_core.run_target(_run(tmp_path), "blog")["status"] == "published"
+    assert probe == [200] and len(notion) == 1
+
+
+def test_page_never_live_fails_after_push_without_notion(tmp_path, config, remote, notion, probe, monkeypatch):
+    config()
+    probe[:] = [404]
+    monkeypatch.setattr(blog, "LIVE_TIMEOUT_S", 0)
+    done = publish_core.run_target(_run(tmp_path), "blog")
+    sha = _git(remote, "rev-parse", "main")
+    assert done["status"] == "failed" and notion == []
+    assert done["error"] == (f"RuntimeError: pushed {sha} but https://blog.test/2026/10/30/heat-the-teacher/"
+                             " not live after 0s (last status 404)")
+
+
+@pytest.mark.parametrize("key", ["", "missing"])
+def test_deploy_key_preflight_refuses_before_clone(tmp_path, config, remote, notion, monkeypatch, key):
+    config()
+    monkeypatch.setenv("BLOG_DEPLOY_KEY", str(tmp_path / key) if key else "")
+    done = publish_core.run_target(_run(tmp_path), "blog")
+    assert done["status"] == "failed" and "BLOG_DEPLOY_KEY" in done["error"] and "OPERATIONS.md §9" in done["error"]
     assert _git(remote, "rev-list", "--count", "main") == "1" and notion == []
 
 

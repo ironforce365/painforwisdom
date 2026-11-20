@@ -45,6 +45,9 @@ class State(TypedDict, total=False):
     blog_post_title: str
     blog_post_text: str
     blog_post_excerpt: str  # 50-word summary parsed from writer output
+    writer_declined: bool  # writer refused; no blog_post_* keys are set
+    writer_decline_reason: str
+    writer_decline_needed: str  # writer's list of what is needed to write the post
 
     # Stage 4b — research
     research_csv_path: str
