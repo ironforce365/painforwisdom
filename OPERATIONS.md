@@ -281,7 +281,7 @@ python -m pipeline.ui --profile sandbox --inbox /path/to/inbox
 # open http://127.0.0.1:8820
 ```
 
-- Header shows running version next to logo: nearest git tag of the checkout (`pipeline-vX.Y.Z` or coach `vX.Y.Z`), read at server start.
+- Header shows running version next to logo: nearest git tag of the checkout (`pipeline-vX.Y.Z` or coach `vX.Y.Z`), read at server start. Beside it: the nearest `pipeline-v*` tag and how many pipeline commits on `origin/main` it lacks (coach-only and `docs/`-only commits not counted; `origin` fetched at most every 5 min; `?` when the fetch fails; amber when not 0). Amber means merged fixes are not live: ship.
 - Host is always `127.0.0.1`; port `--port` / `PIPELINE_UI_PORT` (default `8820`).
 - Inbox: `--inbox` / `PIPELINE_UI_INBOX` (default `$STATE_ROOT/inbox`). Drop `.txt` transcripts or videos
   (`.mp4 .mov .mkv .webm .m4v .avi`) there; they appear in the play-button popup.
@@ -312,7 +312,7 @@ python -m pipeline.ui --profile sandbox --inbox /path/to/inbox
 
 Prod runs as `painforwisdom-console.service` (systemd `--user`, `--profile prod`, code from `~/workspace/painforwisdom-live`, state from the dev folder). Runs and their history live in the live checkout's `processed/`.
 
-**Ship the pipeline:** `pipeline/scripts/shipit.sh [patch|minor|major|X.Y.Z] [--base <40-char sha>] [--dry-run]`. Tags `pipeline-vX.Y.Z` on an `origin/main` commit (no release branch, nothing bumped), pushes it, publishes a GitHub release, deploys, notifies Telegram. Never builds, restarts or health-checks the coach. After a failed deploy, rerun `pipeline/scripts/deploy-live.sh <tag>`, not the ship; it refuses a tag not reachable from `origin/main`.
+**Ship the pipeline:** `pipeline/scripts/shipit.sh [patch|minor|major|X.Y.Z] [--base <40-char sha>] [--dry-run]`. Tags `pipeline-vX.Y.Z` on an `origin/main` commit (no release branch, nothing bumped), pushes it, prints the PR titles it releases, publishes a GitHub release, deploys, notifies Telegram. Never builds, restarts or health-checks the coach. After a failed deploy, rerun `pipeline/scripts/deploy-live.sh <tag>`, not the ship; it refuses a tag not reachable from `origin/main`.
 
 Both lines deploy the console, because both move the same checkout: `deploy-live.sh` (pipeline, or coach after its health check) runs `pipeline/scripts/install-pipeline-units.sh --no-restart` from the new tag, restarts the service and waits up to 30 s for `GET http://127.0.0.1:8820/api/graph` to return 200. A coach ship therefore also moves pipeline code. A pipeline ship moves the checkout the coach watchdog composes from, while coach images stay as built.
 

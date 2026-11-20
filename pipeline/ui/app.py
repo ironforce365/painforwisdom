@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import time
 from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlsplit
@@ -28,6 +29,37 @@ def read_version(cwd: Path = Path(__file__).parent) -> str:
                               text=True, check=True, timeout=5).stdout.strip()
     except (OSError, subprocess.SubprocessError):
         return "unknown"
+
+
+def _git(cwd: Path, *args: str, timeout: float = 5) -> Optional[str]:
+    try:
+        return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=True,
+                              timeout=timeout).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+class ReleaseGap:
+    """Pipeline commits on origin/main in no tag this checkout runs (io-8fc1eff4: merged is not live)."""
+
+    PATHS = (":(top)", ":(top,exclude)services/coach", ":(top,exclude)docs")  # coach and spec-only commits do not change the pipeline
+    FETCH_EVERY = 300.0  # seconds; the live checkout's origin/main otherwise moves only on deploy
+
+    def __init__(self, cwd: Path = Path(__file__).parent):
+        self.cwd = cwd
+        self.fetched_at: Optional[float] = None
+        self.fetched = False
+
+    def __call__(self) -> dict:
+        now = time.monotonic()
+        if self.fetched_at is None or now - self.fetched_at >= self.FETCH_EVERY:
+            self.fetched_at = now
+            self.fetched = _git(self.cwd, "fetch", "-q", "origin", "main", timeout=10) is not None
+        tag = _git(self.cwd, "describe", "--tags", "--abbrev=0", "--match", "pipeline-v*")
+        count = None
+        if tag and self.fetched:
+            count = _git(self.cwd, "rev-list", "--count", f"{tag}..origin/main", "--", *self.PATHS)
+        return {"pipeline_tag": tag, "unreleased": int(count) if count else None}
 
 
 class LocalOnly:
@@ -72,6 +104,7 @@ def create_app(settings: Settings) -> FastAPI:
     app.state.settings = settings
     app.state.graph = routes_graph.graph_payload()
     version = read_version()
+    release_gap = ReleaseGap()
     for mod in (routes_graph, routes_runs, routes_actions, routes_launch, routes_result, routes_publish, routes_knowledge):
         app.include_router(mod.router)
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
@@ -82,7 +115,7 @@ def create_app(settings: Settings) -> FastAPI:
 
     @app.get("/api/version")
     def get_version() -> dict:
-        return {"version": version}
+        return {"version": version, **release_gap()}
 
     @app.get("/", include_in_schema=False)
     def index() -> FileResponse:
