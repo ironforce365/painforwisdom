@@ -194,6 +194,13 @@ function buildForm(first, env) {
   const progress = el('div', { class: 'pub-progress', 'data-testid': `publish-progress-${target}`, role: 'status' },
     icon('arc'), progressText, el('span', { class: 'pub-progress-bar', 'aria-hidden': 'true' }));
   progress.hidden = true;
+  // Readiness warnings (io-8fc1eff4): the server refuses a publish with warnings unless this box is ticked.
+  const ack = el('input', { type: 'checkbox', 'data-testid': `publish-ack-${target}` });
+  ack.addEventListener('change', () => env.changed());
+  const warnList = el('ul', { 'data-testid': `publish-warning-list-${target}` });
+  const warnings = el('div', { class: 'pub-warnings', 'data-testid': `publish-warnings-${target}`, role: 'alert' },
+    el('strong', {}, icon('flag'), 'This run may not be ready to publish'), warnList,
+    el('label', { class: 'pub-ack' }, ack, 'I have read these warnings and want to publish anyway'));
   let since = null;
   let ticker = null;
   let removing = false;
@@ -249,7 +256,7 @@ function buildForm(first, env) {
     const values = read();
     const local = problems(specs, values);
     show(local);
-    if (!local.length) act(Object.assign(env.api.publish(env.runId, target, values), { publishing: true }), () => {});
+    if (!local.length) act(Object.assign(env.api.publish(env.runId, target, values, ack.checked), { publishing: true }), () => {});
   });
   save.addEventListener('click', () => {
     act(env.api.savePackage(env.runId, target, read()), () => { notice.textContent = 'Saved'; });
@@ -294,7 +301,7 @@ function buildForm(first, env) {
   return {
     root: el('div', { class: 'pub-form' },
       el('div', { class: 'pub-head' }, el('h2', {}, targetLabel(target)), status, mode, link, notice, el('span', { class: 'pub-actions' }, dryNote, save, publish, unpublish)),
-      progress, general, unpublishPanel, fieldset),
+      warnings, progress, general, unpublishPanel, fieldset),
     dirty,
     /** Replace this form? Never over an edit, unless the package is published and the edit can no longer be saved. */
     stale: (pkg) => {
@@ -324,7 +331,9 @@ function buildForm(first, env) {
       if (dirty()) notice.textContent = '';
       save.hidden = finished;
       publish.hidden = finished;
-      publish.disabled = busy || blocked || data.run.dry_run;
+      sync(warnList, data.warnings.join('\n'), () => data.warnings.map((w) => el('li', {}, w)));
+      warnings.hidden = !data.warnings.length || finished;
+      publish.disabled = busy || blocked || data.run.dry_run || (data.warnings.length > 0 && !ack.checked);
       dryNote.hidden = !data.run.dry_run;
       save.disabled = busy || blocked || !dirty();
       general.replaceChildren(...(messages.length ? messages.map((m) => el('div', {}, m)) : [pkg.error ?? '']));

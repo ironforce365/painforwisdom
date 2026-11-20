@@ -48,10 +48,27 @@ def list_packages(rd: Path) -> dict:
     return {t: pkg for t in package.NODE_DIRS if (pkg := reconcile(rd, t)) is not None}
 
 
+def readiness(rd: Path) -> list[str]:
+    """What the run's own files say against publishing it (io-8fc1eff4). Any warning needs an explicit acknowledge."""
+    warnings = []
+    if (rd / "painforwisdom-writer" / "DECLINED.md").is_file():
+        warnings.append("The writer declined to write this post (painforwisdom-writer/DECLINED.md).")
+    report = rd / "coaching-thought-extractor" / "extraction_report.md"
+    raw = runtime.parse_extraction_field(report.read_text(), "Content Quality") if report.is_file() else None
+    quality = raw.split()[0].strip("*.,:") if raw and raw.split() else ""
+    if quality.lower() in {"weak", "flagged"}:
+        warnings.append(f"The extraction rated the content {quality.capitalize()}.")
+    verdict = runs._record(rd, None)["verdict"]
+    if verdict != "PASS":
+        warnings.append(f"The validator verdict is {verdict or 'missing'}, not PASS.")
+    return warnings
+
+
 def overview(settings: Settings, rd: Path) -> dict:
     targets = list_packages(rd)
     rec = runs._record(rd, None)
-    return {"targets": targets, "prepare": {t: _prepare_state(settings, rd, rec, t, t in targets) for t in package.NODE_DIRS}}
+    return {"targets": targets, "prepare": {t: _prepare_state(settings, rd, rec, t, t in targets) for t in package.NODE_DIRS},
+            "warnings": readiness(rd)}
 
 
 # --- prepare: a package for a run older than the feature, from the run's files -------
@@ -267,7 +284,7 @@ def _already_published(pkg: dict) -> PublishError:
     return PublishError(409, {"detail": "already published", "url": (pkg.get("result") or {}).get("url")})
 
 
-def confirm(settings: Settings, run_id: str, target: str, fields: dict) -> dict:
+def confirm(settings: Settings, run_id: str, target: str, fields: dict, acknowledge_warnings: bool = False) -> dict:
     """Validate, write the fields, set `publishing`, spawn the publisher. The publisher releases the lock."""
     run = runs.load_run(settings.processed_root, run_id, [])
     rd = runs.run_dir(settings.processed_root, run_id)
@@ -282,6 +299,9 @@ def confirm(settings: Settings, run_id: str, target: str, fields: dict) -> dict:
         raise PublishError(409, {"detail": "this is a dry run: nothing is published"})
     if pkg["status"] == "published":
         raise _already_published(pkg)
+    warnings = readiness(rd)
+    if warnings and not acknowledge_warnings:
+        raise PublishError(409, {"detail": "unacknowledged warnings", "warnings": warnings})
     errors = package.validate_fields(pkg, fields)
     if errors:
         raise PublishError(400, {"detail": errors})

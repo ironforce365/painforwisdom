@@ -18,6 +18,10 @@ class PublishBody(BaseModel):
     fields: dict[str, Any]
 
 
+class ConfirmBody(PublishBody):
+    acknowledge_warnings: bool = False
+
+
 @router.get("/api/runs/{run_id}/publish")
 def get_publish(request: Request, run_id: str) -> dict:
     rd = runs.run_dir(request.app.state.settings.processed_root, run_id)
@@ -27,9 +31,9 @@ def get_publish(request: Request, run_id: str) -> dict:
 
 
 @router.post("/api/runs/{run_id}/publish/{target}", status_code=202)
-def post_publish(request: Request, run_id: str, target: str, body: PublishBody):
+def post_publish(request: Request, run_id: str, target: str, body: ConfirmBody):
     try:
-        return publish.confirm(request.app.state.settings, run_id, target, body.fields)
+        return publish.confirm(request.app.state.settings, run_id, target, body.fields, body.acknowledge_warnings)
     except publish.PublishError as e:
         return JSONResponse(e.body, status_code=e.status)
 

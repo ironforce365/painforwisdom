@@ -68,6 +68,11 @@ export function freshServerState({ live = false } = {}) {
   if (live) LIVE_FIXTURES.forEach((id) => setPid(id, process.pid));
 }
 
+/** Add a recorded real run (tests/fixtures/runs/<id>) to the server's processed root; outside C6 so no run list changes. */
+export function addRun(id) {
+  fs.cpSync(path.resolve(FIXTURES, '../runs', id), path.join(PROCESSED, id), { recursive: true });
+}
+
 /** Answer the fake run's C11 request once it appears; the `hitl` scenario waits for this. */
 export async function answerPending(request, runId, reply = 'yes') {
   await expect.poll(async () => (await (await request.get(`/api/runs/${runId}`)).json()).pending?.id, { timeout: 30_000 }).toBeTruthy();

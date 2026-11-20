@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { test, expect, freshServerState, PROCESSED } from '../fixtures.js';
+import { test, expect, freshServerState, addRun, PROCESSED } from '../fixtures.js';
 
 const JS_OUTPUT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../static/js/output');
 const SECTIONS = ['summary', 'blog', 'youtube', 'wordpress', 'kb', 'research', 'audit', 'files'];
@@ -869,6 +869,33 @@ test.describe('publish', () => {
     await expect(page.getByTestId('publish-progress-blog')).toBeHidden();
     await expect(page.getByTestId('unpublish-panel-blog')).toBeVisible();
     await expect(page.getByTestId('status-blog')).toHaveText('published');
+  });
+
+  test('a run with readiness warnings: banner, publish only after the acknowledge box (io-8fc1eff4)', async ({ page }) => {
+    const run = '2026-11-19_170856_ui';
+    addRun(run);
+    await go(page, run, 'site');
+    await page.getByTestId('prepare-blog').click();
+    const banner = page.getByTestId('publish-warnings-blog');
+    await expect(banner).toBeVisible();
+    await expect(page.getByTestId('publish-warning-list-blog')).toHaveText('The extraction rated the content Weak.');
+    const publishBtn = page.getByTestId('publish-blog');
+    await expect(publishBtn).toBeDisabled();
+    await page.getByTestId('publish-ack-blog').check();
+    await expect(publishBtn).toBeEnabled();
+    await page.getByTestId('publish-ack-blog').uncheck();
+    await expect(publishBtn).toBeDisabled();
+    await page.getByTestId('publish-ack-blog').check();
+    await publishBtn.click();
+    await expect(page.getByTestId('published-blog')).toHaveText(`https://example.invalid/blog/${run}`);
+    await expect(banner).toBeHidden();
+  });
+
+  test('a run without warnings shows no banner and publishes unticked', async ({ page }) => {
+    await go(page, 'fx-unpackaged', 'site');
+    await page.getByTestId('prepare-blog').click();
+    await expect(page.getByTestId('publish-warnings-blog')).toBeHidden();
+    await expect(page.getByTestId('publish-blog')).toBeEnabled();
   });
 
   test('[DT-P7] cannot prepare: the reason; a prepare the server refuses shows why', async ({ page, errors }) => {
