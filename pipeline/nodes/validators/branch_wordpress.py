@@ -24,6 +24,9 @@ def fetch_page_blocks(page_id_str: str) -> List[Dict[str, Any]]:
 
 def _audit(state: State) -> List[Dict[str, Any]]:
     findings: List[Dict[str, Any]] = []
+    if state.get("writer_declined"):
+        reason = state.get("writer_decline_reason", "")
+        return [check("writer produced a post", False, f"writer declined: {reason}", severity="secondary")]
 
     bp = state.get("blog_post_path", "")
     findings.append(check("blog_post.md exists", bool(bp) and Path(bp).is_file(), str(bp)))
@@ -91,7 +94,7 @@ def node_bv_wordpress(state: State) -> Dict[str, Any]:
     # that wins the summarizer race when bv_research finishes later. Bail
     # out instead — wordpress_draft will re-fire after notion_blog completes
     # and trigger us again with real state.
-    if not state.get("blog_post_path") and not state.get("notion_blog_url"):
+    if not state.get("blog_post_path") and not state.get("notion_blog_url") and not state.get("writer_declined"):
         print("[bv_wordpress] skip (premature fire; blog lineage not done yet)")
         return {}
     findings = _audit(state)

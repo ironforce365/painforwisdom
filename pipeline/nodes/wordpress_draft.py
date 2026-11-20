@@ -104,6 +104,11 @@ def node_wordpress_draft(state: State) -> Dict[str, Any]:
         print("[wordpress-draft] skipped (validator FAIL)")
         return {"wordpress_skipped": True, "wordpress_skip_reason": "validator FAIL"}
 
+    if state.get("writer_declined"):
+        _write_marker(out_dir, "SKIPPED.md", f"Skipped: writer declined: {state.get('writer_decline_reason', '')}\n")
+        print("[wordpress-draft] skipped (writer declined)")
+        return {"wordpress_skipped": True, "wordpress_skip_reason": "writer declined"}
+
     title = state.get("blog_post_title", "")
     body_md_full = state.get("blog_post_text", "")
     video_date = state.get("video_date", "")
