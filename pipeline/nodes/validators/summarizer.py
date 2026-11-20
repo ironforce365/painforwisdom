@@ -87,20 +87,29 @@ def _render_pipeline_summary(state: State, verdict: str) -> str:
         except Exception:
             pass
     icon = {"PASS": "🎉", "PARTIAL": "⚠️", "FAIL": "❌"}.get(verdict, "❓")
+    declined = state.get("writer_declined")
+    if declined:
+        writer_line = f"Stage 3 — blog writer:       ⏭ declined ({state.get('writer_decline_reason', '')})"
+        notion_line = "Stage 4 — notion blog post:  ⏭ skipped (writer declined)"
+    else:
+        writer_line = f"Stage 3 — blog writer:       ✓ blog_post.md ({state.get('blog_post_title','?')!r})"
+        notion_line = f"Stage 4 — notion blog post:  ✓ {state.get('notion_blog_url','-')}"
     lines = [
         f"{icon} Pipeline {verdict} — {Path(state.get('transcript_path','')).stem}",
         f"RUN ID: {state.get('run_id','')}",
         "",
         f"Stage 1 — extraction:        ✓ extraction_report.md — {quality}",
         f"Stage 2 — kb-curator:        ✓ entry [[{state.get('vault_entry_slug','')}]]",
-        f"Stage 3 — blog writer:       ✓ blog_post.md ({state.get('blog_post_title','?')!r})",
-        f"Stage 4 — notion blog post:  ✓ {state.get('notion_blog_url','-')}",
+        writer_line,
+        notion_line,
         f"Stage 5 — research:          ✓ research_report.csv ({csv_rows} refs)",
         f"Stage 6 — notion research:   ✓ {state.get('notion_task_count', 0)} tasks",
         _wp_line(state),
         _yt_line(state),
         _image_line(state),
     ]
+    if declined and state.get("writer_decline_needed"):
+        lines += ["", "✍️ Writer needs, to write the post:", state["writer_decline_needed"]]
     return "\n".join(lines)
 
 
