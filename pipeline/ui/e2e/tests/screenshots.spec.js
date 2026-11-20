@@ -48,6 +48,22 @@ for (const [width, height] of [[1280, 720], [3440, 1440]]) {
       await expect(page.getByTestId('logs')).toBeVisible();
       await shoot(page, `logs-${width}`);
     });
+
+    test('shot blog unpublish', async ({ page }) => {
+      freshServerState();
+      await page.goto('/#/runs/fx-unpackaged/output');
+      await page.getByTestId('output-nav-site').click();
+      await page.getByTestId('prepare-blog').click();
+      await page.getByTestId('publish-blog').click();
+      await expect(page.getByTestId('published-blog')).toBeVisible({ timeout: 15_000 });
+      await shoot(page, `blog-published-${width}`);
+      await page.getByTestId('unpublish-blog').click();
+      await page.getByTestId('unpublish-slug-blog').fill('the-road-stopped-arguing');
+      await shoot(page, `blog-unpublish-confirm-${width}`);
+      await page.getByTestId('unpublish-confirm-blog').click();
+      await expect(page.getByTestId('status-blog')).toHaveText('unpublished', { timeout: 15_000 });
+      await shoot(page, `blog-unpublished-${width}`);
+    });
   });
 }
 

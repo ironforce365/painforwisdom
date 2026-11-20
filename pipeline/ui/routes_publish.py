@@ -42,6 +42,18 @@ def put_publish(request: Request, run_id: str, target: str, body: PublishBody):
         return JSONResponse(e.body, status_code=e.status)
 
 
+class UnpublishBody(BaseModel):
+    slug: str
+
+
+@router.post("/api/runs/{run_id}/publish/{target}/unpublish", status_code=202)
+def post_unpublish(request: Request, run_id: str, target: str, body: UnpublishBody):
+    try:
+        return publish.unpublish(request.app.state.settings, run_id, target, body.slug)
+    except publish.PublishError as e:
+        return JSONResponse(e.body, status_code=e.status)
+
+
 @router.post("/api/runs/{run_id}/publish/{target}/prepare", status_code=201)
 def post_prepare(request: Request, run_id: str, target: str):
     try:

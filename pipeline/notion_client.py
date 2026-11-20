@@ -196,6 +196,16 @@ def update_blog_page_url(
     return page
 
 
+def clear_blog_page_url(page_id_str: str, *, url_property: str = "Blog URL") -> Dict[str, Any]:
+    """Empty ``url_property`` on a blog page: the post it pointed at was taken down. Status is left as it is."""
+    if url_property not in get_blog_db_properties():
+        print(f"[notion] WARN blog DB has no '{url_property}' property: nothing to clear")
+        return {}
+    page = get_client().pages.update(page_id=page_id_str, properties={url_property: {"url": None}})
+    time.sleep(_PACE_SECONDS)
+    return page
+
+
 def query_blog_pages(
     *,
     only_unpublished: bool = True,

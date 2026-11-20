@@ -153,6 +153,121 @@ def test_failed_write_back_does_not_fail_a_pushed_post(tmp_path, config, monkeyp
     assert "notion down" in (rd / "blog-publish" / "NOTION_UPDATE_FAILED.md").read_text()
 
 
+@pytest.fixture
+def pages(monkeypatch) -> dict:
+    """(status, title) the site answers per url; the post page's answers pop in order, the last one repeats."""
+    answers = {"https://blog.test/": [(200, "Pain for Wisdom")],
+               "https://blog.test/2026/10/30/heat-the-teacher/": [(200, "Pain for Wisdom")]}
+    monkeypatch.setattr(blog, "_page_title", lambda url: answers[url].pop(0) if len(answers[url]) > 1 else answers[url][0])
+    return answers
+
+
+@pytest.fixture
+def cleared(monkeypatch) -> list:
+    calls: list = []
+    monkeypatch.setattr("pipeline.notion_client.clear_blog_page_url", lambda *a, **kw: calls.append((a, kw)))
+    return calls
+
+
+def _published(tmp_path: Path) -> Path:
+    rd = _run(tmp_path)
+    assert publish_core.run_target(rd, "blog")["status"] == "published"
+    return rd
+
+
+def _files(remote: Path) -> str:
+    return _git(remote, "ls-tree", "-r", "--name-only", "main")
+
+
+def test_unpublish_removes_post_and_image_clears_notion_and_can_publish_again(tmp_path, config, remote, notion, cleared, pages):
+    config()
+    rd = _published(tmp_path)
+    url = "https://blog.test/2026/10/30/heat-the-teacher/"
+    pages[url] = [(200, "Heat: the Teacher! · Pain for Wisdom"), (200, "Pain for Wisdom")]  # Pages still building, then gone
+    done = publish_core.unpublish_target(rd, "blog")
+    assert done["status"] == "unpublished" and done["result"] is None and done["error"] is None
+    assert done["unpublished"] == {"id": _git(remote, "rev-parse", "main"), "url": url}
+    assert _files(remote) == "README.md"
+    assert _git(remote, "log", "-1", "--format=%s", "main") == "unpublish: Heat: the Teacher!"
+    assert cleared == [(("page-1",), {"url_property": "Blog URL"})]
+    assert not package.lock_path(rd, "blog").exists()
+    assert publish_core.run_target(rd, "blog")["status"] == "published"  # unpublished is republishable
+    assert "src/content/posts/heat-the-teacher.md" in _files(remote)
+
+
+def test_unpublish_retry_after_a_pushed_removal_adds_no_commit(tmp_path, config, remote, notion, cleared, pages):
+    config()
+    rd = _published(tmp_path)
+    package.write(rd, {**package.read(rd, "blog"), "status": "unpublishing"})  # as the console leaves it
+    blog.unpublish(rd, package.read(rd, "blog"))
+    count = _git(remote, "rev-list", "--count", "main")
+    blog.unpublish(rd, package.read(rd, "blog"))
+    assert _git(remote, "rev-list", "--count", "main") == count == "3"
+
+
+def test_unpublish_404_counts_as_gone(tmp_path, config, notion, cleared, pages):
+    config()
+    rd = _published(tmp_path)
+    pages["https://blog.test/2026/10/30/heat-the-teacher/"] = [(404, "")]
+    assert publish_core.unpublish_target(rd, "blog")["status"] == "unpublished"
+
+
+def test_unpublish_still_live_keeps_it_published_with_the_error(tmp_path, config, remote, notion, cleared, pages, monkeypatch):
+    config()
+    rd = _published(tmp_path)
+    pages["https://blog.test/2026/10/30/heat-the-teacher/"] = [(200, "Heat: the Teacher! · Pain for Wisdom")]
+    monkeypatch.setattr(blog, "LIVE_TIMEOUT_S", 0)
+    done = publish_core.unpublish_target(rd, "blog")
+    sha = _git(remote, "rev-parse", "main")
+    assert done["status"] == "published" and done["result"]["url"] and cleared == []
+    assert done["error"] == ("unpublish failed: RuntimeError: pushed " + sha + " but https://blog.test/2026/10/30/heat-the-teacher/"
+                             " still serves the post after 0s (last status 200, title 'Heat: the Teacher! · Pain for Wisdom')")
+
+
+def test_unpublish_failed_notion_clear_does_not_fail_it(tmp_path, config, notion, pages, monkeypatch):
+    config()
+    rd = _published(tmp_path)
+
+    def boom(*a, **kw):
+        raise RuntimeError("notion down")
+
+    monkeypatch.setattr("pipeline.notion_client.clear_blog_page_url", boom)
+    assert publish_core.unpublish_target(rd, "blog")["status"] == "unpublished"
+    assert "notion down" in (rd / "blog-publish" / "NOTION_UPDATE_FAILED.md").read_text()
+
+
+@pytest.mark.parametrize("status", ["pending", "failed", "publishing"])
+def test_unpublish_refuses_a_package_that_is_not_published(tmp_path, config, status):
+    config()
+    rd = _run(tmp_path)
+    package.write(rd, {**package.read(rd, "blog"), "status": status})
+    with pytest.raises(ValueError, match=f"blog is {status}, not published"):
+        publish_core.unpublish_target(rd, "blog")
+    assert not package.lock_path(rd, "blog").exists()
+
+
+def test_unpublish_has_no_other_target(tmp_path):
+    with pytest.raises(ValueError, match="wordpress has no unpublish"):
+        publish_core.unpublish_target(tmp_path, "wordpress")
+
+
+def test_page_title_reads_and_unescapes_the_title(monkeypatch):
+    class Resp:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self, n):
+            return b"<html><head><TITLE>i wasn&#39;t racing \xc2\xb7 Pain for Wisdom</TITLE></head></html>"
+
+    monkeypatch.setattr(blog.urllib.request, "urlopen", lambda url, timeout: Resp())
+    assert blog._page_title("https://x.test/") == (200, "i wasn't racing · Pain for Wisdom")
+
+
 def _state(tmp_path: Path) -> dict:
     rd = tmp_path / "node" / "langgraph"
     rd.mkdir(parents=True)
