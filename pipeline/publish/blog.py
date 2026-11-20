@@ -74,10 +74,15 @@ def _deploy_key() -> None:
         raise ValueError(f"BLOG_DEPLOY_KEY {key!r} is not a file: see OPERATIONS.md §9")
 
 
+def _request(url: str) -> urllib.request.Request:
+    # Cloudflare answers urllib's default User-Agent 403 "error code: 1010".
+    return urllib.request.Request(url, headers={"User-Agent": "painforwisdom-pipeline"})
+
+
 def _probe(url: str) -> int:
     """HTTP status of a GET, 0 when the host does not answer."""
     try:
-        with urllib.request.urlopen(url, timeout=15) as resp:  # noqa: S310 - url is our own url_template
+        with urllib.request.urlopen(_request(url), timeout=15) as resp:  # noqa: S310 - url is our own url_template
             return resp.status
     except urllib.error.HTTPError as exc:
         return exc.code
@@ -96,7 +101,7 @@ def _wait_live(url: str, sha: str) -> None:
 def _page_title(url: str) -> tuple[int, str]:
     """(HTTP status, unescaped <title>) of a GET; (0, "") when the host does not answer."""
     try:
-        with urllib.request.urlopen(url, timeout=15) as resp:  # noqa: S310 - url is our own url_template
+        with urllib.request.urlopen(_request(url), timeout=15) as resp:  # noqa: S310 - url is our own url_template
             status, page = resp.status, resp.read(500_000).decode("utf-8", "replace")
     except urllib.error.HTTPError as exc:
         return exc.code, ""

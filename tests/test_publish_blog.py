@@ -264,8 +264,10 @@ def test_page_title_reads_and_unescapes_the_title(monkeypatch):
         def read(self, n):
             return b"<html><head><TITLE>i wasn&#39;t racing \xc2\xb7 Pain for Wisdom</TITLE></head></html>"
 
-    monkeypatch.setattr(blog.urllib.request, "urlopen", lambda url, timeout: Resp())
+    seen: list = []
+    monkeypatch.setattr(blog.urllib.request, "urlopen", lambda req, timeout: seen.append(req) or Resp())
     assert blog._page_title("https://x.test/") == (200, "i wasn't racing · Pain for Wisdom")
+    assert seen[0].get_header("User-agent") == "painforwisdom-pipeline"  # Cloudflare 403s urllib's default
 
 
 def _state(tmp_path: Path) -> dict:
