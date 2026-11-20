@@ -60,9 +60,12 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function loadGraph() {
   for (;;) {
     try {
-      const [graph, { version }] = await Promise.all([api.getGraph(), api.getVersion()]);
+      const [graph, { version, pipeline_tag: tag, unreleased }] = await Promise.all([api.getGraph(), api.getVersion()]);
       state.graph = graph;
       document.querySelector('[data-testid="version"]').textContent = version;
+      const gap = document.querySelector('[data-testid="release-gap"]');
+      gap.textContent = tag ? `${tag} · ${unreleased ?? '?'} unreleased` : '';
+      gap.classList.toggle('behind', unreleased !== 0);
       bus.emit('graph:loaded', state.graph);
       return;
     } catch {

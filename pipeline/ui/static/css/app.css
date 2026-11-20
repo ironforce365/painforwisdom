@@ -54,7 +54,8 @@ body {
 .logo { display: inline-flex; color: var(--run); }
 .logo .icon { width: 22px; height: 22px; }
 .brand { font-weight: 700; font-size: 16px; }
-.version, .profile { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.version, .profile, .release-gap { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.release-gap.behind { color: var(--pause); }
 .profile { padding: 1px 6px; border: 1px solid var(--line); border-radius: 4px; }
 .profile:empty { display: none; }
 .slot-needslink { flex: 1; min-width: 0; display: flex; justify-content: flex-end; }

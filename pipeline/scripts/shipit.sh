@@ -127,12 +127,13 @@ release_notes() {
   printf "## What's changed\n\n"
   git log --first-parent --format='- %s (%h)' "${NOTES_FROM:+$NOTES_FROM..}$SHIP_SHA"
 }
+NOTES_FILE="$(mktemp)"
+release_notes > "$NOTES_FILE"
+say "PRs in $TAG:"
+sed -n 's/^- /    /p' "$NOTES_FILE"
 if ! command -v gh >/dev/null 2>&1; then
   say "gh not found — $TAG gets no release page; later: gh release create $TAG --generate-notes"
 else
-  NOTES_FILE="$(mktemp)"
-  release_notes > "$NOTES_FILE"
-  sed 's/^/    /' "$NOTES_FILE"
   if [ "$DRY_RUN" = 1 ]; then
     printf "  [dry-run] gh release create '%s' --title 'Pipeline %s' --notes-file <notes> --verify-tag\n" "$TAG" "$TAG"
   elif timeout 60 gh release create "$TAG" --title "Pipeline $TAG" --notes-file "$NOTES_FILE" --verify-tag; then
@@ -140,8 +141,8 @@ else
   else
     say "gh release create failed (non-fatal); later: gh release create $TAG --generate-notes"
   fi
-  rm -f "$NOTES_FILE"
 fi
+rm -f "$NOTES_FILE"
 
 # --- 4. deploy -------------------------------------------------------------------
 say "deploying $TAG via $DEPLOY_SCRIPT"
