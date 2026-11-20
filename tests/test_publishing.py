@@ -63,9 +63,19 @@ def rd_of(processed: Path, run: str) -> Path:
 # --- C10 config ------------------------------------------------------------
 
 
+def test_prod_config_with_wordpress_off_still_writes_the_blog_package(tmp_path, monkeypatch):
+    monkeypatch.setenv("PIPELINE_PROFILE", "prod")
+    rd = tmp_path / "langgraph"
+    rd.mkdir()
+    node_wordpress_draft({"run_dir": str(rd), "blog_post_title": "My title", "video_date": "2026-10-30",
+                          "blog_post_text": "**Title:** My title\n\nBody.", "featured_image_path": ""})
+    assert package.read(rd, "blog")["status"] == "pending"
+    assert package.read(rd, "wordpress") is None
+
+
 def test_load_merges_profile_over_base():
     prod, sandbox = publishing_config.load("prod"), publishing_config.load("sandbox")
-    assert prod["wordpress"]["mode"] == "manual" and prod["youtube"]["mode"] == "manual"
+    assert prod["wordpress"]["mode"] == "off" and prod["youtube"]["mode"] == "manual"
     assert sandbox["wordpress"]["mode"] == "off" and sandbox["youtube"]["mode"] == "off"
     assert sandbox["wordpress"]["site"] == prod["wordpress"]["site"]
     assert "profiles" not in prod

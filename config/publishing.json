@@ -22,7 +22,7 @@
     "scraped_from_channel": "@painforwisdom"
   },
   "wordpress": {
-    "mode": "manual",
+    "mode": "off",
     "site": "painforwisdom.wordpress.com",
     "status": "draft",
     "auth_mode": "app_password",
