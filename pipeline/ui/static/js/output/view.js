@@ -17,7 +17,7 @@ export function createView(ctx, runId, shared) {
 
   const schedule = () => {
     clearTimeout(timer);
-    const publishing = Object.values(data.targets).some((p) => p.status === 'publishing');
+    const publishing = Object.values(data.targets).some((p) => p.status === 'publishing' || p.status === 'unpublishing');
     if (shown && publishing) timer = setTimeout(refreshPublish, POLL_MS);
   };
   // A failed GET changes nothing; api.js health reporting shows the badge.

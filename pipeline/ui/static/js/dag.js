@@ -17,7 +17,7 @@ const LANES = {
   research: 1.5, notion_research: 1.5, bv_research: 1.5,
 };
 const PACKAGE_NODE = { wordpress: 'wordpress_draft', youtube: 'youtube_upload' };
-const PACKAGE_META = { preview: 'preview only', pending: 'needs you', failed: 'publish failed', publishing: 'publishing', published: 'published' };
+const PACKAGE_META = { preview: 'preview only', pending: 'needs you', failed: 'publish failed', publishing: 'publishing', published: 'published', unpublishing: 'unpublishing', unpublished: 'unpublished' };
 const CUES = { pending: 'dot', running: 'arc', paused: 'pause', done: 'tick', error: 'cross', skipped: 'dash' };
 
 const ZOOM_MIN = 0.2;

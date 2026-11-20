@@ -112,10 +112,13 @@
 .pub-head { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
 .pub-status, .pub-mode { padding: 1px 8px; border: 1px solid var(--line); border-radius: 999px; font-size: 12px; color: var(--muted); }
 .pub-status[data-value="pending"] { color: var(--pause); border-color: var(--pause); }
-.pub-status[data-value="publishing"] { color: var(--run); border-color: var(--run); }
+.pub-status:is([data-value="publishing"], [data-value="unpublishing"]) { color: var(--run); border-color: var(--run); }
 .pub-status[data-value="published"] { color: var(--done); border-color: var(--done); }
 .pub-status[data-value="failed"] { color: var(--error); border-color: var(--error); }
 .pub-actions { display: flex; gap: 8px; margin-left: auto; }
+.pub-unpublish { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--error); border-radius: 6px; }
+.pub-unpublish[hidden] { display: none; }
+.pub-unpublish input { min-width: 0; flex: 1 1 240px; font-family: var(--mono, monospace); }
 .pub-warnings { display: flex; flex-direction: column; gap: 6px; padding: 10px 14px; border: 1px solid var(--pause); border-radius: 8px; color: var(--text); background: color-mix(in srgb, var(--pause) 14%, var(--surface)); }
 .pub-warnings[hidden] { display: none; }
 .pub-warnings strong { display: flex; align-items: center; gap: 6px; color: var(--pause); }

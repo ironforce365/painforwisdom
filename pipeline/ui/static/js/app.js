@@ -88,7 +88,7 @@ async function poll(mine, id) {
   state.run = run;
   bus.emit('run:updated', run);
   // A finished run still changes while a package publishes; the banner and DAG read run.packages (io-f07d19f0).
-  const publishing = run.packages.some((p) => p.status === 'publishing');
+  const publishing = run.packages.some((p) => p.status === 'publishing' || p.status === 'unpublishing');
   if (runs.ACTIVE.has(run.status) || publishing) timer = setTimeout(poll, POLL_MS, mine, id);
 }
 

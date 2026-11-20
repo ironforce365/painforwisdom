@@ -795,6 +795,82 @@ test.describe('publish', () => {
     await expect(section(page, 'site')).toBeVisible();
   });
 
+  const publishBlog = async (page) => {
+    await go(page, 'fx-unpackaged', 'site');
+    await page.getByTestId('prepare-blog').click();
+    await page.getByTestId('publish-blog').click();
+    await expect(page.getByTestId('published-blog')).toBeVisible({ timeout: 15_000 });
+  };
+
+  test('blog unpublish: the typed slug arms it; the post goes, the package is editable and publishes again', async ({ page }) => {
+    await publishBlog(page);
+    const panel = page.getByTestId('unpublish-panel-blog');
+    const confirm = page.getByTestId('unpublish-confirm-blog');
+    await expect(panel).toBeHidden();
+    await page.getByTestId('unpublish-blog').click();
+    await expect(panel).toBeVisible();
+    await expect(page.getByTestId('unpublish-blog')).toBeHidden();
+    await expect(page.getByTestId('unpublish-want-blog')).toHaveText('the-road-stopped-arguing');
+    await expect(confirm).toBeDisabled();
+    await page.getByTestId('unpublish-slug-blog').fill('the-road');
+    await expect(confirm).toBeDisabled();
+    await page.getByTestId('unpublish-cancel-blog').click();
+    await expect(panel).toBeHidden();
+    await expect(page.getByTestId('unpublish-blog')).toBeVisible();
+
+    let release;
+    const held = new Promise((resolve) => { release = resolve; });
+    await page.route('**/api/runs/fx-unpackaged/publish/blog/unpublish', async (route) => {
+      await held;
+      await route.continue();
+    });
+    await page.getByTestId('unpublish-blog').click();
+    await expect(page.getByTestId('unpublish-slug-blog')).toHaveValue('');
+    await page.getByTestId('unpublish-slug-blog').fill('the-road-stopped-arguing');
+    await confirm.click();
+    await expect(page.getByTestId('publish-progress-text-blog')).toContainText('Removing the post from the blog site…');
+    release();
+    await expect(page.getByTestId('status-blog')).toHaveText('unpublished', { timeout: 15_000 });
+    await expect(chip(page, 'site')).toHaveText('unpublished');
+    await expect(page.getByTestId('published-blog')).toHaveCount(0);
+    await expect(page.getByTestId('unpublish-blog')).toBeHidden();
+    await expect(panel).toBeHidden();
+    await expect(page.getByTestId('field-blog-title')).toBeEnabled();
+    const pkg = readPkg('fx-unpackaged', 'blog-publish');
+    expect([pkg.status, pkg.result, pkg.unpublished.url]).toEqual(['unpublished', null, 'https://example.invalid/blog/fx-unpackaged']);
+
+    await page.getByTestId('publish-blog').click();
+    await expect(page.getByTestId('published-blog')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('unpublish-blog')).toBeVisible();
+  });
+
+  test('blog unpublish that fails keeps the post published with the reason, and can be tried again', async ({ page }) => {
+    await publishBlog(page);
+    writePkg('fx-unpackaged', 'blog-publish', { ...readPkg('fx-unpackaged', 'blog-publish'), fields: { ...readPkg('fx-unpackaged', 'blog-publish').fields, title: 'FAIL' } });
+    await page.getByTestId('view-tab-graph').click();
+    await page.getByTestId('view-tab-output').click();
+    await page.getByTestId('unpublish-blog').click();
+    await page.getByTestId('unpublish-slug-blog').fill('the-road-stopped-arguing');
+    await page.getByTestId('unpublish-confirm-blog').click();
+    await expect(page.getByTestId('publish-error-blog')).toHaveText('unpublish failed: fake failure', { timeout: 15_000 });
+    await expect(page.getByTestId('status-blog')).toHaveText('published');
+    await expect(page.getByTestId('published-blog')).toBeVisible();
+    await expect(page.getByTestId('unpublish-blog')).toBeEnabled();
+  });
+
+  test('blog unpublish: a refusal says why and leaves the post as it was', async ({ page, errors }) => {
+    errors.allow(/400/);
+    await publishBlog(page);
+    await page.route('**/api/runs/fx-unpackaged/publish/blog/unpublish', (route) => route.fulfill({ status: 400, json: { detail: 'type the slug the-road-stopped-arguing to confirm' } }));
+    await page.getByTestId('unpublish-blog').click();
+    await page.getByTestId('unpublish-slug-blog').fill('the-road-stopped-arguing');
+    await page.getByTestId('unpublish-confirm-blog').click();
+    await expect(page.getByTestId('publish-error-blog')).toHaveText('type the slug the-road-stopped-arguing to confirm');
+    await expect(page.getByTestId('publish-progress-blog')).toBeHidden();
+    await expect(page.getByTestId('unpublish-panel-blog')).toBeVisible();
+    await expect(page.getByTestId('status-blog')).toHaveText('published');
+  });
+
   test('a run with readiness warnings: banner, publish only after the acknowledge box (io-8fc1eff4)', async ({ page }) => {
     const run = '2026-11-19_170856_ui';
     addRun(run);

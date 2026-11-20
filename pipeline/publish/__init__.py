@@ -57,3 +57,40 @@ def run_target(run_dir: Path, target: str) -> dict[str, Any]:
         return _package.write(run_dir, {**package, "status": "published", "result": result, "error": None})
     finally:
         _package.release_lock(run_dir, target)
+
+
+def _blog_unpublish(run_dir: Path, package: dict) -> dict:
+    from pipeline.publish.blog import unpublish  # noqa: PLC0415
+
+    return unpublish(run_dir, package)
+
+
+UNPUBLISHERS: dict[str, Callable[[Path, dict], dict]] = {"blog": _blog_unpublish}
+
+
+def unpublish_target(run_dir: Path, target: str) -> dict[str, Any]:
+    """Take a published package down and record `unpublished`; a failure keeps it `published` with the error.
+
+    `unpublished` is republishable: save and publish treat it as a draft. Removes the lock in a finally.
+    """
+    if target not in UNPUBLISHERS:
+        raise ValueError(f"{target} has no unpublish")
+    package = _package.read(run_dir, target)
+    if package is None:
+        raise FileNotFoundError(f"no {target} package in {run_dir}")
+    _package.acquire_lock(run_dir, target, os.getpid())
+    try:
+        if package["status"] == "unpublished":
+            return package
+        if package["status"] not in {"published", "unpublishing"}:  # the console sets `unpublishing` before it spawns
+            raise ValueError(f"{target} is {package['status']}, not published")
+        package = _package.write(run_dir, {**package, "status": "unpublishing", "error": None})
+        try:
+            done = UNPUBLISHERS[target](run_dir, package)
+        except Exception as exc:  # noqa: BLE001 - the post may still be live: never leave it unpublishing
+            return _package.write(run_dir, {**package, "status": "published",
+                                            "error": f"unpublish failed: {type(exc).__name__}: {exc}"})
+        return _package.write(run_dir, {**package, "status": "unpublished", "result": None, "unpublished": done,
+                                        "error": None})
+    finally:
+        _package.release_lock(run_dir, target)
