@@ -26,6 +26,8 @@ from pipeline.runtime import (
 from pipeline.state import State
 
 
+DECLINE_MARKER = "WRITER_DECLINED:"
+
 _WRITER_OUTPUT_SPEC = """\
 
 ## OUTPUT SPEC (STRICT)
@@ -63,6 +65,12 @@ Hard rules:
 - For any external reference (Goggins, Jocko, aMCC, cookie jar, …) check the
   CROSS-POST CONTEXT block if provided; if a prior post explained it, use
   `[[link:<slug>]]` instead of re-explaining.
+
+If the inputs are too thin to write the post without inventing experience,
+DECLINE instead. Reply with NOTHING but this, the first line exactly as shown:
+
+""" + DECLINE_MARKER + """ <one-line reason>
+<numbered list of what is needed to write the post>
 """
 
 
@@ -89,6 +97,14 @@ def _parse_title_and_body(text: str) -> tuple[str, str]:
                 title = stripped
                 break
     return title or "untitled", text.strip()
+
+
+def _parse_decline(text: str) -> tuple[str, str] | None:
+    """(reason, what is needed) if the writer declined, else None."""
+    m = re.search(rf"^\s*{re.escape(DECLINE_MARKER)}\s*(.*)$", text, re.MULTILINE)
+    if not m:
+        return None
+    return m.group(1).strip() or "no reason given", text[m.end():].strip()
 
 
 def _parse_excerpt(text: str) -> str:
@@ -191,6 +207,26 @@ def node_writer(state: State) -> Dict[str, Any]:
     model = os.environ.get("PIPELINE_MODEL", DEFAULT_MODEL)
     result = call_llm(model, system_prompt, user_msg, max_tokens=3000)
     text = result["text"]
+    run_dir = Path(state["run_dir"])
+    out_dir = run_dir / "painforwisdom-writer"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    usage = {
+        "model": result["model"],
+        "input_tokens": result["input_tokens"],
+        "output_tokens": result["output_tokens"],
+        "cache_read_tokens": result["cache_read_tokens"],
+        "cache_creation_tokens": result["cache_creation_tokens"],
+        "cost_usd": round(result["cost_usd"], 6),
+    }
+
+    declined = _parse_decline(text)
+    if declined:
+        reason, needed = declined
+        (out_dir / "DECLINED.md").write_text(text.strip() + "\n")
+        append_metric(run_telemetry_path(state["run_dir"]), "writer",
+                      duration_s=round(time.time() - t0, 2), **usage, declined=True, reason=reason)
+        print(f"[writer] declined: {reason}")
+        return {"writer_declined": True, "writer_decline_reason": reason, "writer_decline_needed": needed}
 
     title, body = _parse_title_and_body(text)
     excerpt = _parse_excerpt(body)
@@ -204,9 +240,6 @@ def node_writer(state: State) -> Dict[str, Any]:
         # Soft check — warn rather than fail; writer is creative, may rephrase.
         print(f"[writer] WARN date stamp {date_mmddyy} not found verbatim in body")
 
-    run_dir = Path(state["run_dir"])
-    out_dir = run_dir / "painforwisdom-writer"
-    out_dir.mkdir(parents=True, exist_ok=True)
     blog_path = out_dir / "blog_post.md"
     blog_path.write_text(body)
 
@@ -215,12 +248,7 @@ def node_writer(state: State) -> Dict[str, Any]:
         run_telemetry_path(state["run_dir"]),
         "writer",
         duration_s=round(duration, 2),
-        model=result["model"],
-        input_tokens=result["input_tokens"],
-        output_tokens=result["output_tokens"],
-        cache_read_tokens=result["cache_read_tokens"],
-        cache_creation_tokens=result["cache_creation_tokens"],
-        cost_usd=round(result["cost_usd"], 6),
+        **usage,
         word_count=word_count,
         title=title,
     )
