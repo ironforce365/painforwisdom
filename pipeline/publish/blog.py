@@ -10,6 +10,9 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Optional
 
@@ -18,6 +21,7 @@ from pipeline.publish import specs
 
 SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 _DATE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")
+LIVE_TIMEOUT_S, LIVE_INTERVAL_S = 300, 10  # a Pages build takes a minute or two
 _AUTHOR = {"GIT_AUTHOR_NAME": "painforwisdom pipeline", "GIT_AUTHOR_EMAIL": "pipeline@painforwisdom.invalid"}
 
 
@@ -60,6 +64,33 @@ def _inside(root: Path, rel: str) -> Path:
     return path
 
 
+def _deploy_key() -> None:
+    key = os.environ.get("BLOG_DEPLOY_KEY", "").strip()
+    if not key:
+        raise ValueError("BLOG_DEPLOY_KEY is unset in the profile env file: see OPERATIONS.md §9")
+    if not Path(key).expanduser().is_file():
+        raise ValueError(f"BLOG_DEPLOY_KEY {key!r} is not a file: see OPERATIONS.md §9")
+
+
+def _probe(url: str) -> int:
+    """HTTP status of a GET, 0 when the host does not answer."""
+    try:
+        with urllib.request.urlopen(url, timeout=15) as resp:  # noqa: S310 - url is our own url_template
+            return resp.status
+    except urllib.error.HTTPError as exc:
+        return exc.code
+    except (urllib.error.URLError, OSError):
+        return 0
+
+
+def _wait_live(url: str, sha: str) -> None:
+    deadline = time.monotonic() + LIVE_TIMEOUT_S
+    while (status := _probe(url)) != 200:
+        if time.monotonic() >= deadline:
+            raise RuntimeError(f"pushed {sha} but {url} not live after {LIVE_TIMEOUT_S}s (last status {status})")
+        time.sleep(LIVE_INTERVAL_S)
+
+
 def publish(run_dir: Path, package: dict) -> dict:
     from pipeline.publishing_config import current_profile, load  # noqa: PLC0415
 
@@ -72,6 +103,7 @@ def publish(run_dir: Path, package: dict) -> dict:
         raise ValueError(f"slug: {slug!r} is not lowercase words joined by '-'")
     if not date:
         raise ValueError(f"date: {fields.get('date')!r} is not YYYY-MM-DD")
+    _deploy_key()
     image = next((Path(a["path"]) for a in package["assets"] if a["role"] == "featured_image"), None)
     with tempfile.TemporaryDirectory(prefix="blog-publish-") as tmp:
         repo = Path(tmp) / "site"
@@ -91,6 +123,7 @@ def publish(run_dir: Path, package: dict) -> dict:
         sha = _git(repo, "rev-parse", "HEAD")
     yyyy, mm, dd = date.groups()
     url = config["url_template"].format(yyyy=yyyy, mm=mm, dd=dd, slug=slug)
+    _wait_live(url, sha)
     _write_back(run_dir, package, url)
     return {"id": sha, "url": url}
 
