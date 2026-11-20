@@ -29,6 +29,7 @@ export function createView(ctx, runId, shared) {
     return load(api.publishPackages(runId), (body) => {
       data.targets = body.targets;
       data.prepare = body.prepare;
+      data.warnings = body.warnings;
     }).then(schedule);
   }
   const refresh = () => {

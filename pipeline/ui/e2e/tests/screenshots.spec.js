@@ -1,6 +1,6 @@
 // PR screenshots, opt-in: PFW_SHOTS=<dir> npm test -- screenshots
 import path from 'node:path';
-import { test, expect, freshServerState } from '../fixtures.js';
+import { test, expect, freshServerState, addRun } from '../fixtures.js';
 
 const DIR = process.env.PFW_SHOTS;
 test.skip(!DIR, 'screenshots only when PFW_SHOTS names an output dir');
@@ -18,6 +18,19 @@ for (const [width, height] of [[1280, 720], [3440, 1440]]) {
       await page.getByTestId('node-writer').click();
       await expect(page.getByTestId('artifact-blog_post.md')).toHaveAttribute('data-state', 'ready');
       await shoot(page, `graph-inspector-${width}`);
+    });
+
+    test('shot publish readiness warnings', async ({ page }) => {
+      freshServerState();
+      addRun('2026-11-19_170856_ui');
+      await page.goto('/#/runs/2026-11-19_170856_ui/output');
+      await page.getByTestId('output-nav-site').click();
+      await page.getByTestId('prepare-blog').click();
+      await expect(page.getByTestId('publish-warnings-blog')).toBeVisible();
+      await shoot(page, `publish-warnings-${width}`);
+      await page.getByTestId('publish-ack-blog').check();
+      await expect(page.getByTestId('publish-blog')).toBeEnabled();
+      await shoot(page, `publish-warnings-acknowledged-${width}`);
     });
 
     test('shot error banner', async ({ page }) => {
