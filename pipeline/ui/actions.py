@@ -85,8 +85,8 @@ def _publish_blocker(rd: Path) -> Optional[str]:
     """A publisher is writing this run's package: a retry's node would race it. A dead one reads failed here."""
     for target in package.NODE_DIRS:
         pkg = publish.reconcile(rd, target)
-        if pkg and pkg["status"] == "publishing":
-            return f"{target} is publishing: wait for it to finish"
+        if pkg and pkg["status"] in publish.BUSY:
+            return f"{target} is {pkg['status']}: wait for it to finish"
     return None
 
 

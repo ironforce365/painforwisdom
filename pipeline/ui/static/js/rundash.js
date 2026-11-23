@@ -5,7 +5,7 @@ import { askButton, deleteButton } from './manage.js';
 import { linkEl } from './output/ui.js';
 import { ACTIVE } from './runs.js';
 
-const PACKAGE_STATE = { published: 'Published', pending: 'Needs you', failed: 'Failed: needs you', publishing: 'Publishing' };
+const PACKAGE_STATE = { published: 'Published', pending: 'Needs you', failed: 'Failed: needs you', publishing: 'Publishing', unpublishing: 'Unpublishing', unpublished: 'Unpublished' };
 const NEEDS = new Set(['pending', 'failed']);
 
 /** 2026-07-27-conditions-before-willpower -> Conditions before willpower */

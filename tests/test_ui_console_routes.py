@@ -787,6 +787,55 @@ def test_publish_after_prepare_runs_through_the_fake_publisher(client, processed
     assert publish.package.lock_path(rd_of(processed, "fx-unpackaged"), "wordpress").exists()
 
 
+SLUG = "the-road-stopped-arguing"
+
+
+def _published_blog(client, processed) -> Path:
+    rd = rd_of(processed, "fx-unpackaged")
+    pkg = client.post("/api/runs/fx-unpackaged/publish/blog/prepare").json()
+    publish.package.write(rd, {**pkg, "status": "published", "result": {"id": "s", "url": "https://blog.test/p/"}})
+    return rd
+
+
+def test_unpublish_needs_the_typed_slug_then_spawns_the_unpublisher(client, processed, spawned):
+    rd = _published_blog(client, processed)
+    r = client.post("/api/runs/fx-unpackaged/publish/blog/unpublish", json={"slug": "the-road"})
+    assert r.status_code == 400 and r.json()["detail"] == f"type the slug {SLUG} to confirm" and spawned == []
+    r = client.post("/api/runs/fx-unpackaged/publish/blog/unpublish", json={"slug": SLUG})
+    assert r.status_code == 202 and r.json()["status"] == "unpublishing"
+    assert spawned[0][0][-1] == "--unpublish" and "=== unpublish " in (rd / "blog-publish" / "publish.log").read_text()
+    assert publish.package.lock_path(rd, "blog").exists()
+    again = client.post("/api/runs/fx-unpackaged/publish/blog/unpublish", json={"slug": SLUG})
+    assert again.status_code == 409 and again.json()["detail"] == "not published: unpublishing"
+    assert client.get("/api/runs/fx-unpackaged").json()["manage"]["rerun"] == "blog is unpublishing: wait for it to finish"
+
+
+def test_unpublish_refusals(client, processed, spawned):
+    assert client.post("/api/runs/nope/publish/blog/unpublish", json={"slug": SLUG}).status_code == 404
+    assert client.post("/api/runs/fx-unpackaged/publish/blog/unpublish", json={"slug": SLUG}).status_code == 404
+    pending = client.post("/api/runs/fx-done/publish/wordpress/unpublish", json={"slug": SLUG})
+    assert pending.status_code == 422 and pending.json()["detail"] == "wordpress has no unpublish"
+    client.post("/api/runs/fx-unpackaged/publish/blog/prepare")
+    r = client.post("/api/runs/fx-unpackaged/publish/blog/unpublish", json={"slug": SLUG})
+    assert r.status_code == 409 and r.json()["detail"] == "not published: pending" and spawned == []
+
+
+def test_dead_unpublisher_reads_published_with_the_reason(client, processed):
+    rd = _published_blog(client, processed)
+    publish.package.write(rd, {**publish.package.read(rd, "blog"), "status": "unpublishing"})
+    publish.package.lock_path(rd, "blog").write_text("99999999")
+    got = client.get("/api/runs/fx-unpackaged/publish").json()["targets"]["blog"]
+    assert got["status"] == "published" and got["error"] == publish.UNPUBLISHER_DIED
+
+
+def test_unpublished_saves_and_publishes_again(client, processed, spawned):
+    rd = _published_blog(client, processed)
+    pkg = publish.package.write(rd, {**publish.package.read(rd, "blog"), "status": "unpublished", "result": None})
+    assert client.put("/api/runs/fx-unpackaged/publish/blog", json={"fields": {"title": "Better"}}).status_code == 200
+    r = client.post("/api/runs/fx-unpackaged/publish/blog", json={"fields": {**pkg["fields"], "title": "Better"}})
+    assert r.status_code == 202 and r.json()["status"] == "publishing"
+
+
 # --- inputs ------------------------------------------------------------------
 
 

@@ -6,6 +6,8 @@ import { button, linkEl, sync } from './ui.js';
 
 const PREVIEW_POLL_MS = 1000;
 const PUBLISHING_TEXT = { youtube: 'Uploading to YouTube', wordpress: 'Publishing to WordPress', blog: 'Pushing to the blog site' };
+const UNPUBLISHING_TEXT = { blog: 'Removing the post from the blog site' }; // the targets that can unpublish
+const BUSY = new Set(['publishing', 'unpublishing']);
 
 function plainInput(tag, props, value) {
   const input = el(tag, props);
@@ -201,8 +203,10 @@ function buildForm(first, env) {
     el('label', { class: 'pub-ack' }, ack, 'I have read these warnings and want to publish anyway'));
   let since = null;
   let ticker = null;
+  let removing = false;
   const tick = () => {
-    progressText.textContent = `${PUBLISHING_TEXT[target]}… ${fmtDuration(Math.floor((Date.now() - since) / 1000))}`;
+    const text = (removing ? UNPUBLISHING_TEXT : PUBLISHING_TEXT)[target];
+    progressText.textContent = `${text}… ${fmtDuration(Math.floor((Date.now() - since) / 1000))}`;
   };
   const going = (on) => {
     progress.hidden = !on;
@@ -257,6 +261,33 @@ function buildForm(first, env) {
   save.addEventListener('click', () => {
     act(env.api.savePackage(env.runId, target, read()), () => { notice.textContent = 'Saved'; });
   });
+
+  // Unpublish removes a public page: it asks for the slug typed out, never a click alone.
+  const unpublish = button('Unpublish', { 'data-testid': `unpublish-${target}`, 'data-style': 'danger' }, 'cross');
+  const slugInput = el('input', { type: 'text', 'data-testid': `unpublish-slug-${target}`, 'aria-label': 'Type the slug to confirm', autocomplete: 'off', spellcheck: 'false' });
+  const slugText = el('code', { 'data-testid': `unpublish-want-${target}` });
+  const confirmUnpublish = button('Remove from the site', { class: 'btn primary', 'data-testid': `unpublish-confirm-${target}`, 'data-style': 'danger' }, 'cross');
+  const cancelUnpublish = button('Cancel', { 'data-testid': `unpublish-cancel-${target}` }, 'dash');
+  const unpublishPanel = el('div', { class: 'pub-unpublish', 'data-testid': `unpublish-panel-${target}` },
+    el('span', {}, 'This takes the post off the public site. Type its slug to confirm: ', slugText), slugInput, confirmUnpublish, cancelUnpublish);
+  unpublishPanel.hidden = true;
+  const armed = () => { confirmUnpublish.disabled = busy || slugInput.value !== slugText.textContent; };
+  const closeUnpublish = () => {
+    unpublishPanel.hidden = true;
+    slugInput.value = '';
+    env.changed();
+  };
+  unpublish.addEventListener('click', () => {
+    unpublishPanel.hidden = false;
+    slugInput.focus();
+    env.changed();
+  });
+  slugInput.addEventListener('input', armed);
+  cancelUnpublish.addEventListener('click', closeUnpublish);
+  confirmUnpublish.addEventListener('click', () => {
+    removing = true;
+    act(Object.assign(env.api.unpublish(env.runId, target, slugInput.value), { publishing: true }), closeUnpublish);
+  });
   for (const event of ['input', 'change', 'click']) fieldset.addEventListener(event, () => env.changed());
 
   const prefill = (url) => {
@@ -269,8 +300,8 @@ function buildForm(first, env) {
 
   return {
     root: el('div', { class: 'pub-form' },
-      el('div', { class: 'pub-head' }, el('h2', {}, targetLabel(target)), status, mode, link, notice, el('span', { class: 'pub-actions' }, dryNote, save, publish)),
-      warnings, progress, general, fieldset),
+      el('div', { class: 'pub-head' }, el('h2', {}, targetLabel(target)), status, mode, link, notice, el('span', { class: 'pub-actions' }, dryNote, save, publish, unpublish)),
+      warnings, progress, general, unpublishPanel, fieldset),
     dirty,
     /** Replace this form? Never over an edit, unless the package is published and the edit can no longer be saved. */
     stale: (pkg) => {
@@ -278,10 +309,17 @@ function buildForm(first, env) {
       return pkg.status === 'published' ? changed || dirty() : changed && !dirty();
     },
     paint: (pkg, data) => {
-      const finished = pkg.status === 'published' || (pkg.mode === 'auto' && pkg.status !== 'failed');
-      const blocked = env.locked() || pkg.status === 'publishing';
+      const live = pkg.status === 'published';
+      const finished = live || pkg.status === 'unpublishing' || (pkg.mode === 'auto' && !['failed', 'unpublished'].includes(pkg.status));
+      const blocked = env.locked() || BUSY.has(pkg.status);
       fieldset.disabled = blocked || finished;
-      going(pkg.status === 'publishing' || (busy && since !== null));
+      if (!busy) removing = pkg.status === 'unpublishing';
+      going(BUSY.has(pkg.status) || (busy && since !== null));
+      if (!live) unpublishPanel.hidden = true;
+      unpublish.hidden = !(target in UNPUBLISHING_TEXT) || !live || !unpublishPanel.hidden;
+      unpublish.disabled = busy || blocked;
+      slugText.textContent = pkg.fields.slug ?? '';
+      armed();
       status.textContent = pkg.status;
       status.dataset.value = pkg.status;
       mode.textContent = pkg.mode;

@@ -2,7 +2,7 @@
 
 python -m pipeline.ui.fake_runner --run-id ID --processed-root DIR --input PATH --scenario S --step-ms N --wait-s N
 python -m pipeline.ui.fake_runner retry --run-id ID --processed-root DIR --step-ms N
-python -m pipeline.ui.fake_runner publish --run-dir RD --target T --step-ms N
+python -m pipeline.ui.fake_runner publish --run-dir RD --target T --step-ms N [--unpublish]
 
 Scenarios that wait do so on C11 (spec 2026-11-05-console-end-to-end section 3), with no Telegram, for at most --wait-s.
 """
@@ -314,6 +314,20 @@ def fake_publish(rd: Path, target: str, step_s: float) -> int:
         publish_package.release_lock(rd, target)
 
 
+def fake_unpublish(rd: Path, target: str, step_s: float) -> int:
+    """Stands in for `python -m pipeline.publish --unpublish`: the title FAIL keeps the post published, with an error."""
+    try:
+        time.sleep(step_s)
+        pkg = publish_package.read(rd, target)
+        if pkg["fields"].get("title") == "FAIL":
+            publish_package.write(rd, {**pkg, "status": "published", "error": "unpublish failed: fake failure"})
+            return 1
+        publish_package.write(rd, {**pkg, "status": "unpublished", "result": None, "unpublished": pkg["result"], "error": None})
+        return 0
+    finally:
+        publish_package.release_lock(rd, target)
+
+
 def _finish(run: FakeRun, already_done: Iterable[str] = ()) -> int:
     error = execute(run, topology(run.record["input"]["kind"]), already_done)
     if error:
@@ -360,8 +374,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         q.add_argument("--run-dir", required=True, type=Path)
         q.add_argument("--target", required=True)
         q.add_argument("--step-ms", type=int, default=200)
+        q.add_argument("--unpublish", action="store_true")
         pub = q.parse_args(argv[1:])
-        return fake_publish(pub.run_dir, pub.target, pub.step_ms / 1000)
+        return (fake_unpublish if pub.unpublish else fake_publish)(pub.run_dir, pub.target, pub.step_ms / 1000)
     p = argparse.ArgumentParser(prog="python -m pipeline.ui.fake_runner")
     p.add_argument("--run-id", required=True)
     p.add_argument("--processed-root", required=True, type=Path)

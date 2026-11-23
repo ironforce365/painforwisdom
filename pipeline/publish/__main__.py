@@ -1,4 +1,4 @@
-"""python -m pipeline.publish --profile P --run-dir RD --target T (spec 2026-11-03-console-operability §1.3).
+"""python -m pipeline.publish --profile P --run-dir RD --target T [--unpublish] (spec 2026-11-03-console-operability §1.3).
 
 Loads the profile env file itself: the console that spawns this never loads secrets. Exit 0 only when published.
 """
@@ -12,7 +12,7 @@ from typing import Optional, Sequence
 
 from dotenv import load_dotenv
 
-from pipeline.publish import package, run_target
+from pipeline.publish import package, run_target, unpublish_target
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -30,8 +30,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     p.add_argument("--profile", required=True, choices=("sandbox", "prod"))
     p.add_argument("--run-dir", required=True, type=Path)
     p.add_argument("--target", required=True, choices=sorted(package.NODE_DIRS))
+    p.add_argument("--unpublish", action="store_true", help="take the published post down instead (blog only)")
     args = p.parse_args(argv)
     _load_profile_env(args.profile)
+    if args.unpublish:
+        done = unpublish_target(args.run_dir.resolve(), args.target)
+        print(f"[unpublish] {args.target}: {done['status']} "
+              f"{(done.get('unpublished') or {}).get('url') or done['error'] or ''}")
+        return 0 if done["status"] == "unpublished" else 1
     done = run_target(args.run_dir.resolve(), args.target)
     print(f"[publish] {args.target}: {done['status']} {(done['result'] or {}).get('url') or done['error'] or ''}")
     return 0 if done["status"] == "published" else 1

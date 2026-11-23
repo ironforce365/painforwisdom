@@ -15,6 +15,8 @@ from pipeline.ui import launcher, runs
 from pipeline.ui.settings import Settings
 
 PUBLISHER_DIED = "publisher died before recording a result"
+UNPUBLISHER_DIED = "unpublish died before recording a result: check the page and unpublish again"
+BUSY = {"publishing", "unpublishing"}
 
 
 class PublishError(Exception):
@@ -37,6 +39,8 @@ def reconcile(rd: Path, target: str) -> Optional[dict]:
         package.release_lock(rd, target)
     if pkg["status"] == "publishing" and (dead or not lock_exists):
         return package.write(rd, {**pkg, "status": "failed", "error": PUBLISHER_DIED})
+    if pkg["status"] == "unpublishing" and (dead or not lock_exists):  # the post may still be live
+        return package.write(rd, {**pkg, "status": "published", "error": UNPUBLISHER_DIED})
     return pkg
 
 
@@ -240,8 +244,8 @@ def save(settings: Settings, run_id: str, target: str, fields: dict) -> dict:
         raise PublishError(409, {"detail": "run active"})
     if pkg["status"] == "published":
         raise _already_published(pkg)
-    if pkg["status"] == "publishing":
-        raise PublishError(409, {"detail": "publishing"})
+    if pkg["status"] in BUSY:
+        raise PublishError(409, {"detail": pkg["status"]})
     errors = package.validate_fields(pkg, fields, required=False)
     if errors:
         raise PublishError(400, {"detail": errors})
@@ -267,12 +271,13 @@ def asset_path(settings: Settings, run_id: str, target: str, role: str) -> Optio
     return path if path and path.is_file() else None
 
 
-def build_argv(settings: Settings, rd: Path, target: str, profile: Optional[str]) -> list[str]:
+def build_argv(settings: Settings, rd: Path, target: str, profile: Optional[str], unpublish: bool = False) -> list[str]:
+    flag = ["--unpublish"] if unpublish else []
     if settings.runner == "fake":
         return [sys.executable, "-m", "pipeline.ui.fake_runner", "publish", "--run-dir", str(rd), "--target", target,
-                "--step-ms", str(launcher.FAKE_DEFAULTS["step_ms"])]
+                "--step-ms", str(launcher.FAKE_DEFAULTS["step_ms"]), *flag]
     return [sys.executable, "-m", "pipeline.publish", "--profile", profile or settings.profile, "--run-dir", str(rd),
-            "--target", target]
+            "--target", target, *flag]
 
 
 def _already_published(pkg: dict) -> PublishError:
@@ -307,10 +312,7 @@ def confirm(settings: Settings, run_id: str, target: str, fields: dict, acknowle
         if pkg["status"] == "published":
             raise _already_published(pkg)
         pkg = package.write(rd, {**pkg, "fields": {**pkg["fields"], **fields}, "status": "publishing", "error": None})
-        log = package.package_path(rd, target).with_name("publish.log")
-        with open(log, "a") as fh:  # publish.log is appended across attempts; mark where each begins
-            fh.write(f"=== attempt {datetime.now().astimezone().isoformat(timespec='seconds')} target={target} ===\n")
-        pid = launcher.spawn(build_argv(settings, rd.resolve(), target, run["profile"]), log)
+        _spawn(settings, rd, target, run["profile"], pkg, unpublish=False)
     except PublishError:
         package.release_lock(rd, target)
         raise
@@ -318,5 +320,47 @@ def confirm(settings: Settings, run_id: str, target: str, fields: dict, acknowle
         package.write(rd, {**pkg, "status": "failed", "error": f"spawn failed: {exc}"})
         package.release_lock(rd, target)
         raise
+    return pkg
+
+
+def _spawn(settings: Settings, rd: Path, target: str, profile: Optional[str], pkg: dict, unpublish: bool) -> None:
+    """Start the publisher on the lock this process holds and hand the lock to it."""
+    log = package.package_path(rd, target).with_name("publish.log")
+    with open(log, "a") as fh:  # publish.log is appended across attempts; mark where each begins
+        what = "unpublish" if unpublish else "attempt"
+        fh.write(f"=== {what} {datetime.now().astimezone().isoformat(timespec='seconds')} target={target} ===\n")
+    pid = launcher.spawn(build_argv(settings, rd.resolve(), target, profile, unpublish), log)
     package.set_lock_pid(rd, target, pid)
+
+
+def unpublish(settings: Settings, run_id: str, target: str, slug: str) -> dict:
+    """Take a published post down. The typed slug must match: this removes a public page."""
+    run = runs.load_run(settings.processed_root, run_id, [])
+    rd = runs.run_dir(settings.processed_root, run_id)
+    if run is None or rd is None:
+        raise PublishError(404, {"detail": "unknown run"})
+    pkg = reconcile(rd, target)
+    if pkg is None:
+        raise PublishError(404, {"detail": "no such package"})
+    if target != "blog":
+        raise PublishError(422, {"detail": f"{target} has no unpublish"})
+    if pkg["status"] != "published":
+        raise PublishError(409, {"detail": f"not published: {pkg['status']}"})
+    if slug != pkg["fields"]["slug"]:
+        raise PublishError(400, {"detail": f"type the slug {pkg['fields']['slug']} to confirm"})
+    if not package.acquire_lock(rd, target, os.getpid()):
+        raise PublishError(409, {"detail": "publishing"})
+    try:
+        pkg = package.read(rd, target)
+        if pkg["status"] != "published":
+            raise PublishError(409, {"detail": f"not published: {pkg['status']}"})
+        pkg = package.write(rd, {**pkg, "status": "unpublishing", "error": None})
+        _spawn(settings, rd, target, run["profile"], pkg, unpublish=True)
+    except PublishError:
+        package.release_lock(rd, target)
+        raise
+    except Exception as exc:
+        package.write(rd, {**pkg, "status": "published", "error": f"spawn failed: {exc}"})
+        package.release_lock(rd, target)
+        raise
     return pkg
